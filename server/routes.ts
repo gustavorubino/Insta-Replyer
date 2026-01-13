@@ -9,7 +9,8 @@ import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "./r
 // Helper to extract user info from request
 async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean }> {
   const user = req.user as any;
-  const userId = user.claims?.sub || user.id;
+  // Use actualUserId for OIDC users with existing email accounts, fallback to claims.sub or id
+  const userId = user.actualUserId || user.claims?.sub || user.id;
   
   // Fetch user from database to get isAdmin status
   const dbUser = await authStorage.getUser(userId);

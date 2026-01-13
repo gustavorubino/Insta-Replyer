@@ -44,6 +44,18 @@ class AuthStorage implements IAuthStorage {
     return user;
   }
 
+  async updateUserById(id: string, updates: Partial<UpsertUser>): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({
+        ...updates,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return user;
+  }
+
   async createUserWithPassword(userData: {
     email: string;
     password: string;

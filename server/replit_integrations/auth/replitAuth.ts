@@ -51,15 +51,49 @@ function updateUserSession(
   user.expires_at = user.claims?.exp;
 }
 
-async function upsertUser(claims: any) {
+async function upsertUser(claims: any): Promise<string> {
+  // Check if user already exists by OIDC sub
+  const existingUserBySub = await authStorage.getUser(claims["sub"]);
+  
+  if (existingUserBySub) {
+    // User already exists with this OIDC sub, just update profile
+    await authStorage.upsertUser({
+      id: claims["sub"],
+      email: claims["email"],
+      firstName: claims["first_name"],
+      lastName: claims["last_name"],
+      profileImageUrl: claims["profile_image_url"],
+      isAdmin: existingUserBySub.isAdmin,
+    });
+    return claims["sub"];
+  }
+  
+  // Check if user exists by email (email/password account)
+  const existingUserByEmail = claims["email"] 
+    ? await authStorage.getUserByEmail(claims["email"])
+    : null;
+  
+  if (existingUserByEmail) {
+    // User has existing email/password account - update their profile but keep their ID
+    await authStorage.updateUserById(existingUserByEmail.id, {
+      firstName: claims["first_name"] || existingUserByEmail.firstName,
+      lastName: claims["last_name"] || existingUserByEmail.lastName,
+      profileImageUrl: claims["profile_image_url"] || existingUserByEmail.profileImageUrl,
+    });
+    // Return the existing user's ID for session
+    return existingUserByEmail.id;
+  }
+  
+  // New user - create with OIDC sub as ID, isAdmin: false by default
   await authStorage.upsertUser({
     id: claims["sub"],
     email: claims["email"],
     firstName: claims["first_name"],
     lastName: claims["last_name"],
     profileImageUrl: claims["profile_image_url"],
-    isAdmin: true,
+    isAdmin: false,
   });
+  return claims["sub"];
 }
 
 export async function setupAuth(app: Express) {
@@ -74,9 +108,11 @@ export async function setupAuth(app: Express) {
     tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
     verified: passport.AuthenticateCallback
   ) => {
-    const user = {};
+    const user: any = {};
     updateUserSession(user, tokens);
-    await upsertUser(tokens.claims());
+    // Get the actual user ID (may differ from OIDC sub if user already had email/password account)
+    const actualUserId = await upsertUser(tokens.claims());
+    user.actualUserId = actualUserId;
     verified(null, user);
   };
 
