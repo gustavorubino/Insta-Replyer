@@ -21,14 +21,21 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - Tema claro/escuro
 
 ### Authentication System
-- **Dual Authentication**:
-  - Admin: Login via Replit Auth (OIDC) - isAdmin: true
-  - Regular Users: Email/password with bcrypt - isAdmin: false
+- **Social Login (Primary)**:
+  - Replit Auth (Google, GitHub, Apple) - Available for all users
+  - New users created via social login are regular users (isAdmin: false)
+- **Email/Password (Alternative)**:
+  - Available as collapsible option on login page
+  - Users can register with email/password
+- **Admin Preservation**:
+  - Existing admins keep their status when switching auth methods
+  - Email lookup ensures admin privileges are preserved
 - **Role-Based Access Control**:
   - Admins see all messages from all users
   - Regular users see only their own messages
-- **Registration**: Users can create accounts with email/password
-- **Session Management**: Token refresh for Replit admin sessions
+- **Session Management**: 
+  - actualUserId stored for users with existing email accounts
+  - Token refresh for OIDC sessions
 - **Security**: Password hashing with bcrypt, userId injection on server-side
 
 ### Technical Stack
