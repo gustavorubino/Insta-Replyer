@@ -3,20 +3,8 @@ import { pgTable, text, varchar, serial, integer, timestamp, boolean, real } fro
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Users table
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-});
-
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
-});
-
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+// Export auth models (users and sessions tables)
+export * from "./models/auth";
 
 // Instagram messages (DMs and Comments)
 export const instagramMessages = pgTable("instagram_messages", {

@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AppSidebar } from "@/components/app-sidebar";
+import { useAuth } from "@/hooks/use-auth";
 import {
   SidebarProvider,
   SidebarTrigger,
@@ -16,8 +17,10 @@ import Dashboard from "@/pages/dashboard";
 import Queue from "@/pages/queue";
 import History from "@/pages/history";
 import Settings from "@/pages/settings";
+import Landing from "@/pages/landing";
 import NotFound from "@/pages/not-found";
 import type { MessageWithResponse } from "@shared/schema";
+import { Loader2 } from "lucide-react";
 
 function Router() {
   return (
@@ -60,12 +63,34 @@ function AppLayout() {
   );
 }
 
+function LoadingSpinner() {
+  return (
+    <div className="h-screen w-screen flex items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+function AuthenticatedApp() {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <LoadingSpinner />;
+  }
+
+  if (!user) {
+    return <Landing />;
+  }
+
+  return <AppLayout />;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light" storageKey="instagram-ai-theme">
         <TooltipProvider>
-          <AppLayout />
+          <AuthenticatedApp />
           <Toaster />
         </TooltipProvider>
       </ThemeProvider>

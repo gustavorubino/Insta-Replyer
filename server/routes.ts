@@ -4,14 +4,19 @@ import { storage } from "./storage";
 import { generateAIResponse, regenerateResponse } from "./openai";
 import { insertInstagramMessageSchema } from "@shared/schema";
 import { z } from "zod";
+import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   
+  // Setup authentication FIRST before other routes
+  await setupAuth(app);
+  registerAuthRoutes(app);
+  
   // Get dashboard stats
-  app.get("/api/stats", async (req, res) => {
+  app.get("/api/stats", isAuthenticated, async (req, res) => {
     try {
       const stats = await storage.getStats();
       res.json(stats);
@@ -22,7 +27,7 @@ export async function registerRoutes(
   });
 
   // Get all messages
-  app.get("/api/messages", async (req, res) => {
+  app.get("/api/messages", isAuthenticated, async (req, res) => {
     try {
       const messages = await storage.getMessages();
       res.json(messages);
@@ -33,7 +38,7 @@ export async function registerRoutes(
   });
 
   // Get pending messages
-  app.get("/api/messages/pending", async (req, res) => {
+  app.get("/api/messages/pending", isAuthenticated, async (req, res) => {
     try {
       const messages = await storage.getPendingMessages();
       res.json(messages);
@@ -44,7 +49,7 @@ export async function registerRoutes(
   });
 
   // Get recent messages
-  app.get("/api/messages/recent", async (req, res) => {
+  app.get("/api/messages/recent", isAuthenticated, async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 10;
       const messages = await storage.getRecentMessages(limit);
@@ -56,7 +61,7 @@ export async function registerRoutes(
   });
 
   // Get single message
-  app.get("/api/messages/:id", async (req, res) => {
+  app.get("/api/messages/:id", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const message = await storage.getMessage(id);
@@ -71,7 +76,7 @@ export async function registerRoutes(
   });
 
   // Create new message (simulates Instagram webhook)
-  app.post("/api/messages", async (req, res) => {
+  app.post("/api/messages", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertInstagramMessageSchema.parse(req.body);
       const message = await storage.createMessage(validatedData);
@@ -118,7 +123,7 @@ export async function registerRoutes(
   });
 
   // Approve message response
-  app.post("/api/messages/:id/approve", async (req, res) => {
+  app.post("/api/messages/:id/approve", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const { response, wasEdited } = req.body;
@@ -158,7 +163,7 @@ export async function registerRoutes(
   });
 
   // Reject message response
-  app.post("/api/messages/:id/reject", async (req, res) => {
+  app.post("/api/messages/:id/reject", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
 
@@ -184,7 +189,7 @@ export async function registerRoutes(
   });
 
   // Regenerate AI response
-  app.post("/api/messages/:id/regenerate", async (req, res) => {
+  app.post("/api/messages/:id/regenerate", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
 
@@ -229,7 +234,7 @@ export async function registerRoutes(
   });
 
   // Get settings
-  app.get("/api/settings", async (req, res) => {
+  app.get("/api/settings", isAuthenticated, async (req, res) => {
     try {
       const allSettings = await storage.getSettings();
       
@@ -248,7 +253,7 @@ export async function registerRoutes(
   });
 
   // Update settings
-  app.patch("/api/settings", async (req, res) => {
+  app.patch("/api/settings", isAuthenticated, async (req, res) => {
     try {
       const updates = req.body;
 
@@ -279,7 +284,7 @@ export async function registerRoutes(
   });
 
   // Seed demo messages for testing (development only)
-  app.post("/api/seed-demo", async (req, res) => {
+  app.post("/api/seed-demo", isAuthenticated, async (req, res) => {
     try {
       const demoMessages = [
         {
