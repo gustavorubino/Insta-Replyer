@@ -1,10 +1,23 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { generateAIResponse, regenerateResponse } from "./openai";
-import { insertInstagramMessageSchema } from "@shared/schema";
+import { createMessageApiSchema } from "@shared/schema";
 import { z } from "zod";
-import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
+import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "./replit_integrations/auth";
+
+// Helper to extract user info from request
+async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean }> {
+  const user = req.user as any;
+  const userId = user.claims?.sub || user.id;
+  
+  // Fetch user from database to get isAdmin status
+  const dbUser = await authStorage.getUser(userId);
+  return {
+    userId,
+    isAdmin: dbUser?.isAdmin || false,
+  };
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -18,7 +31,8 @@ export async function registerRoutes(
   // Get dashboard stats
   app.get("/api/stats", isAuthenticated, async (req, res) => {
     try {
-      const stats = await storage.getStats();
+      const { userId, isAdmin } = await getUserContext(req);
+      const stats = await storage.getStats(userId, isAdmin);
       res.json(stats);
     } catch (error) {
       console.error("Error fetching stats:", error);
@@ -29,7 +43,8 @@ export async function registerRoutes(
   // Get all messages
   app.get("/api/messages", isAuthenticated, async (req, res) => {
     try {
-      const messages = await storage.getMessages();
+      const { userId, isAdmin } = await getUserContext(req);
+      const messages = await storage.getMessages(userId, isAdmin);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -40,7 +55,8 @@ export async function registerRoutes(
   // Get pending messages
   app.get("/api/messages/pending", isAuthenticated, async (req, res) => {
     try {
-      const messages = await storage.getPendingMessages();
+      const { userId, isAdmin } = await getUserContext(req);
+      const messages = await storage.getPendingMessages(userId, isAdmin);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching pending messages:", error);
@@ -51,8 +67,9 @@ export async function registerRoutes(
   // Get recent messages
   app.get("/api/messages/recent", isAuthenticated, async (req, res) => {
     try {
+      const { userId, isAdmin } = await getUserContext(req);
       const limit = parseInt(req.query.limit as string) || 10;
-      const messages = await storage.getRecentMessages(limit);
+      const messages = await storage.getRecentMessages(limit, userId, isAdmin);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching recent messages:", error);
@@ -63,10 +80,15 @@ export async function registerRoutes(
   // Get single message
   app.get("/api/messages/:id", isAuthenticated, async (req, res) => {
     try {
+      const { userId, isAdmin } = await getUserContext(req);
       const id = parseInt(req.params.id);
       const message = await storage.getMessage(id);
       if (!message) {
         return res.status(404).json({ error: "Message not found" });
+      }
+      // Check authorization: admins can see all, users only their own
+      if (!isAdmin && message.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
       }
       res.json(message);
     } catch (error) {
@@ -78,8 +100,10 @@ export async function registerRoutes(
   // Create new message (simulates Instagram webhook)
   app.post("/api/messages", isAuthenticated, async (req, res) => {
     try {
-      const validatedData = insertInstagramMessageSchema.parse(req.body);
-      const message = await storage.createMessage(validatedData);
+      const { userId } = await getUserContext(req);
+      const validatedData = createMessageApiSchema.parse(req.body);
+      // Always use the authenticated user's ID - prevent spoofing
+      const message = await storage.createMessage({ ...validatedData, userId });
 
       // Generate AI response
       const aiResult = await generateAIResponse(
@@ -125,12 +149,18 @@ export async function registerRoutes(
   // Approve message response
   app.post("/api/messages/:id/approve", isAuthenticated, async (req, res) => {
     try {
+      const { userId, isAdmin } = await getUserContext(req);
       const id = parseInt(req.params.id);
       const { response, wasEdited } = req.body;
 
       const message = await storage.getMessage(id);
       if (!message) {
         return res.status(404).json({ error: "Message not found" });
+      }
+
+      // Check authorization
+      if (!isAdmin && message.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
       }
 
       const aiResponse = await storage.getAiResponse(id);
@@ -165,11 +195,17 @@ export async function registerRoutes(
   // Reject message response
   app.post("/api/messages/:id/reject", isAuthenticated, async (req, res) => {
     try {
+      const { userId, isAdmin } = await getUserContext(req);
       const id = parseInt(req.params.id);
 
       const message = await storage.getMessage(id);
       if (!message) {
         return res.status(404).json({ error: "Message not found" });
+      }
+
+      // Check authorization
+      if (!isAdmin && message.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
       }
 
       await storage.updateMessageStatus(id, "rejected");
@@ -191,11 +227,17 @@ export async function registerRoutes(
   // Regenerate AI response
   app.post("/api/messages/:id/regenerate", isAuthenticated, async (req, res) => {
     try {
+      const { userId, isAdmin } = await getUserContext(req);
       const id = parseInt(req.params.id);
 
       const message = await storage.getMessage(id);
       if (!message) {
         return res.status(404).json({ error: "Message not found" });
+      }
+
+      // Check authorization
+      if (!isAdmin && message.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
       }
 
       const previousResponse = message.aiResponse?.suggestedResponse || "";
@@ -286,8 +328,12 @@ export async function registerRoutes(
   // Seed demo messages for testing (development only)
   app.post("/api/seed-demo", isAuthenticated, async (req, res) => {
     try {
+      const user = req.user as any;
+      const userId = user.claims?.sub || user.id;
+      
       const demoMessages = [
         {
+          userId,
           instagramId: `demo_dm_${Date.now()}_1`,
           type: "dm",
           senderName: "Maria Silva",
@@ -296,6 +342,7 @@ export async function registerRoutes(
           status: "pending",
         },
         {
+          userId,
           instagramId: `demo_comment_${Date.now()}_2`,
           type: "comment",
           senderName: "João Santos",
@@ -305,6 +352,7 @@ export async function registerRoutes(
           status: "pending",
         },
         {
+          userId,
           instagramId: `demo_dm_${Date.now()}_3`,
           type: "dm",
           senderName: "Ana Costa",

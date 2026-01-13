@@ -1,11 +1,14 @@
 import { useLocation, Link } from "wouter";
+import { useMutation } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Inbox,
   Settings,
   History,
-  MessageSquare,
   Bot,
+  LogOut,
+  User,
+  Shield,
 } from "lucide-react";
 import { SiInstagram } from "react-icons/si";
 import {
@@ -21,6 +24,9 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/use-auth";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 const menuItems = [
   {
@@ -50,7 +56,22 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
+  const { user } = useAuth();
+
+  const logoutMutation = useMutation({
+    mutationFn: async () => {
+      if (user?.isAdmin) {
+        window.location.href = "/api/logout";
+        return;
+      }
+      await apiRequest("POST", "/api/auth/logout");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      navigate("/");
+    },
+  });
 
   return (
     <Sidebar>
@@ -101,14 +122,33 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4">
+      <SidebarFooter className="p-4 space-y-3">
         <div className="flex items-center gap-2 rounded-md bg-muted p-3">
-          <Bot className="h-5 w-5 text-muted-foreground" />
-          <div className="flex flex-col">
-            <span className="text-xs font-medium">Modo de Operação</span>
-            <span className="text-xs text-muted-foreground">Manual</span>
+          {user?.isAdmin ? (
+            <Shield className="h-5 w-5 text-primary" />
+          ) : (
+            <User className="h-5 w-5 text-muted-foreground" />
+          )}
+          <div className="flex flex-col flex-1 min-w-0">
+            <span className="text-xs font-medium truncate">
+              {user?.firstName || user?.email || "Usuário"}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {user?.isAdmin ? "Administrador" : "Usuário"}
+            </span>
           </div>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => logoutMutation.mutate()}
+          disabled={logoutMutation.isPending}
+          data-testid="button-logout"
+        >
+          <LogOut className="h-4 w-4 mr-2" />
+          Sair
+        </Button>
       </SidebarFooter>
     </Sidebar>
   );

@@ -18,6 +18,7 @@ import Queue from "@/pages/queue";
 import History from "@/pages/history";
 import Settings from "@/pages/settings";
 import Landing from "@/pages/landing";
+import Login from "@/pages/login";
 import NotFound from "@/pages/not-found";
 import type { MessageWithResponse } from "@shared/schema";
 import { Loader2 } from "lucide-react";
@@ -71,6 +72,15 @@ function LoadingSpinner() {
   );
 }
 
+function PublicRoutes() {
+  return (
+    <Switch>
+      <Route path="/login" component={Login} />
+      <Route component={Landing} />
+    </Switch>
+  );
+}
+
 function AuthenticatedApp() {
   const { user, isLoading } = useAuth();
 
@@ -79,7 +89,7 @@ function AuthenticatedApp() {
   }
 
   if (!user) {
-    return <Landing />;
+    return <PublicRoutes />;
   }
 
   return <AppLayout />;

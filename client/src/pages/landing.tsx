@@ -14,7 +14,7 @@ export default function Landing() {
           </div>
           <div className="flex items-center gap-4">
             <ThemeToggle />
-            <a href="/api/login">
+            <a href="/login">
               <Button data-testid="button-login">Entrar</Button>
             </a>
           </div>
@@ -34,7 +34,7 @@ export default function Landing() {
                   mantendo o controle total com aprovação humana.
                 </p>
                 <div className="flex flex-wrap gap-4">
-                  <a href="/api/login">
+                  <a href="/login">
                     <Button size="lg" data-testid="button-get-started">
                       <Sparkles className="mr-2 h-5 w-5" />
                       Começar Agora
@@ -117,7 +117,7 @@ export default function Landing() {
             <p className="text-muted-foreground mb-8 max-w-lg mx-auto">
               Entre agora e comece a automatizar suas respostas do Instagram
             </p>
-            <a href="/api/login">
+            <a href="/login">
               <Button size="lg" data-testid="button-cta-login">
                 <Bot className="mr-2 h-5 w-5" />
                 Entrar com sua Conta

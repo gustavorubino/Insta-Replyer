@@ -9,6 +9,7 @@ export * from "./models/auth";
 // Instagram messages (DMs and Comments)
 export const instagramMessages = pgTable("instagram_messages", {
   id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
   instagramId: text("instagram_id").notNull().unique(),
   type: text("type").notNull(), // 'dm' or 'comment'
   senderName: text("sender_name").notNull(),
@@ -69,9 +70,17 @@ export const aiResponsesRelations = relations(aiResponses, ({ one }) => ({
   }),
 }));
 
-// Insert Schemas
+// Insert Schemas - userId is omitted from validation but required in storage
 export const insertInstagramMessageSchema = createInsertSchema(instagramMessages).omit({
   id: true,
+  createdAt: true,
+  processedAt: true,
+});
+
+// Schema for API input (without userId - server injects it)
+export const createMessageApiSchema = createInsertSchema(instagramMessages).omit({
+  id: true,
+  userId: true,
   createdAt: true,
   processedAt: true,
 });

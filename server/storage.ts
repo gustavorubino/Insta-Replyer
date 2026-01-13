@@ -5,7 +5,7 @@ import {
   learningHistory,
   settings,
   type User,
-  type InsertUser,
+  type UpsertUser,
   type InstagramMessage,
   type InsertInstagramMessage,
   type AiResponse,
@@ -13,7 +13,6 @@ import {
   type LearningHistory,
   type InsertLearningHistory,
   type Setting,
-  type InsertSetting,
   type MessageWithResponse,
 } from "@shared/schema";
 import { db } from "./db";
@@ -21,12 +20,11 @@ import { eq, desc, and, sql } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  createUser(user: UpsertUser): Promise<User>;
 
-  getMessages(): Promise<MessageWithResponse[]>;
-  getPendingMessages(): Promise<MessageWithResponse[]>;
-  getRecentMessages(limit?: number): Promise<MessageWithResponse[]>;
+  getMessages(userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]>;
+  getPendingMessages(userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]>;
+  getRecentMessages(limit?: number, userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]>;
   getMessage(id: number): Promise<MessageWithResponse | undefined>;
   createMessage(message: InsertInstagramMessage): Promise<InstagramMessage>;
   updateMessageStatus(id: number, status: string): Promise<void>;
@@ -42,7 +40,7 @@ export interface IStorage {
   getSettings(): Promise<Record<string, string>>;
   setSetting(key: string, value: string): Promise<void>;
 
-  getStats(): Promise<{
+  getStats(userId?: string, isAdmin?: boolean): Promise<{
     totalMessages: number;
     pendingMessages: number;
     approvedToday: number;
@@ -58,21 +56,38 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
+  async createUser(insertUser: UpsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
   }
 
-  async getMessages(): Promise<MessageWithResponse[]> {
+  async getMessages(userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]> {
+    const query = db
+      .select()
+      .from(instagramMessages)
+      .leftJoin(aiResponses, eq(instagramMessages.id, aiResponses.messageId));
+
+    const messages = isAdmin || !userId
+      ? await query.orderBy(desc(instagramMessages.createdAt))
+      : await query.where(eq(instagramMessages.userId, userId)).orderBy(desc(instagramMessages.createdAt));
+
+    return messages.map((row) => ({
+      ...row.instagram_messages,
+      aiResponse: row.ai_responses,
+    }));
+  }
+
+  async getPendingMessages(userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]> {
+    const baseCondition = eq(instagramMessages.status, "pending");
+    const condition = isAdmin || !userId
+      ? baseCondition
+      : and(baseCondition, eq(instagramMessages.userId, userId));
+
     const messages = await db
       .select()
       .from(instagramMessages)
       .leftJoin(aiResponses, eq(instagramMessages.id, aiResponses.messageId))
+      .where(condition)
       .orderBy(desc(instagramMessages.createdAt));
 
     return messages.map((row) => ({
@@ -81,27 +96,15 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getPendingMessages(): Promise<MessageWithResponse[]> {
-    const messages = await db
+  async getRecentMessages(limit: number = 10, userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]> {
+    const query = db
       .select()
       .from(instagramMessages)
-      .leftJoin(aiResponses, eq(instagramMessages.id, aiResponses.messageId))
-      .where(eq(instagramMessages.status, "pending"))
-      .orderBy(desc(instagramMessages.createdAt));
+      .leftJoin(aiResponses, eq(instagramMessages.id, aiResponses.messageId));
 
-    return messages.map((row) => ({
-      ...row.instagram_messages,
-      aiResponse: row.ai_responses,
-    }));
-  }
-
-  async getRecentMessages(limit: number = 10): Promise<MessageWithResponse[]> {
-    const messages = await db
-      .select()
-      .from(instagramMessages)
-      .leftJoin(aiResponses, eq(instagramMessages.id, aiResponses.messageId))
-      .orderBy(desc(instagramMessages.createdAt))
-      .limit(limit);
+    const messages = isAdmin || !userId
+      ? await query.orderBy(desc(instagramMessages.createdAt)).limit(limit)
+      : await query.where(eq(instagramMessages.userId, userId)).orderBy(desc(instagramMessages.createdAt)).limit(limit);
 
     return messages.map((row) => ({
       ...row.instagram_messages,
@@ -201,7 +204,7 @@ export class DatabaseStorage implements IStorage {
       });
   }
 
-  async getStats(): Promise<{
+  async getStats(userId?: string, isAdmin?: boolean): Promise<{
     totalMessages: number;
     pendingMessages: number;
     approvedToday: number;
@@ -212,43 +215,43 @@ export class DatabaseStorage implements IStorage {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    const userCondition = isAdmin || !userId ? undefined : eq(instagramMessages.userId, userId);
+
     const [totalResult] = await db
       .select({ count: sql<number>`count(*)` })
-      .from(instagramMessages);
+      .from(instagramMessages)
+      .where(userCondition);
 
     const [pendingResult] = await db
       .select({ count: sql<number>`count(*)` })
       .from(instagramMessages)
-      .where(eq(instagramMessages.status, "pending"));
+      .where(userCondition ? and(eq(instagramMessages.status, "pending"), userCondition) : eq(instagramMessages.status, "pending"));
 
     const [approvedResult] = await db
       .select({ count: sql<number>`count(*)` })
       .from(instagramMessages)
       .where(
-        and(
-          eq(instagramMessages.status, "approved"),
-          sql`${instagramMessages.processedAt} >= ${today}`
-        )
+        userCondition
+          ? and(eq(instagramMessages.status, "approved"), sql`${instagramMessages.processedAt} >= ${today}`, userCondition)
+          : and(eq(instagramMessages.status, "approved"), sql`${instagramMessages.processedAt} >= ${today}`)
       );
 
     const [rejectedResult] = await db
       .select({ count: sql<number>`count(*)` })
       .from(instagramMessages)
       .where(
-        and(
-          eq(instagramMessages.status, "rejected"),
-          sql`${instagramMessages.processedAt} >= ${today}`
-        )
+        userCondition
+          ? and(eq(instagramMessages.status, "rejected"), sql`${instagramMessages.processedAt} >= ${today}`, userCondition)
+          : and(eq(instagramMessages.status, "rejected"), sql`${instagramMessages.processedAt} >= ${today}`)
       );
 
     const [autoSentResult] = await db
       .select({ count: sql<number>`count(*)` })
       .from(instagramMessages)
       .where(
-        and(
-          eq(instagramMessages.status, "auto_sent"),
-          sql`${instagramMessages.processedAt} >= ${today}`
-        )
+        userCondition
+          ? and(eq(instagramMessages.status, "auto_sent"), sql`${instagramMessages.processedAt} >= ${today}`, userCondition)
+          : and(eq(instagramMessages.status, "auto_sent"), sql`${instagramMessages.processedAt} >= ${today}`)
       );
 
     const [avgConfidenceResult] = await db
