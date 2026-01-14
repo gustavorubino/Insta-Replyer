@@ -1,10 +1,14 @@
-import type { Express, Request } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { generateAIResponse, regenerateResponse } from "./openai";
 import { createMessageApiSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "./replit_integrations/auth";
+
+// Instagram OAuth URLs
+const FACEBOOK_GRAPH_API = "https://graph.facebook.com/v18.0";
+const INSTAGRAM_AUTH_URL = "https://www.facebook.com/v18.0/dialog/oauth";
 
 // Helper to extract user info from request
 async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean }> {
@@ -383,6 +387,230 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error seeding demo data:", error);
       res.status(500).json({ error: "Failed to seed demo data" });
+    }
+  });
+
+  // ============ Facebook/Instagram Integration ============
+
+  // Get Facebook App credentials (admin only)
+  app.get("/api/facebook/credentials", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const allSettings = await storage.getSettings();
+      res.json({
+        facebookAppId: allSettings.facebookAppId || "",
+        facebookAppSecret: allSettings.facebookAppSecret ? "********" : "",
+        hasCredentials: !!(allSettings.facebookAppId && allSettings.facebookAppSecret),
+      });
+    } catch (error) {
+      console.error("Error fetching Facebook credentials:", error);
+      res.status(500).json({ error: "Failed to fetch credentials" });
+    }
+  });
+
+  // Save Facebook App credentials (admin only)
+  app.post("/api/facebook/credentials", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const { facebookAppId, facebookAppSecret } = req.body;
+
+      if (!facebookAppId || !facebookAppSecret) {
+        return res.status(400).json({ error: "App ID and App Secret are required" });
+      }
+
+      await storage.setSetting("facebookAppId", facebookAppId);
+      await storage.setSetting("facebookAppSecret", facebookAppSecret);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error saving Facebook credentials:", error);
+      res.status(500).json({ error: "Failed to save credentials" });
+    }
+  });
+
+  // Start Instagram OAuth flow
+  app.get("/api/instagram/auth", isAuthenticated, async (req, res) => {
+    try {
+      const allSettings = await storage.getSettings();
+      const facebookAppId = allSettings.facebookAppId;
+
+      if (!facebookAppId) {
+        return res.status(400).json({ error: "Facebook App not configured. Please ask an admin to configure credentials." });
+      }
+
+      // Get the base URL for redirect
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const host = req.headers["x-forwarded-host"] || req.headers.host;
+      const redirectUri = `${protocol}://${host}/api/instagram/callback`;
+
+      // Store user ID in session for callback
+      const user = req.user as any;
+      const userId = user.actualUserId || user.claims?.sub || user.id;
+      (req.session as any).instagramAuthUserId = userId;
+      
+      // Save session before redirect
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+
+      // Build OAuth URL with required scopes for Instagram
+      const scopes = [
+        "instagram_basic",
+        "instagram_manage_messages",
+        "instagram_manage_comments",
+        "pages_show_list",
+        "pages_manage_metadata",
+        "pages_read_engagement",
+        "business_management"
+      ].join(",");
+
+      const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=instagram_connect`;
+
+      res.json({ authUrl });
+    } catch (error) {
+      console.error("Error starting Instagram OAuth:", error);
+      res.status(500).json({ error: "Failed to start Instagram authorization" });
+    }
+  });
+
+  // Instagram OAuth callback
+  app.get("/api/instagram/callback", async (req, res) => {
+    try {
+      const { code, error: oauthError, error_description } = req.query;
+
+      if (oauthError) {
+        console.error("OAuth error:", oauthError, error_description);
+        return res.redirect("/?instagram_error=" + encodeURIComponent(String(error_description || oauthError)));
+      }
+
+      if (!code) {
+        return res.redirect("/?instagram_error=no_code");
+      }
+
+      const userId = (req.session as any)?.instagramAuthUserId;
+      if (!userId) {
+        return res.redirect("/?instagram_error=session_expired");
+      }
+
+      const allSettings = await storage.getSettings();
+      const facebookAppId = allSettings.facebookAppId;
+      const facebookAppSecret = allSettings.facebookAppSecret;
+
+      if (!facebookAppId || !facebookAppSecret) {
+        return res.redirect("/?instagram_error=credentials_missing");
+      }
+
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const host = req.headers["x-forwarded-host"] || req.headers.host;
+      const redirectUri = `${protocol}://${host}/api/instagram/callback`;
+
+      // Exchange code for access token
+      const tokenUrl = `${FACEBOOK_GRAPH_API}/oauth/access_token?client_id=${facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${facebookAppSecret}&code=${code}`;
+
+      const tokenResponse = await fetch(tokenUrl);
+      const tokenData = await tokenResponse.json() as any;
+
+      if (tokenData.error) {
+        console.error("Token exchange error:", tokenData.error);
+        return res.redirect("/?instagram_error=" + encodeURIComponent(tokenData.error.message || "token_exchange_failed"));
+      }
+
+      const accessToken = tokenData.access_token;
+
+      // Get long-lived token
+      const longLivedUrl = `${FACEBOOK_GRAPH_API}/oauth/access_token?grant_type=fb_exchange_token&client_id=${facebookAppId}&client_secret=${facebookAppSecret}&fb_exchange_token=${accessToken}`;
+      
+      const longLivedResponse = await fetch(longLivedUrl);
+      const longLivedData = await longLivedResponse.json() as any;
+      const longLivedToken = longLivedData.access_token || accessToken;
+
+      // Get user's Instagram Business Account
+      const accountsUrl = `${FACEBOOK_GRAPH_API}/me/accounts?access_token=${longLivedToken}`;
+      const accountsResponse = await fetch(accountsUrl);
+      const accountsData = await accountsResponse.json() as any;
+
+      if (!accountsData.data || accountsData.data.length === 0) {
+        return res.redirect("/?instagram_error=no_pages_found");
+      }
+
+      // Get Instagram account connected to the first page
+      const pageId = accountsData.data[0].id;
+      const pageAccessToken = accountsData.data[0].access_token;
+
+      const igAccountUrl = `${FACEBOOK_GRAPH_API}/${pageId}?fields=instagram_business_account&access_token=${pageAccessToken}`;
+      const igAccountResponse = await fetch(igAccountUrl);
+      const igAccountData = await igAccountResponse.json() as any;
+
+      if (!igAccountData.instagram_business_account) {
+        return res.redirect("/?instagram_error=no_instagram_business_account");
+      }
+
+      const instagramAccountId = igAccountData.instagram_business_account.id;
+
+      // Get Instagram username
+      const igUserUrl = `${FACEBOOK_GRAPH_API}/${instagramAccountId}?fields=username&access_token=${pageAccessToken}`;
+      const igUserResponse = await fetch(igUserUrl);
+      const igUserData = await igUserResponse.json() as any;
+      const instagramUsername = igUserData.username || "";
+
+      // Update user with Instagram credentials
+      const user = await authStorage.getUser(userId);
+      if (user) {
+        await authStorage.updateUser(userId, {
+          instagramAccountId,
+          instagramUsername,
+          instagramAccessToken: pageAccessToken,
+        });
+      }
+
+      // Update global settings
+      await storage.setSetting("instagramConnected", "true");
+      await storage.setSetting("instagramUsername", instagramUsername);
+
+      // Clear session data
+      delete (req.session as any).instagramAuthUserId;
+
+      res.redirect("/settings?instagram_connected=true");
+    } catch (error) {
+      console.error("Error in Instagram callback:", error);
+      res.redirect("/?instagram_error=callback_failed");
+    }
+  });
+
+  // Disconnect Instagram
+  app.post("/api/instagram/disconnect", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      
+      // Clear user's Instagram credentials
+      const user = await authStorage.getUser(userId);
+      if (user) {
+        await authStorage.updateUser(userId, {
+          instagramAccountId: null,
+          instagramUsername: null,
+          instagramAccessToken: null,
+        });
+      }
+
+      // Update global settings
+      await storage.setSetting("instagramConnected", "false");
+      await storage.setSetting("instagramUsername", "");
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error disconnecting Instagram:", error);
+      res.status(500).json({ error: "Failed to disconnect Instagram" });
     }
   });
 

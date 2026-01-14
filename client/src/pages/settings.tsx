@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import {
   Settings as SettingsIcon,
   Link as LinkIcon,
@@ -48,6 +49,8 @@ interface SettingsData {
 export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const searchString = useSearch();
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const { data: settings, isLoading } = useQuery<SettingsData>({
     queryKey: ["/api/settings"],
@@ -60,6 +63,39 @@ export default function Settings() {
       setLocalSettings(settings);
     }
   }, [settings]);
+
+  // Check for Instagram connection result from URL params
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    if (params.get("instagram_connected") === "true") {
+      toast({
+        title: "Instagram conectado",
+        description: "Sua conta Instagram foi conectada com sucesso!",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      // Clean up URL
+      window.history.replaceState({}, "", "/settings");
+    }
+    const error = params.get("instagram_error");
+    if (error) {
+      let errorMessage = "Não foi possível conectar ao Instagram.";
+      if (error === "no_pages_found") {
+        errorMessage = "Nenhuma página do Facebook foi encontrada. Certifique-se de ter uma página vinculada.";
+      } else if (error === "no_instagram_business_account") {
+        errorMessage = "Nenhuma conta Instagram Business foi encontrada. Vincule uma conta Instagram Business à sua página do Facebook.";
+      } else if (error === "session_expired") {
+        errorMessage = "Sua sessão expirou. Por favor, tente novamente.";
+      } else if (error === "credentials_missing") {
+        errorMessage = "Credenciais do Facebook App não configuradas. Contate um administrador.";
+      }
+      toast({
+        title: "Erro na conexão",
+        description: errorMessage,
+        variant: "destructive",
+      });
+      window.history.replaceState({}, "", "/settings");
+    }
+  }, [searchString, toast, queryClient]);
 
   const saveMutation = useMutation({
     mutationFn: async (newSettings: Partial<SettingsData>) => {
@@ -80,6 +116,57 @@ export default function Settings() {
       });
     },
   });
+
+  const disconnectMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/instagram/disconnect");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({
+        title: "Instagram desconectado",
+        description: "Sua conta Instagram foi desconectada.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Erro",
+        description: "Não foi possível desconectar o Instagram.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleConnectInstagram = async () => {
+    setIsConnecting(true);
+    try {
+      const response = await fetch("/api/instagram/auth", {
+        credentials: "include",
+      });
+      const data = await response.json();
+      
+      if (data.error) {
+        toast({
+          title: "Erro",
+          description: data.error,
+          variant: "destructive",
+        });
+        setIsConnecting(false);
+        return;
+      }
+
+      if (data.authUrl) {
+        window.location.href = data.authUrl;
+      }
+    } catch (error) {
+      toast({
+        title: "Erro",
+        description: "Não foi possível iniciar a conexão com Instagram.",
+        variant: "destructive",
+      });
+      setIsConnecting(false);
+    }
+  };
 
   const handleSave = () => {
     if (localSettings) {
@@ -161,8 +248,14 @@ export default function Settings() {
                       </p>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm" data-testid="button-disconnect-instagram">
-                    Desconectar
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => disconnectMutation.mutate()}
+                    disabled={disconnectMutation.isPending}
+                    data-testid="button-disconnect-instagram"
+                  >
+                    {disconnectMutation.isPending ? "Desconectando..." : "Desconectar"}
                   </Button>
                 </div>
               ) : (
@@ -175,9 +268,13 @@ export default function Settings() {
                       conectar sua conta Instagram Business.
                     </AlertDescription>
                   </Alert>
-                  <Button data-testid="button-connect-instagram">
+                  <Button 
+                    onClick={handleConnectInstagram}
+                    disabled={isConnecting}
+                    data-testid="button-connect-instagram"
+                  >
                     <SiInstagram className="h-4 w-4 mr-2" />
-                    Conectar Instagram
+                    {isConnecting ? "Conectando..." : "Conectar Instagram"}
                   </Button>
                 </div>
               )}
