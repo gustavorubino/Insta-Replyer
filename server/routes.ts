@@ -1000,21 +1000,24 @@ export async function registerRoutes(
             if (data.data?.[0]?.participants?.data) {
               const participant = data.data[0].participants.data.find((p: any) => p.id === senderId);
               if (participant?.username || participant?.name) {
-                // Try to fetch profile picture separately using the user ID
                 let avatarUrl = participant.profile_picture_url;
                 
-                if (!avatarUrl && participant.id) {
+                // Try Business Discovery API to get profile picture (works for Business/Creator accounts)
+                if (!avatarUrl && participant.username && recipientId) {
                   try {
-                    console.log(`Fetching profile picture for ${participant.id}...`);
-                    const profileUrl = `https://graph.instagram.com/v21.0/${participant.id}?fields=profile_picture_url&access_token=${encodeURIComponent(accessToken)}`;
-                    const profileRes = await fetch(profileUrl);
-                    if (profileRes.ok) {
-                      const profileData = await profileRes.json();
-                      avatarUrl = profileData.profile_picture_url;
-                      console.log(`Profile picture result:`, profileData);
+                    console.log(`Trying Business Discovery API for @${participant.username}...`);
+                    const discoveryUrl = `https://graph.facebook.com/v21.0/${recipientId}?fields=business_discovery.username(${participant.username}){profile_picture_url}&access_token=${encodeURIComponent(accessToken)}`;
+                    const discoveryRes = await fetch(discoveryUrl);
+                    if (discoveryRes.ok) {
+                      const discoveryData = await discoveryRes.json();
+                      avatarUrl = discoveryData?.business_discovery?.profile_picture_url;
+                      console.log(`Business Discovery result:`, JSON.stringify(discoveryData));
+                    } else {
+                      const errorData = await discoveryRes.json();
+                      console.log(`Business Discovery failed:`, JSON.stringify(errorData));
                     }
                   } catch (e) {
-                    console.log(`Could not fetch profile picture: ${e}`);
+                    console.log(`Business Discovery error: ${e}`);
                   }
                 }
                 

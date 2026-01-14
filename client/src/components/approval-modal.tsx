@@ -65,19 +65,27 @@ export function ApprovalModal({
       .slice(0, 2);
   };
 
-  // Generate a consistent color based on username
-  const getAvatarColor = (username: string) => {
-    const colors = [
-      "bg-rose-500", "bg-pink-500", "bg-fuchsia-500", "bg-purple-500",
-      "bg-violet-500", "bg-indigo-500", "bg-blue-500", "bg-sky-500",
-      "bg-cyan-500", "bg-teal-500", "bg-emerald-500", "bg-green-500",
-      "bg-lime-500", "bg-yellow-500", "bg-amber-500", "bg-orange-500",
+  // Generate a consistent gradient color based on username
+  const getAvatarGradient = (username: string) => {
+    const gradients = [
+      "bg-gradient-to-br from-rose-400 to-pink-600",
+      "bg-gradient-to-br from-pink-400 to-fuchsia-600",
+      "bg-gradient-to-br from-fuchsia-400 to-purple-600",
+      "bg-gradient-to-br from-purple-400 to-violet-600",
+      "bg-gradient-to-br from-violet-400 to-indigo-600",
+      "bg-gradient-to-br from-indigo-400 to-blue-600",
+      "bg-gradient-to-br from-blue-400 to-cyan-600",
+      "bg-gradient-to-br from-cyan-400 to-teal-600",
+      "bg-gradient-to-br from-teal-400 to-emerald-600",
+      "bg-gradient-to-br from-emerald-400 to-green-600",
+      "bg-gradient-to-br from-amber-400 to-orange-600",
+      "bg-gradient-to-br from-orange-400 to-red-600",
     ];
     let hash = 0;
     for (let i = 0; i < username.length; i++) {
       hash = username.charCodeAt(i) + ((hash << 5) - hash);
     }
-    return colors[Math.abs(hash) % colors.length];
+    return gradients[Math.abs(hash) % gradients.length];
   };
 
   const originalResponse = message.aiResponse?.suggestedResponse || "";
@@ -115,7 +123,7 @@ export function ApprovalModal({
               <div className="flex items-start gap-3">
                 <Avatar className="h-10 w-10 border">
                   <AvatarImage src={message.senderAvatar || undefined} />
-                  <AvatarFallback className={`text-xs text-white font-medium ${getAvatarColor(message.senderUsername)}`}>
+                  <AvatarFallback className={`text-xs text-white font-semibold ${getAvatarGradient(message.senderUsername)}`}>
                     {getInitials(message.senderName)}
                   </AvatarFallback>
                 </Avatar>
