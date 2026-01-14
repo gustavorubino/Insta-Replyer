@@ -184,4 +184,40 @@ export function registerAuthRoutes(app: Express): void {
       res.status(500).json({ message: "Failed to fetch users" });
     }
   });
+
+  // Toggle user admin status (admin only)
+  app.patch("/api/auth/users/:userId/admin", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
+      const currentUser = await authStorage.getUser(currentUserId);
+      
+      if (!currentUser?.isAdmin) {
+        return res.status(403).json({ message: "Acesso negado" });
+      }
+
+      const { userId } = req.params;
+      const { isAdmin } = req.body;
+
+      if (typeof isAdmin !== "boolean") {
+        return res.status(400).json({ message: "isAdmin deve ser true ou false" });
+      }
+
+      // Prevent self-demotion
+      if (userId === currentUserId && !isAdmin) {
+        return res.status(400).json({ message: "Você não pode remover suas próprias permissões de admin" });
+      }
+
+      const targetUser = await authStorage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "Usuário não encontrado" });
+      }
+
+      await authStorage.updateUser(userId, { isAdmin });
+      
+      res.json({ success: true, message: isAdmin ? "Usuário promovido a admin" : "Permissões de admin removidas" });
+    } catch (error) {
+      console.error("Error updating user admin status:", error);
+      res.status(500).json({ message: "Erro ao atualizar permissões" });
+    }
+  });
 }

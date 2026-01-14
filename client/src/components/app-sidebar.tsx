@@ -9,6 +9,7 @@ import {
   LogOut,
   User,
   Shield,
+  Users,
 } from "lucide-react";
 import { SiInstagram } from "react-icons/si";
 import {
@@ -48,6 +49,14 @@ const menuItems = [
     title: "Configurações",
     url: "/settings",
     icon: Settings,
+  },
+];
+
+const adminMenuItems = [
+  {
+    title: "Administração",
+    url: "/admin",
+    icon: Users,
   },
 ];
 
@@ -121,6 +130,32 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {user?.isAdmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Admin</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminMenuItems.map((item) => {
+                  const isActive = location === item.url;
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        asChild
+                        data-active={isActive}
+                        className="data-[active=true]:bg-sidebar-accent"
+                      >
+                        <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/ /g, "-")}`}>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter className="p-4 space-y-3">
         <div className="flex items-center gap-2 rounded-md bg-muted p-3">

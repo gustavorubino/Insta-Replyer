@@ -190,7 +190,7 @@ export default function Settings() {
                   Você precisará de uma conta Instagram Business conectada a uma
                   página do Facebook para usar a API.
                 </p>
-                <Button variant="link" className="px-0 h-auto" asChild>
+                <Button variant="ghost" className="px-0 h-auto" asChild>
                   <a
                     href="https://developers.facebook.com/docs/instagram-api"
                     target="_blank"

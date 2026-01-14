@@ -17,6 +17,7 @@ import Dashboard from "@/pages/dashboard";
 import Queue from "@/pages/queue";
 import History from "@/pages/history";
 import Settings from "@/pages/settings";
+import Admin from "@/pages/admin";
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
 import NotFound from "@/pages/not-found";
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/queue" component={Queue} />
       <Route path="/history" component={History} />
       <Route path="/settings" component={Settings} />
+      <Route path="/admin" component={Admin} />
       <Route component={NotFound} />
     </Switch>
   );
