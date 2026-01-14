@@ -1000,10 +1000,28 @@ export async function registerRoutes(
             if (data.data?.[0]?.participants?.data) {
               const participant = data.data[0].participants.data.find((p: any) => p.id === senderId);
               if (participant?.username || participant?.name) {
+                // Try to fetch profile picture separately using the user ID
+                let avatarUrl = participant.profile_picture_url;
+                
+                if (!avatarUrl && participant.id) {
+                  try {
+                    console.log(`Fetching profile picture for ${participant.id}...`);
+                    const profileUrl = `https://graph.instagram.com/v21.0/${participant.id}?fields=profile_picture_url&access_token=${encodeURIComponent(accessToken)}`;
+                    const profileRes = await fetch(profileUrl);
+                    if (profileRes.ok) {
+                      const profileData = await profileRes.json();
+                      avatarUrl = profileData.profile_picture_url;
+                      console.log(`Profile picture result:`, profileData);
+                    }
+                  } catch (e) {
+                    console.log(`Could not fetch profile picture: ${e}`);
+                  }
+                }
+                
                 return {
                   name: participant.name || participant.username,
                   username: participant.username || senderId,
-                  avatar: participant.profile_picture_url || undefined,
+                  avatar: avatarUrl || undefined,
                 };
               }
             }
