@@ -602,21 +602,9 @@ export async function registerRoutes(
             console.log(`Post ${post.id}: comments_count=${post.comments_count}`);
             // Try to get comments - using graph.instagram.com for Instagram Business Login tokens
             try {
-                const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp&access_token=${accessToken}`;
-                console.log(`Fetching comments for post ${post.id}`);
-                const commentsResponse = await fetch(commentsUrl);
-                const commentsData = await commentsResponse.json() as any;
-                
-                // Log full comments response for debugging
-                console.log(`Comments response for ${post.id}:`, JSON.stringify(commentsData).substring(0, 500));
-
-                if (commentsData.error) {
-                  console.error("Comments fetch error:", commentsData.error);
-                  continue;
-                }
-
-                if (commentsData.data) {
-                  for (const comment of commentsData.data) {
+                // Helper function to process comments from API response
+                const processComments = async (comments: any[]) => {
+                  for (const comment of comments) {
                     try {
                       const existingMessage = await storage.getMessageByInstagramId(comment.id);
                       if (!existingMessage) {
@@ -655,6 +643,34 @@ export async function registerRoutes(
                       results.errors.push(`Error processing comment: ${commentError.message}`);
                     }
                   }
+                };
+
+                // Fetch comments with pagination support
+                let commentsUrl: string | null = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp&access_token=${accessToken}&limit=50`;
+                let pageCount = 0;
+                const maxPages = 3; // Limit to 3 pages per post to avoid timeout
+                
+                while (commentsUrl && pageCount < maxPages) {
+                  console.log(`Fetching comments for post ${post.id} (page ${pageCount + 1})`);
+                  const commentsResponse = await fetch(commentsUrl);
+                  const commentsData = await commentsResponse.json() as any;
+                  
+                  // Log full comments response for debugging
+                  console.log(`Comments response for ${post.id} (page ${pageCount + 1}):`, JSON.stringify(commentsData).substring(0, 300));
+
+                  if (commentsData.error) {
+                    console.error("Comments fetch error:", commentsData.error);
+                    break;
+                  }
+
+                  if (commentsData.data && commentsData.data.length > 0) {
+                    console.log(`Found ${commentsData.data.length} comments on page ${pageCount + 1}`);
+                    await processComments(commentsData.data);
+                  }
+
+                  // Check for next page
+                  commentsUrl = commentsData.paging?.next || null;
+                  pageCount++;
                 }
               } catch (postError: any) {
               console.error("Error fetching comments for post:", postError);
