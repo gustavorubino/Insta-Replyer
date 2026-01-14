@@ -609,8 +609,8 @@ export async function registerRoutes(
                       const existingMessage = await storage.getMessageByInstagramId(comment.id);
                       if (!existingMessage) {
                         // Extract username from different possible fields
-                        const username = comment.username || comment.from?.username || "unknown";
-                        const displayName = comment.from?.name || comment.username || "Unknown";
+                        const username = comment.username || comment.from?.username || "instagram_user";
+                        const displayName = comment.from?.name || comment.username || "Usuário do Instagram";
                         
                         console.log(`Processing comment ${comment.id}: username=${username}, from=${JSON.stringify(comment.from)}`);
                         
