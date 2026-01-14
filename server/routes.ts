@@ -597,10 +597,13 @@ export async function registerRoutes(
           console.error("Media fetch error:", mediaData.error);
           results.errors.push("Failed to fetch posts: " + (mediaData.error.message || "API error"));
         } else if (mediaData.data) {
+          console.log(`Found ${mediaData.data.length} posts`);
           for (const post of mediaData.data) {
-            if (post.comments_count > 0) {
-              try {
-                const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp&access_token=${accessToken}`;
+            console.log(`Post ${post.id}: comments_count=${post.comments_count}`);
+            // Try to get comments - using graph.facebook.com for Instagram Business API
+            try {
+                const commentsUrl = `${FACEBOOK_GRAPH_API}/${post.id}/comments?fields=id,text,username,timestamp&access_token=${accessToken}`;
+                console.log(`Fetching comments for post ${post.id}`);
                 const commentsResponse = await fetch(commentsUrl);
                 const commentsData = await commentsResponse.json() as any;
 
@@ -651,8 +654,7 @@ export async function registerRoutes(
                   }
                 }
               } catch (postError: any) {
-                console.error("Error fetching comments for post:", postError);
-              }
+              console.error("Error fetching comments for post:", postError);
             }
           }
         }
