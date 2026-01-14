@@ -961,69 +961,78 @@ export async function registerRoutes(
     try {
       console.log(`Fetching user info for sender ${senderId}, token length: ${accessToken.length}`);
       
-      // Try Instagram Graph API first (for Instagram Business tokens)
-      const instagramUrl = `https://graph.instagram.com/${senderId}?fields=name,username,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`;
-      console.log(`Trying Instagram Graph API...`);
-      
-      let response = await fetch(instagramUrl);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Fetched Instagram user info (Instagram API):", JSON.stringify(data));
-        return {
-          name: data.name || data.username || `Instagram User`,
-          username: data.username || senderId,
-          avatar: data.profile_picture_url || undefined,
-        };
-      }
-      
-      // Try Facebook Graph API with conversations endpoint
+      // Try multiple endpoints to get user info
+      const endpoints = [
+        // Instagram Graph API with different field combinations
+        {
+          name: "Instagram Graph API (v21)",
+          url: `https://graph.instagram.com/v21.0/${senderId}?fields=id,username,name&access_token=${encodeURIComponent(accessToken)}`
+        },
+        {
+          name: "Instagram Graph API (me)",
+          url: `https://graph.instagram.com/me?fields=user_id,username,name&access_token=${encodeURIComponent(accessToken)}`
+        },
+        // Facebook Graph API with user node
+        {
+          name: "Facebook Graph API (user node)",
+          url: `${FACEBOOK_GRAPH_API}/${senderId}?fields=id,name,username,profile_pic&access_token=${encodeURIComponent(accessToken)}`
+        }
+      ];
+
+      // Also try the conversations endpoint if we have recipientId
       if (recipientId) {
-        console.log(`Trying Conversations API for recipient ${recipientId}...`);
-        const conversationsUrl = `${FACEBOOK_GRAPH_API}/${recipientId}/conversations?fields=participants&user_id=${senderId}&access_token=${encodeURIComponent(accessToken)}`;
-        
-        response = await fetch(conversationsUrl);
-        if (response.ok) {
+        endpoints.unshift({
+          name: "Instagram Conversations API",
+          url: `https://graph.instagram.com/v21.0/${recipientId}/conversations?fields=participants{id,username,name}&user_id=${senderId}&access_token=${encodeURIComponent(accessToken)}`
+        });
+      }
+
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying ${endpoint.name}...`);
+          const response = await fetch(endpoint.url);
           const data = await response.json();
-          console.log("Conversations API response:", JSON.stringify(data));
           
-          if (data.data?.[0]?.participants?.data) {
-            const participant = data.data[0].participants.data.find((p: any) => p.id === senderId);
-            if (participant) {
+          if (response.ok && !data.error) {
+            console.log(`${endpoint.name} SUCCESS:`, JSON.stringify(data));
+            
+            // Handle conversations API response
+            if (data.data?.[0]?.participants?.data) {
+              const participant = data.data[0].participants.data.find((p: any) => p.id === senderId);
+              if (participant?.username || participant?.name) {
+                return {
+                  name: participant.name || participant.username,
+                  username: participant.username || senderId,
+                  avatar: participant.profile_picture_url || undefined,
+                };
+              }
+            }
+            
+            // Handle direct user response
+            if (data.username || data.name) {
               return {
-                name: participant.name || participant.username || `Instagram User`,
-                username: participant.username || senderId,
-                avatar: participant.profile_pic || undefined,
+                name: data.name || data.username,
+                username: data.username || senderId,
+                avatar: data.profile_picture_url || data.profile_pic || undefined,
               };
             }
+          } else {
+            console.log(`${endpoint.name} failed:`, JSON.stringify(data?.error || data));
           }
+        } catch (err) {
+          console.log(`${endpoint.name} error:`, err);
         }
       }
       
-      // Try direct Facebook Graph API call
-      console.log(`Trying Facebook Graph API...`);
-      const fbUrl = `${FACEBOOK_GRAPH_API}/${senderId}?fields=name,username,profile_pic&access_token=${encodeURIComponent(accessToken)}`;
-      response = await fetch(fbUrl);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Fetched user info (Facebook API):", JSON.stringify(data));
-        return {
-          name: data.name || data.username || `Instagram User`,
-          username: data.username || senderId,
-          avatar: data.profile_pic || undefined,
-        };
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        console.log("All API attempts failed. Last error:", JSON.stringify(errorData));
-      }
+      console.log("All API attempts failed for user info lookup");
     } catch (error) {
       console.error("Error fetching Instagram user info:", error);
     }
     
-    // Fallback to sender ID if API call fails
+    // Fallback - generate a friendlier display name
+    const shortId = senderId.slice(-6);
     return {
-      name: `Instagram User`,
+      name: `Usuário IG`,
       username: senderId,
     };
   }
