@@ -7,6 +7,8 @@ import {
   User,
   Mail,
   Calendar,
+  Trash2,
+  Settings,
 } from "lucide-react";
 import {
   Card,
@@ -84,6 +86,27 @@ export default function Admin() {
     },
   });
 
+  const clearMessagesMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("DELETE", "/api/clear-messages");
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({
+        title: "Mensagens limpas",
+        description: `${data.deleted?.messages || 0} mensagens e ${data.deleted?.aiResponses || 0} respostas de IA foram removidas.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Erro",
+        description: "Não foi possível limpar as mensagens.",
+        variant: "destructive",
+      });
+    },
+  });
+
   if (isAuthLoading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
@@ -122,6 +145,10 @@ export default function Admin() {
           <TabsTrigger value="users" data-testid="tab-users">
             <Users className="h-4 w-4 mr-2" />
             Usuários
+          </TabsTrigger>
+          <TabsTrigger value="maintenance" data-testid="tab-maintenance">
+            <Settings className="h-4 w-4 mr-2" />
+            Manutenção
           </TabsTrigger>
         </TabsList>
 
@@ -272,6 +299,60 @@ export default function Admin() {
           </Table>
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="maintenance" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Limpar Mensagens</CardTitle>
+              <CardDescription>
+                Remove todas as mensagens do Instagram e respostas de IA do banco de dados.
+                Esta ação não pode ser desfeita.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    disabled={clearMessagesMutation.isPending}
+                    data-testid="button-clear-messages"
+                  >
+                    {clearMessagesMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Limpando...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Limpar Todas as Mensagens
+                      </>
+                    )}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Limpar todas as mensagens?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Esta ação irá remover permanentemente todas as mensagens do Instagram
+                      e suas respostas de IA do sistema. Esta ação não pode ser desfeita.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => clearMessagesMutation.mutate()}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      data-testid="button-confirm-clear-messages"
+                    >
+                      Limpar Mensagens
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
