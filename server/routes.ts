@@ -1107,10 +1107,32 @@ export async function registerRoutes(
       let senderAvatar: string | undefined = undefined;
       
       if (senderId && instagramUser.instagramAccessToken) {
-        const userInfo = await fetchInstagramUserInfo(senderId, instagramUser.instagramAccessToken, recipientId);
+        const accessToken = instagramUser.instagramAccessToken;
+        
+        // First, try direct IGSID lookup for profile_picture_url
+        try {
+          console.log(`Fetching profile picture for IGSID ${senderId}...`);
+          const profileUrl = `https://graph.instagram.com/${senderId}?fields=profile_picture_url&access_token=${accessToken}`;
+          const profileRes = await fetch(profileUrl);
+          const profileData = await profileRes.json();
+          console.log(`Direct IGSID profile response:`, JSON.stringify(profileData));
+          
+          if (profileData.profile_picture_url) {
+            senderAvatar = profileData.profile_picture_url;
+            console.log(`Got profile picture from direct IGSID lookup!`);
+          }
+        } catch (e) {
+          console.log(`Direct IGSID lookup failed:`, e);
+        }
+        
+        // Then get username from conversations API
+        const userInfo = await fetchInstagramUserInfo(senderId, accessToken, recipientId);
         senderName = userInfo.name;
         senderUsername = userInfo.username;
-        senderAvatar = userInfo.avatar;
+        // If avatar wasn't found above, try from userInfo
+        if (!senderAvatar && userInfo.avatar) {
+          senderAvatar = userInfo.avatar;
+        }
         console.log(`Resolved sender info: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}`);
       }
 
