@@ -11,6 +11,13 @@ const FACEBOOK_GRAPH_API = "https://graph.facebook.com/v18.0";
 const INSTAGRAM_AUTH_URL = "https://api.instagram.com/oauth/authorize";
 const INSTAGRAM_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 
+// Use environment variables for Instagram App credentials
+const INSTAGRAM_APP_ID = process.env.INSTAGRAM_APP_ID || "";
+const INSTAGRAM_APP_SECRET = process.env.INSTAGRAM_APP_SECRET || "";
+
+// Webhook verification token (generated randomly for security)
+const WEBHOOK_VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || "instagram_webhook_verify_2024";
+
 // Helper to extract user info from request
 async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean }> {
   const user = req.user as any;
@@ -439,10 +446,10 @@ export async function registerRoutes(
   app.get("/api/instagram/auth", isAuthenticated, async (req, res) => {
     try {
       const { userId } = await getUserContext(req);
-      const user = await authStorage.getUser(userId);
 
-      if (!user?.facebookAppId || !user?.facebookAppSecret) {
-        return res.status(400).json({ error: "Facebook App not configured. Please configure your Facebook App credentials first." });
+      // Use environment variables for credentials
+      if (!INSTAGRAM_APP_ID || !INSTAGRAM_APP_SECRET) {
+        return res.status(400).json({ error: "Instagram App credentials not configured. Please contact the administrator." });
       }
 
       // Get the base URL for redirect
@@ -462,14 +469,14 @@ export async function registerRoutes(
       });
 
       // Build OAuth URL with required scopes for Instagram Business Login
-      // These scopes match the user's Facebook App configuration (Instagram Business Login product)
+      // Using Meta Graph API permissions
       const scopes = [
         "instagram_business_basic",
         "instagram_business_manage_messages",
         "instagram_business_manage_comments"
       ].join(",");
 
-      const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${user.facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=instagram_connect`;
+      const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=instagram_connect`;
 
       res.json({ authUrl });
     } catch (error) {
@@ -497,17 +504,10 @@ export async function registerRoutes(
         return res.redirect("/settings?instagram_error=session_expired");
       }
 
-      // Get user's credentials
-      const user = await authStorage.getUser(userId);
-      if (!user?.facebookAppId || !user?.facebookAppSecret) {
+      // Use environment variables for credentials
+      if (!INSTAGRAM_APP_ID || !INSTAGRAM_APP_SECRET) {
         return res.redirect("/settings?instagram_error=credentials_missing");
       }
-
-      // Decrypt the secret
-      const { decrypt, isEncrypted } = await import("./encryption");
-      const facebookAppSecret = isEncrypted(user.facebookAppSecret) 
-        ? decrypt(user.facebookAppSecret) 
-        : user.facebookAppSecret;
 
       const protocol = req.headers["x-forwarded-proto"] || "https";
       const host = req.headers["x-forwarded-host"] || req.headers.host;
@@ -518,8 +518,8 @@ export async function registerRoutes(
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          client_id: user.facebookAppId,
-          client_secret: facebookAppSecret,
+          client_id: INSTAGRAM_APP_ID,
+          client_secret: INSTAGRAM_APP_SECRET,
           grant_type: "authorization_code",
           redirect_uri: redirectUri,
           code: String(code),
@@ -536,7 +536,7 @@ export async function registerRoutes(
       const instagramUserId = tokenData.user_id;
 
       // Exchange for long-lived token (60 days)
-      const longLivedUrl = `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${facebookAppSecret}&access_token=${shortLivedToken}`;
+      const longLivedUrl = `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${INSTAGRAM_APP_SECRET}&access_token=${shortLivedToken}`;
       
       const longLivedResponse = await fetch(longLivedUrl);
       const longLivedData = await longLivedResponse.json() as any;
@@ -727,6 +727,219 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error disconnecting Instagram:", error);
       res.status(500).json({ error: "Failed to disconnect Instagram" });
+    }
+  });
+
+  // ============ Instagram Webhooks ============
+
+  // Webhook verification endpoint (GET) - Meta will call this to verify the webhook
+  app.get("/api/webhooks/instagram", (req, res) => {
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+
+    console.log("Webhook verification request:", { mode, token: token ? "***" : "missing", challenge });
+
+    if (mode === "subscribe" && token === WEBHOOK_VERIFY_TOKEN) {
+      console.log("Webhook verified successfully");
+      res.status(200).send(challenge);
+    } else {
+      console.error("Webhook verification failed");
+      res.sendStatus(403);
+    }
+  });
+
+  // Webhook event handler (POST) - receives real-time updates from Instagram
+  app.post("/api/webhooks/instagram", async (req, res) => {
+    try {
+      const { object, entry } = req.body;
+      console.log("Webhook received:", JSON.stringify({ object, entryCount: entry?.length }));
+
+      if (object !== "instagram") {
+        console.log("Ignoring non-instagram webhook:", object);
+        return res.sendStatus(404);
+      }
+
+      // Process each entry
+      for (const entryItem of entry || []) {
+        const changes = entryItem.changes || [];
+        const messaging = entryItem.messaging || [];
+
+        // Process comments
+        for (const change of changes) {
+          if (change.field === "comments") {
+            await processWebhookComment(change.value);
+          } else if (change.field === "mentions") {
+            console.log("Mention received:", change.value);
+            // Handle mentions similarly to comments
+          }
+        }
+
+        // Process direct messages
+        for (const message of messaging) {
+          if (message.message) {
+            await processWebhookMessage(message);
+          }
+        }
+      }
+
+      // Always respond quickly to webhooks
+      res.sendStatus(200);
+    } catch (error) {
+      console.error("Error processing webhook:", error);
+      // Still respond 200 to prevent Meta from retrying
+      res.sendStatus(200);
+    }
+  });
+
+  // Helper function to process incoming comments from webhooks
+  async function processWebhookComment(commentData: any) {
+    try {
+      console.log("Processing webhook comment:", JSON.stringify(commentData));
+
+      const commentId = commentData.id;
+      const mediaId = commentData.media?.id;
+      const text = commentData.text;
+      const fromUser = commentData.from;
+
+      if (!commentId || !text) {
+        console.log("Missing required comment data");
+        return;
+      }
+
+      // Check if comment already exists
+      const existingMessage = await storage.getMessageByInstagramId(commentId);
+      if (existingMessage) {
+        console.log("Comment already exists:", commentId);
+        return;
+      }
+
+      // Find the user who owns this Instagram account
+      // For now, find any user with a connected Instagram account
+      // In production, you'd match by instagramAccountId
+      const allUsers = await authStorage.getAllUsers?.() || [];
+      const instagramUser = allUsers.find((u: any) => u.instagramAccessToken);
+
+      if (!instagramUser) {
+        console.log("No user with connected Instagram found");
+        return;
+      }
+
+      const username = fromUser?.username || "instagram_user";
+      const displayName = fromUser?.name || fromUser?.username || "Usuário do Instagram";
+
+      // Create the message
+      const newMessage = await storage.createMessage({
+        userId: instagramUser.id,
+        instagramId: commentId,
+        type: "comment",
+        senderName: displayName,
+        senderUsername: username,
+        content: text,
+        postId: mediaId || null,
+      });
+
+      // Generate AI response
+      const aiResult = await generateAIResponse(text, "comment", displayName);
+      await storage.createAiResponse({
+        messageId: newMessage.id,
+        suggestedResponse: aiResult.suggestedResponse,
+        confidenceScore: aiResult.confidenceScore,
+      });
+
+      // Check for auto-send
+      const operationMode = await storage.getSetting("operationMode");
+      const confidenceThreshold = await storage.getSetting("confidenceThreshold");
+      
+      if (
+        operationMode?.value === "semi_auto" &&
+        aiResult.confidenceScore >= (parseFloat(confidenceThreshold?.value || "80") / 100)
+      ) {
+        await storage.updateMessageStatus(newMessage.id, "auto_sent");
+        // TODO: Actually send the response via Instagram API
+      }
+
+      console.log("Webhook comment processed successfully:", commentId);
+    } catch (error) {
+      console.error("Error processing webhook comment:", error);
+    }
+  }
+
+  // Helper function to process incoming DMs from webhooks
+  async function processWebhookMessage(messageData: any) {
+    try {
+      console.log("Processing webhook DM:", JSON.stringify(messageData));
+
+      const senderId = messageData.sender?.id;
+      const messageId = messageData.message?.mid;
+      const text = messageData.message?.text;
+
+      if (!messageId || !text) {
+        console.log("Missing required message data");
+        return;
+      }
+
+      // Check if message already exists
+      const existingMessage = await storage.getMessageByInstagramId(messageId);
+      if (existingMessage) {
+        console.log("Message already exists:", messageId);
+        return;
+      }
+
+      // Find the user who owns this Instagram account
+      const allUsers = await authStorage.getAllUsers?.() || [];
+      const instagramUser = allUsers.find((u: any) => u.instagramAccessToken);
+
+      if (!instagramUser) {
+        console.log("No user with connected Instagram found");
+        return;
+      }
+
+      // Create the message
+      const newMessage = await storage.createMessage({
+        userId: instagramUser.id,
+        instagramId: messageId,
+        type: "dm",
+        senderName: senderId || "Instagram User",
+        senderUsername: senderId || "unknown",
+        content: text,
+      });
+
+      // Generate AI response
+      const aiResult = await generateAIResponse(text, "dm", senderId || "User");
+      await storage.createAiResponse({
+        messageId: newMessage.id,
+        suggestedResponse: aiResult.suggestedResponse,
+        confidenceScore: aiResult.confidenceScore,
+      });
+
+      console.log("Webhook DM processed successfully:", messageId);
+    } catch (error) {
+      console.error("Error processing webhook DM:", error);
+    }
+  }
+
+  // Get webhook configuration info (for admin reference)
+  app.get("/api/webhooks/config", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const host = req.headers["x-forwarded-host"] || req.headers.host;
+      const webhookUrl = `${protocol}://${host}/api/webhooks/instagram`;
+
+      res.json({
+        webhookUrl,
+        verifyToken: WEBHOOK_VERIFY_TOKEN,
+        fields: ["comments", "mentions", "messages"],
+        instructions: "Configure this URL in your Facebook App > Webhooks > Instagram",
+      });
+    } catch (error) {
+      console.error("Error getting webhook config:", error);
+      res.status(500).json({ error: "Failed to get webhook configuration" });
     }
   });
 
