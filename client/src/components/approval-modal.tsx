@@ -65,6 +65,21 @@ export function ApprovalModal({
       .slice(0, 2);
   };
 
+  // Generate a consistent color based on username
+  const getAvatarColor = (username: string) => {
+    const colors = [
+      "bg-rose-500", "bg-pink-500", "bg-fuchsia-500", "bg-purple-500",
+      "bg-violet-500", "bg-indigo-500", "bg-blue-500", "bg-sky-500",
+      "bg-cyan-500", "bg-teal-500", "bg-emerald-500", "bg-green-500",
+      "bg-lime-500", "bg-yellow-500", "bg-amber-500", "bg-orange-500",
+    ];
+    let hash = 0;
+    for (let i = 0; i < username.length; i++) {
+      hash = username.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+  };
+
   const originalResponse = message.aiResponse?.suggestedResponse || "";
   const wasEdited = editedResponse !== originalResponse;
 
@@ -100,7 +115,7 @@ export function ApprovalModal({
               <div className="flex items-start gap-3">
                 <Avatar className="h-10 w-10 border">
                   <AvatarImage src={message.senderAvatar || undefined} />
-                  <AvatarFallback className="text-xs">
+                  <AvatarFallback className={`text-xs text-white font-medium ${getAvatarColor(message.senderUsername)}`}>
                     {getInitials(message.senderName)}
                   </AvatarFallback>
                 </Avatar>
