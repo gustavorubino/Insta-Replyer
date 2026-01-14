@@ -980,12 +980,17 @@ export async function registerRoutes(
       // Find the user who owns this Instagram account by matching instagramAccountId with recipient
       const recipientId = messageData.recipient?.id;
       const allUsers = await authStorage.getAllUsers?.() || [];
+      
+      console.log(`Looking for user with Instagram account: ${recipientId}`);
+      console.log(`Total users found: ${allUsers.length}`);
+      console.log(`Users with Instagram accounts: ${allUsers.filter((u: any) => u.instagramAccountId).map((u: any) => ({ id: u.id, instagramAccountId: u.instagramAccountId }))}`);
+      
       const instagramUser = allUsers.find((u: any) => 
         u.instagramAccountId && u.instagramAccountId === recipientId
       );
 
       if (!instagramUser) {
-        console.log(`No user with Instagram account ${recipientId} found`);
+        console.log(`No user with Instagram account ${recipientId} found in database`);
         return;
       }
 
