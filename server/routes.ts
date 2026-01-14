@@ -818,10 +818,14 @@ export async function registerRoutes(
     try {
       // Verify webhook signature from Meta
       const signature = req.headers["x-hub-signature-256"] as string | undefined;
-      const rawBody = JSON.stringify(req.body);
+      const rawBody = (req as any).rawBody;
       
-      if (!verifyWebhookSignature(rawBody, signature)) {
-        console.error("Invalid webhook signature");
+      // Convert Buffer to string for signature verification
+      const bodyString = rawBody ? rawBody.toString("utf8") : JSON.stringify(req.body);
+      
+      if (!verifyWebhookSignature(bodyString, signature)) {
+        console.error("Invalid webhook signature - received:", signature?.substring(0, 20) + "...");
+        console.error("App Secret configured:", INSTAGRAM_APP_SECRET ? "Yes" : "No");
         return res.sendStatus(401);
       }
 
