@@ -466,7 +466,7 @@ export async function registerRoutes(
       const scopes = [
         "instagram_business_basic",
         "instagram_manage_messages",
-        "instagram_manage_comments",
+        _business"instagram_manage_comments",
         "pages_show_list",
         "pages_read_engagement"
       ].join(",");
