@@ -33,6 +33,11 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - **Role-Based Access Control**:
   - Admins see all messages from all users
   - Regular users see only their own messages
+- **Admin Panel** (/admin):
+  - View all registered users
+  - Promote/demote admin privileges
+  - Self-demotion protection
+  - Only visible to admins in sidebar
 - **Session Management**: 
   - actualUserId stored for users with existing email accounts
   - Token refresh for OIDC sessions
