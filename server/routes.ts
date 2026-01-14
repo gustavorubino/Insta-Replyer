@@ -1007,15 +1007,17 @@ export async function registerRoutes(
                 if (!avatarUrl && participant.username && recipientId) {
                   try {
                     console.log(`Trying Business Discovery API for @${participant.username}...`);
-                    const discoveryUrl = `https://graph.facebook.com/v21.0/${recipientId}?fields=business_discovery.username(${participant.username}){profile_picture_url}&access_token=${encodeURIComponent(accessToken)}`;
+                    // Use Instagram Graph API endpoint (not Facebook) with the access token
+                    const discoveryUrl = `https://graph.instagram.com/v21.0/${recipientId}?fields=business_discovery.username(${participant.username}){profile_picture_url,name,username}&access_token=${accessToken}`;
+                    console.log(`Business Discovery URL (truncated token): ${discoveryUrl.replace(accessToken, accessToken.slice(0, 20) + '...')}`);
                     const discoveryRes = await fetch(discoveryUrl);
-                    if (discoveryRes.ok) {
-                      const discoveryData = await discoveryRes.json();
-                      avatarUrl = discoveryData?.business_discovery?.profile_picture_url;
-                      console.log(`Business Discovery result:`, JSON.stringify(discoveryData));
-                    } else {
-                      const errorData = await discoveryRes.json();
-                      console.log(`Business Discovery failed:`, JSON.stringify(errorData));
+                    const discoveryData = await discoveryRes.json();
+                    console.log(`Business Discovery response:`, JSON.stringify(discoveryData));
+                    if (discoveryRes.ok && discoveryData?.business_discovery?.profile_picture_url) {
+                      avatarUrl = discoveryData.business_discovery.profile_picture_url;
+                      console.log(`Business Discovery SUCCESS - got profile picture!`);
+                    } else if (discoveryData?.error) {
+                      console.log(`Business Discovery failed:`, discoveryData.error.message);
                     }
                   } catch (e) {
                     console.log(`Business Discovery error: ${e}`);
