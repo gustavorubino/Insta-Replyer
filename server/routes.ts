@@ -59,6 +59,29 @@ export async function registerRoutes(
   // Setup authentication FIRST before other routes
   await setupAuth(app);
   registerAuthRoutes(app);
+
+  // Privacy Policy page (required by Meta/Facebook)
+  app.get("/privacy", (req, res) => {
+    res.send(`
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Política de Privacidade - Social Media Response Pro</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; }
+    h1 { color: #333; }
+    p { color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Política de Privacidade</h1>
+  <p>Esta é a política de privacidade do Social Media Response Pro. Coletamos apenas os dados necessários para processar comentários e mensagens do Instagram. Não compartilhamos seus dados com terceiros.</p>
+</body>
+</html>
+    `);
+  });
   
   // Get dashboard stats
   app.get("/api/stats", isAuthenticated, async (req, res) => {
