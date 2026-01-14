@@ -963,17 +963,17 @@ export async function registerRoutes(
       
       // Try multiple endpoints to get user info
       const endpoints = [
-        // Direct IGSID lookup with profile_picture_url - Most promising approach
+        // Direct IGSID lookup with profile_pic - correct field name
         {
           name: "Instagram User Profile API (IGSID direct)",
-          url: `https://graph.instagram.com/v21.0/${senderId}?fields=id,username,name,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
+          url: `https://graph.instagram.com/v21.0/${senderId}?fields=id,username,name,profile_pic&access_token=${encodeURIComponent(accessToken)}`
         },
         // Facebook Graph API with profile_pic
         {
           name: "Facebook Graph API (user profile)",
           url: `https://graph.facebook.com/v21.0/${senderId}?fields=id,name,username,profile_pic&access_token=${encodeURIComponent(accessToken)}`
         },
-        // Instagram Graph API without profile_picture
+        // Instagram Graph API without profile_pic
         {
           name: "Instagram Graph API (basic)",
           url: `https://graph.instagram.com/v21.0/${senderId}?fields=id,username,name&access_token=${encodeURIComponent(accessToken)}`
@@ -984,7 +984,7 @@ export async function registerRoutes(
       if (recipientId) {
         endpoints.unshift({
           name: "Instagram Conversations API",
-          url: `https://graph.instagram.com/v21.0/${recipientId}/conversations?fields=participants{id,username,name,profile_picture_url}&user_id=${senderId}&access_token=${encodeURIComponent(accessToken)}`
+          url: `https://graph.instagram.com/v21.0/${recipientId}/conversations?fields=participants{id,username,name,profile_pic}&user_id=${senderId}&access_token=${encodeURIComponent(accessToken)}`
         });
       }
 
@@ -1001,20 +1001,20 @@ export async function registerRoutes(
             if (data.data?.[0]?.participants?.data) {
               const participant = data.data[0].participants.data.find((p: any) => p.id === senderId);
               if (participant?.username || participant?.name) {
-                let avatarUrl = participant.profile_picture_url;
+                let avatarUrl = participant.profile_pic;
                 
                 // Try Business Discovery API to get profile picture (works for Business/Creator accounts)
                 if (!avatarUrl && participant.username && recipientId) {
                   try {
                     console.log(`Trying Business Discovery API for @${participant.username}...`);
                     // Use Instagram Graph API endpoint (not Facebook) with the access token
-                    const discoveryUrl = `https://graph.instagram.com/v21.0/${recipientId}?fields=business_discovery.username(${participant.username}){profile_picture_url,name,username}&access_token=${accessToken}`;
+                    const discoveryUrl = `https://graph.instagram.com/v21.0/${recipientId}?fields=business_discovery.username(${participant.username}){profile_pic,name,username}&access_token=${accessToken}`;
                     console.log(`Business Discovery URL (truncated token): ${discoveryUrl.replace(accessToken, accessToken.slice(0, 20) + '...')}`);
                     const discoveryRes = await fetch(discoveryUrl);
                     const discoveryData = await discoveryRes.json();
                     console.log(`Business Discovery response:`, JSON.stringify(discoveryData));
-                    if (discoveryRes.ok && discoveryData?.business_discovery?.profile_picture_url) {
-                      avatarUrl = discoveryData.business_discovery.profile_picture_url;
+                    if (discoveryRes.ok && discoveryData?.business_discovery?.profile_pic) {
+                      avatarUrl = discoveryData.business_discovery.profile_pic;
                       console.log(`Business Discovery SUCCESS - got profile picture!`);
                     } else if (discoveryData?.error) {
                       console.log(`Business Discovery failed:`, discoveryData.error.message);
@@ -1037,7 +1037,7 @@ export async function registerRoutes(
               return {
                 name: data.name || data.username,
                 username: data.username || senderId,
-                avatar: data.profile_picture_url || data.profile_pic || undefined,
+                avatar: data.profile_pic || undefined,
               };
             }
           } else {
@@ -1109,16 +1109,16 @@ export async function registerRoutes(
       if (senderId && instagramUser.instagramAccessToken) {
         const accessToken = instagramUser.instagramAccessToken;
         
-        // First, try direct IGSID lookup for profile_picture_url
+        // First, try direct IGSID lookup for profile_pic (correct field name)
         try {
           console.log(`Fetching profile picture for IGSID ${senderId}...`);
-          const profileUrl = `https://graph.instagram.com/${senderId}?fields=profile_picture_url&access_token=${accessToken}`;
+          const profileUrl = `https://graph.instagram.com/${senderId}?fields=profile_pic&access_token=${accessToken}`;
           const profileRes = await fetch(profileUrl);
           const profileData = await profileRes.json();
           console.log(`Direct IGSID profile response:`, JSON.stringify(profileData));
           
-          if (profileData.profile_picture_url) {
-            senderAvatar = profileData.profile_picture_url;
+          if (profileData.profile_pic) {
+            senderAvatar = profileData.profile_pic;
             console.log(`Got profile picture from direct IGSID lookup!`);
           }
         } catch (e) {
