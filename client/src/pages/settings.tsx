@@ -275,9 +275,9 @@ export default function Settings() {
         <TabsContent value="connection" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Configuração do Instagram Business Login</CardTitle>
+              <CardTitle>Configuração do Facebook App</CardTitle>
               <CardDescription>
-                Configure as credenciais do Instagram para habilitar a conexão com sua conta.
+                Configure as credenciais do seu Facebook App para habilitar a conexão com o Instagram.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -286,23 +286,14 @@ export default function Settings() {
                   <CheckCircle className="h-4 w-4 text-green-600" />
                   <AlertTitle className="text-green-800 dark:text-green-400">Credenciais configuradas</AlertTitle>
                   <AlertDescription className="text-green-700 dark:text-green-500">
-                    Suas credenciais do Instagram estão configuradas. Você pode atualizar abaixo se necessário.
+                    Seu Facebook App está configurado. Você pode atualizar as credenciais abaixo se necessário.
                   </AlertDescription>
                 </Alert>
               )}
 
-              <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-900/20">
-                <AlertCircle className="h-4 w-4 text-amber-600" />
-                <AlertTitle className="text-amber-800 dark:text-amber-400">Importante</AlertTitle>
-                <AlertDescription className="text-amber-700 dark:text-amber-500">
-                  Use o <strong>Instagram App ID</strong> e <strong>Instagram App Secret</strong> da seção 
-                  "API setup with Instagram login" do seu app - não o Facebook App ID/Secret principal.
-                </AlertDescription>
-              </Alert>
-
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="fb-app-id">Instagram App ID</Label>
+                  <Label htmlFor="fb-app-id">Facebook App ID</Label>
                   <Input
                     id="fb-app-id"
                     type="text"
@@ -312,22 +303,22 @@ export default function Settings() {
                     data-testid="input-facebook-app-id"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Encontrado em: Instagram → API setup with Instagram login → Instagram App ID
+                    Encontrado em: Configurações do app → Básico → ID do Aplicativo
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="fb-app-secret">Instagram App Secret</Label>
+                  <Label htmlFor="fb-app-secret">Facebook App Secret</Label>
                   <Input
                     id="fb-app-secret"
                     type="password"
-                    placeholder={fbCredentials?.hasCredentials ? "••••••••••••••••" : "Insira o Instagram App Secret"}
+                    placeholder={fbCredentials?.hasCredentials ? "••••••••••••••••" : "Insira o App Secret"}
                     value={facebookAppSecret}
                     onChange={(e) => setFacebookAppSecret(e.target.value)}
                     data-testid="input-facebook-app-secret"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Encontrado em: Instagram → API setup with Instagram login → Instagram App Secret
+                    Encontrado em: Configurações do app → Básico → Chave Secreta do Aplicativo
                   </p>
                 </div>
 
@@ -348,10 +339,10 @@ export default function Settings() {
                 <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
                   <li>Acesse o <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Facebook Developers</a></li>
                   <li>Crie ou selecione seu aplicativo (tipo Business)</li>
-                  <li>No menu lateral, vá em <strong>Instagram → API setup with Instagram login</strong></li>
-                  <li>Copie o <strong>Instagram App ID</strong> (diferente do Facebook App ID)</li>
-                  <li>Copie o <strong>Instagram App Secret</strong></li>
-                  <li>Na seção "Valid OAuth Redirect URIs", adicione: <code className="bg-muted px-1 rounded text-xs">{window.location.origin}/api/instagram/callback</code></li>
+                  <li>Vá em <strong>Configurações do app → Básico</strong></li>
+                  <li>Copie o <strong>ID do Aplicativo</strong> (App ID)</li>
+                  <li>Clique em "Mostrar" e copie a <strong>Chave Secreta</strong> (App Secret)</li>
+                  <li>No menu <strong>Facebook Login → Configurações</strong>, adicione a URL de redirecionamento: <code className="bg-muted px-1 rounded text-xs">{window.location.origin}/api/instagram/callback</code></li>
                 </ol>
               </div>
             </CardContent>
