@@ -956,6 +956,36 @@ export async function registerRoutes(
     }
   }
 
+  // Helper function to fetch Instagram user info via Graph API
+  async function fetchInstagramUserInfo(senderId: string, accessToken: string): Promise<{ name: string; username: string }> {
+    try {
+      // Try to get user info from Instagram Graph API
+      const response = await fetch(
+        `${FACEBOOK_GRAPH_API}/${senderId}?fields=name,username&access_token=${accessToken}`
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Fetched Instagram user info:", data);
+        return {
+          name: data.name || data.username || senderId,
+          username: data.username || senderId,
+        };
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.log("Failed to fetch user info:", errorData);
+      }
+    } catch (error) {
+      console.error("Error fetching Instagram user info:", error);
+    }
+    
+    // Fallback to sender ID if API call fails
+    return {
+      name: `Instagram User`,
+      username: senderId,
+    };
+  }
+
   // Helper function to process incoming DMs from webhooks
   async function processWebhookMessage(messageData: any) {
     try {
@@ -996,18 +1026,29 @@ export async function registerRoutes(
 
       console.log(`Found user ${instagramUser.id} for Instagram account ${recipientId}`);
 
+      // Try to fetch sender's name and username from Instagram API
+      let senderName = senderId || "Instagram User";
+      let senderUsername = senderId || "unknown";
+      
+      if (senderId && instagramUser.instagramAccessToken) {
+        const userInfo = await fetchInstagramUserInfo(senderId, instagramUser.instagramAccessToken);
+        senderName = userInfo.name;
+        senderUsername = userInfo.username;
+        console.log(`Resolved sender info: ${senderName} (@${senderUsername})`);
+      }
+
       // Create the message
       const newMessage = await storage.createMessage({
         userId: instagramUser.id,
         instagramId: messageId,
         type: "dm",
-        senderName: senderId || "Instagram User",
-        senderUsername: senderId || "unknown",
+        senderName: senderName,
+        senderUsername: senderUsername,
         content: text,
       });
 
       // Generate AI response
-      const aiResult = await generateAIResponse(text, "dm", senderId || "User");
+      const aiResult = await generateAIResponse(text, "dm", senderName);
       await storage.createAiResponse({
         messageId: newMessage.id,
         suggestedResponse: aiResult.suggestedResponse,
