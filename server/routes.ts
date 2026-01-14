@@ -600,9 +600,9 @@ export async function registerRoutes(
           console.log(`Found ${mediaData.data.length} posts`);
           for (const post of mediaData.data) {
             console.log(`Post ${post.id}: comments_count=${post.comments_count}`);
-            // Try to get comments - using graph.facebook.com for Instagram Business API
+            // Try to get comments - using graph.instagram.com for Instagram Business Login tokens
             try {
-                const commentsUrl = `${FACEBOOK_GRAPH_API}/${post.id}/comments?fields=id,text,username,timestamp&access_token=${accessToken}`;
+                const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp&access_token=${accessToken}`;
                 console.log(`Fetching comments for post ${post.id}`);
                 const commentsResponse = await fetch(commentsUrl);
                 const commentsData = await commentsResponse.json() as any;
