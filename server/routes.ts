@@ -20,9 +20,12 @@ const INSTAGRAM_APP_SECRET = process.env.INSTAGRAM_APP_SECRET || "";
 const WEBHOOK_VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || "instagram_webhook_verify_2024";
 
 // Verify webhook signature from Meta
-function verifyWebhookSignature(payload: string, signature: string | undefined): boolean {
-  if (!signature || !INSTAGRAM_APP_SECRET) {
-    return false;
+function verifyWebhookSignature(payload: string, signature: string | undefined): { valid: boolean; debug: string } {
+  if (!signature) {
+    return { valid: false, debug: "No signature provided" };
+  }
+  if (!INSTAGRAM_APP_SECRET) {
+    return { valid: false, debug: "INSTAGRAM_APP_SECRET not configured" };
   }
   
   const signatureHash = signature.replace("sha256=", "");
@@ -31,10 +34,17 @@ function verifyWebhookSignature(payload: string, signature: string | undefined):
     .update(payload)
     .digest("hex");
   
-  return crypto.timingSafeEqual(
-    Buffer.from(signatureHash),
-    Buffer.from(expectedHash)
-  );
+  const debug = `Secret length: ${INSTAGRAM_APP_SECRET.length}, Received hash: ${signatureHash.substring(0, 16)}..., Expected hash: ${expectedHash.substring(0, 16)}..., Payload length: ${payload.length}`;
+  
+  try {
+    const valid = crypto.timingSafeEqual(
+      Buffer.from(signatureHash),
+      Buffer.from(expectedHash)
+    );
+    return { valid, debug };
+  } catch (e) {
+    return { valid: false, debug: `${debug}, Error: ${e}` };
+  }
 }
 
 // Helper to extract user info from request
@@ -823,9 +833,11 @@ export async function registerRoutes(
       // Convert Buffer to string for signature verification
       const bodyString = rawBody ? rawBody.toString("utf8") : JSON.stringify(req.body);
       
-      if (!verifyWebhookSignature(bodyString, signature)) {
-        console.error("Invalid webhook signature - received:", signature?.substring(0, 20) + "...");
-        console.error("App Secret configured:", INSTAGRAM_APP_SECRET ? "Yes" : "No");
+      const verification = verifyWebhookSignature(bodyString, signature);
+      console.log("Webhook signature verification:", verification.debug);
+      
+      if (!verification.valid) {
+        console.error("Invalid webhook signature");
         return res.sendStatus(401);
       }
 
