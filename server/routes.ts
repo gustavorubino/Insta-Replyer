@@ -606,6 +606,9 @@ export async function registerRoutes(
                 console.log(`Fetching comments for post ${post.id}`);
                 const commentsResponse = await fetch(commentsUrl);
                 const commentsData = await commentsResponse.json() as any;
+                
+                // Log full comments response for debugging
+                console.log(`Comments response for ${post.id}:`, JSON.stringify(commentsData).substring(0, 500));
 
                 if (commentsData.error) {
                   console.error("Comments fetch error:", commentsData.error);
