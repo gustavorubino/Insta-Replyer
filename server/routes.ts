@@ -6,9 +6,10 @@ import { createMessageApiSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "./replit_integrations/auth";
 
-// Facebook Login OAuth endpoints (works with Facebook Login for Business)
+// Instagram Business Login OAuth endpoints
 const FACEBOOK_GRAPH_API = "https://graph.facebook.com/v18.0";
-const FACEBOOK_AUTH_URL = "https://www.facebook.com/v18.0/dialog/oauth";
+const INSTAGRAM_AUTH_URL = "https://api.instagram.com/oauth/authorize";
+const INSTAGRAM_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 
 // Helper to extract user info from request
 async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean }> {
@@ -460,17 +461,15 @@ export async function registerRoutes(
         });
       });
 
-      // Build OAuth URL with required scopes for Facebook Login (works with Facebook Login for Business)
-      // This flow requires Instagram Business account connected to a Facebook Page
+      // Build OAuth URL with required scopes for Instagram Business Login
+      // These scopes match the user's Facebook App configuration (Instagram Business Login product)
       const scopes = [
-        "instagram_basic",
-        "instagram_manage_comments",
-        "instagram_manage_messages",
-        "pages_show_list",
-        "pages_read_engagement"
+        "instagram_business_basic",
+        "instagram_business_manage_messages",
+        "instagram_business_manage_comments"
       ].join(",");
 
-      const authUrl = `${FACEBOOK_AUTH_URL}?client_id=${user.facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=instagram_connect`;
+      const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${user.facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=instagram_connect`;
 
       res.json({ authUrl });
     } catch (error) {
@@ -514,53 +513,41 @@ export async function registerRoutes(
       const host = req.headers["x-forwarded-host"] || req.headers.host;
       const redirectUri = `${protocol}://${host}/api/instagram/callback`;
 
-      // Exchange code for access token using Facebook Graph API
-      const tokenUrl = `${FACEBOOK_GRAPH_API}/oauth/access_token?client_id=${user.facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${facebookAppSecret}&code=${code}`;
-      
-      const tokenResponse = await fetch(tokenUrl);
+      // Exchange code for access token using Instagram Business Login endpoint
+      const tokenResponse = await fetch(INSTAGRAM_TOKEN_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: user.facebookAppId,
+          client_secret: facebookAppSecret,
+          grant_type: "authorization_code",
+          redirect_uri: redirectUri,
+          code: String(code),
+        }),
+      });
       const tokenData = await tokenResponse.json() as any;
 
-      if (tokenData.error) {
-        console.error("Token exchange error:", tokenData.error);
-        return res.redirect("/settings?instagram_error=" + encodeURIComponent(tokenData.error.message || "token_exchange_failed"));
+      if (tokenData.error_type || tokenData.error_message) {
+        console.error("Token exchange error:", tokenData);
+        return res.redirect("/settings?instagram_error=" + encodeURIComponent(tokenData.error_message || "token_exchange_failed"));
       }
 
-      const accessToken = tokenData.access_token;
+      const shortLivedToken = tokenData.access_token;
+      const instagramUserId = tokenData.user_id;
 
-      // Get long-lived token
-      const longLivedUrl = `${FACEBOOK_GRAPH_API}/oauth/access_token?grant_type=fb_exchange_token&client_id=${user.facebookAppId}&client_secret=${facebookAppSecret}&fb_exchange_token=${accessToken}`;
+      // Exchange for long-lived token (60 days)
+      const longLivedUrl = `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${facebookAppSecret}&access_token=${shortLivedToken}`;
       
       const longLivedResponse = await fetch(longLivedUrl);
       const longLivedData = await longLivedResponse.json() as any;
-      const longLivedToken = longLivedData.access_token || accessToken;
+      const longLivedToken = longLivedData.access_token || shortLivedToken;
 
-      // Get user's Facebook Pages
-      const accountsUrl = `${FACEBOOK_GRAPH_API}/me/accounts?access_token=${longLivedToken}`;
-      const accountsResponse = await fetch(accountsUrl);
-      const accountsData = await accountsResponse.json() as any;
-
-      if (!accountsData.data || accountsData.data.length === 0) {
-        return res.redirect("/settings?instagram_error=no_pages_found");
-      }
-
-      // Get Instagram account connected to the first page
-      const pageId = accountsData.data[0].id;
-      const pageAccessToken = accountsData.data[0].access_token;
-
-      const igAccountUrl = `${FACEBOOK_GRAPH_API}/${pageId}?fields=instagram_business_account&access_token=${pageAccessToken}`;
-      const igAccountResponse = await fetch(igAccountUrl);
-      const igAccountData = await igAccountResponse.json() as any;
-
-      if (!igAccountData.instagram_business_account) {
-        return res.redirect("/settings?instagram_error=no_instagram_business_account");
-      }
-
-      const instagramAccountId = igAccountData.instagram_business_account.id;
-
-      // Get Instagram username
-      const igUserUrl = `${FACEBOOK_GRAPH_API}/${instagramAccountId}?fields=username&access_token=${pageAccessToken}`;
+      // Get Instagram user info using Instagram Graph API
+      const igUserUrl = `https://graph.instagram.com/me?fields=user_id,username&access_token=${longLivedToken}`;
       const igUserResponse = await fetch(igUserUrl);
       const igUserData = await igUserResponse.json() as any;
+      
+      const instagramAccountId = String(igUserData.user_id || instagramUserId);
       const instagramUsername = igUserData.username || "";
 
       // Update user with Instagram credentials
