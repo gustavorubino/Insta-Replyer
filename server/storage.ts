@@ -41,6 +41,8 @@ export interface IStorage {
   getSettings(): Promise<Record<string, string>>;
   setSetting(key: string, value: string): Promise<void>;
 
+  clearAllMessages(): Promise<{ aiResponses: number; messages: number }>;
+
   getStats(userId?: string, isAdmin?: boolean): Promise<{
     totalMessages: number;
     pendingMessages: number;
@@ -211,6 +213,18 @@ export class DatabaseStorage implements IStorage {
         target: settings.key,
         set: { value, updatedAt: new Date() },
       });
+  }
+
+  async clearAllMessages(): Promise<{ aiResponses: number; messages: number }> {
+    // Delete AI responses first (foreign key constraint)
+    const deletedResponses = await db.delete(aiResponses).returning();
+    // Then delete messages
+    const deletedMessages = await db.delete(instagramMessages).returning();
+    
+    return {
+      aiResponses: deletedResponses.length,
+      messages: deletedMessages.length,
+    };
   }
 
   async getStats(userId?: string, isAdmin?: boolean): Promise<{

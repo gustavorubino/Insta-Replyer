@@ -132,6 +132,26 @@ export async function registerRoutes(
     }
   });
 
+  // Clear all messages (admin only)
+  app.delete("/api/clear-messages", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const result = await storage.clearAllMessages();
+      res.json({ 
+        success: true, 
+        message: "All messages cleared",
+        deleted: result
+      });
+    } catch (error) {
+      console.error("Error clearing messages:", error);
+      res.status(500).json({ error: "Failed to clear messages" });
+    }
+  });
+
   // Get single message
   app.get("/api/messages/:id", isAuthenticated, async (req, res) => {
     try {
