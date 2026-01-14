@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, Filter, RefreshCw, MessageSquare, AtSign, Download } from "lucide-react";
+import { Search, Filter, RefreshCw, MessageSquare, AtSign } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -118,37 +118,6 @@ export default function Queue() {
     },
   });
 
-  const syncMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/instagram/sync");
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/pending"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/messages/recent"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
-      const total = (data.synced?.messages || 0) + (data.synced?.comments || 0);
-      if (total > 0) {
-        toast({
-          title: "Sincronização concluída",
-          description: `${data.synced?.comments || 0} comentários e ${data.synced?.messages || 0} DMs sincronizados.`,
-        });
-      } else {
-        toast({
-          title: "Sincronização concluída",
-          description: "Nenhuma nova mensagem encontrada.",
-        });
-      }
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Erro na sincronização",
-        description: error.message || "Não foi possível sincronizar com o Instagram.",
-        variant: "destructive",
-      });
-    },
-  });
-
   const handleViewMessage = (message: MessageWithResponse) => {
     setSelectedMessage(message);
     setIsModalOpen(true);
@@ -187,26 +156,15 @@ export default function Queue() {
             Revise e aprove as respostas sugeridas pela IA
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="default"
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-            data-testid="button-sync-instagram"
-          >
-            <Download className={`h-4 w-4 mr-2 ${syncMutation.isPending ? "animate-pulse" : ""}`} />
-            {syncMutation.isPending ? "Sincronizando..." : "Sincronizar Instagram"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => refetch()}
-            disabled={isRefetching}
-            data-testid="button-refresh-queue"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? "animate-spin" : ""}`} />
-            Atualizar
-          </Button>
-        </div>
+        <Button
+          variant="outline"
+          onClick={() => refetch()}
+          disabled={isRefetching}
+          data-testid="button-refresh-queue"
+        >
+          <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? "animate-spin" : ""}`} />
+          Atualizar
+        </Button>
       </div>
 
       <div className="flex items-center gap-4 flex-wrap">
