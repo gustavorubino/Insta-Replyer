@@ -963,19 +963,20 @@ export async function registerRoutes(
       
       // Try multiple endpoints to get user info
       const endpoints = [
-        // Instagram Graph API with different field combinations
+        // Direct IGSID lookup with profile_picture_url - Most promising approach
         {
-          name: "Instagram Graph API (v21)",
+          name: "Instagram User Profile API (IGSID direct)",
+          url: `https://graph.instagram.com/v21.0/${senderId}?fields=id,username,name,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
+        },
+        // Facebook Graph API with profile_pic
+        {
+          name: "Facebook Graph API (user profile)",
+          url: `https://graph.facebook.com/v21.0/${senderId}?fields=id,name,username,profile_pic&access_token=${encodeURIComponent(accessToken)}`
+        },
+        // Instagram Graph API without profile_picture
+        {
+          name: "Instagram Graph API (basic)",
           url: `https://graph.instagram.com/v21.0/${senderId}?fields=id,username,name&access_token=${encodeURIComponent(accessToken)}`
-        },
-        {
-          name: "Instagram Graph API (me)",
-          url: `https://graph.instagram.com/me?fields=user_id,username,name&access_token=${encodeURIComponent(accessToken)}`
-        },
-        // Facebook Graph API with user node
-        {
-          name: "Facebook Graph API (user node)",
-          url: `${FACEBOOK_GRAPH_API}/${senderId}?fields=id,name,username,profile_pic&access_token=${encodeURIComponent(accessToken)}`
         }
       ];
 
