@@ -957,23 +957,32 @@ export async function registerRoutes(
   }
 
   // Helper function to fetch Instagram user info via Graph API
-  async function fetchInstagramUserInfo(senderId: string, accessToken: string): Promise<{ name: string; username: string }> {
+  async function fetchInstagramUserInfo(senderId: string, accessToken: string): Promise<{ name: string; username: string; avatar?: string }> {
     try {
-      // Try to get user info from Instagram Graph API
-      const response = await fetch(
-        `${FACEBOOK_GRAPH_API}/${senderId}?fields=name,username&access_token=${accessToken}`
-      );
+      // URL-encode the access token to handle special characters
+      const encodedToken = encodeURIComponent(accessToken);
+      const url = `${FACEBOOK_GRAPH_API}/${senderId}?fields=name,username,profile_pic&access_token=${encodedToken}`;
+      
+      console.log(`Fetching user info for ${senderId}, token length: ${accessToken.length}`);
+      
+      const response = await fetch(url);
       
       if (response.ok) {
         const data = await response.json();
         console.log("Fetched Instagram user info:", data);
         return {
-          name: data.name || data.username || senderId,
+          name: data.name || data.username || `Instagram User`,
           username: data.username || senderId,
+          avatar: data.profile_pic || undefined,
         };
       } else {
         const errorData = await response.json().catch(() => ({}));
-        console.log("Failed to fetch user info:", errorData);
+        console.log("Failed to fetch user info:", JSON.stringify(errorData));
+        
+        // If token is invalid, this might be a permission issue
+        if (errorData?.error?.code === 190) {
+          console.log("Access token issue - user may need to reconnect Instagram");
+        }
       }
     } catch (error) {
       console.error("Error fetching Instagram user info:", error);
@@ -1029,12 +1038,14 @@ export async function registerRoutes(
       // Try to fetch sender's name and username from Instagram API
       let senderName = senderId || "Instagram User";
       let senderUsername = senderId || "unknown";
+      let senderAvatar: string | undefined = undefined;
       
       if (senderId && instagramUser.instagramAccessToken) {
         const userInfo = await fetchInstagramUserInfo(senderId, instagramUser.instagramAccessToken);
         senderName = userInfo.name;
         senderUsername = userInfo.username;
-        console.log(`Resolved sender info: ${senderName} (@${senderUsername})`);
+        senderAvatar = userInfo.avatar;
+        console.log(`Resolved sender info: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}`);
       }
 
       // Create the message
@@ -1044,6 +1055,7 @@ export async function registerRoutes(
         type: "dm",
         senderName: senderName,
         senderUsername: senderUsername,
+        senderAvatar: senderAvatar || null,
         content: text,
       });
 
