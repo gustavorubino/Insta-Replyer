@@ -588,8 +588,10 @@ export async function registerRoutes(
       // Fetch recent media (posts) to get comments
       try {
         const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,comments_count&access_token=${accessToken}&limit=10`;
+        console.log("Fetching media from:", mediaUrl.replace(accessToken, "TOKEN_HIDDEN"));
         const mediaResponse = await fetch(mediaUrl);
         const mediaData = await mediaResponse.json() as any;
+        console.log("Media response:", JSON.stringify(mediaData).substring(0, 500));
 
         if (mediaData.error) {
           console.error("Media fetch error:", mediaData.error);
@@ -659,72 +661,10 @@ export async function registerRoutes(
         results.errors.push("Failed to fetch comments: " + (error.message || "Unknown error"));
       }
 
-      // Fetch Instagram DMs using Facebook Graph API
-      // The instagram_business_manage_messages permission allows access to conversations
-      try {
-        const conversationsUrl = `${FACEBOOK_GRAPH_API}/${instagramId}/conversations?fields=id,participants,messages{id,message,from,created_time}&access_token=${accessToken}`;
-        const conversationsResponse = await fetch(conversationsUrl);
-        const conversationsData = await conversationsResponse.json() as any;
-
-        if (conversationsData.error) {
-          // DM access might not be available without specific permissions
-          console.error("DM fetch error:", conversationsData.error);
-          if (conversationsData.error.code !== 100) { // 100 = permissions error
-            results.errors.push("Failed to fetch DMs: " + (conversationsData.error.message || "API error"));
-          }
-        } else if (conversationsData.data) {
-          for (const conversation of conversationsData.data) {
-            if (conversation.messages?.data) {
-              for (const message of conversation.messages.data) {
-                try {
-                  // Skip messages from the account owner
-                  if (message.from?.id === instagramId) continue;
-
-                  const existingMessage = await storage.getMessageByInstagramId(message.id);
-                  if (!existingMessage) {
-                    const senderUsername = message.from?.username || "Unknown";
-                    
-                    const newMessage = await storage.createMessage({
-                      userId,
-                      instagramId: message.id,
-                      type: "dm",
-                      senderName: senderUsername,
-                      senderUsername: senderUsername,
-                      content: message.message || "",
-                      status: "pending",
-                    });
-
-                    try {
-                      const aiResult = await generateAIResponse(
-                        message.message || "",
-                        "dm",
-                        senderUsername
-                      );
-
-                      await storage.createAiResponse({
-                        messageId: newMessage.id,
-                        suggestedResponse: aiResult.suggestedResponse,
-                        confidenceScore: aiResult.confidenceScore,
-                      });
-                    } catch (aiError: any) {
-                      console.error("AI response error for DM:", aiError);
-                      results.errors.push(`AI error for DM ${message.id}: ${aiError.message}`);
-                    }
-
-                    results.messages++;
-                  }
-                } catch (dmError: any) {
-                  console.error("Error processing DM:", dmError);
-                  results.errors.push(`Error processing DM: ${dmError.message}`);
-                }
-              }
-            }
-          }
-        }
-      } catch (error: any) {
-        console.error("Error fetching DMs:", error);
-        results.errors.push("Failed to fetch DMs: " + (error.message || "Unknown error"));
-      }
+      // Note: DMs require Facebook Page token, not Instagram token
+      // Instagram Business Login tokens only work with graph.instagram.com
+      // For now, we skip DM sync as it requires a different OAuth flow (Facebook Login for Business)
+      // This would need the user to connect via Facebook Login and have a Page connected to their Instagram
 
       res.json({
         success: true,
