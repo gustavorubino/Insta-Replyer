@@ -392,19 +392,15 @@ export async function registerRoutes(
 
   // ============ Facebook/Instagram Integration ============
 
-  // Get Facebook App credentials (admin only)
+  // Get Facebook App credentials for current user
   app.get("/api/facebook/credentials", isAuthenticated, async (req, res) => {
     try {
-      const { isAdmin } = await getUserContext(req);
-      if (!isAdmin) {
-        return res.status(403).json({ error: "Admin access required" });
-      }
+      const { userId } = await getUserContext(req);
+      const user = await authStorage.getUser(userId);
 
-      const allSettings = await storage.getSettings();
       res.json({
-        facebookAppId: allSettings.facebookAppId || "",
-        facebookAppSecret: allSettings.facebookAppSecret ? "********" : "",
-        hasCredentials: !!(allSettings.facebookAppId && allSettings.facebookAppSecret),
+        facebookAppId: user?.facebookAppId || "",
+        hasCredentials: !!(user?.facebookAppId && user?.facebookAppSecret),
       });
     } catch (error) {
       console.error("Error fetching Facebook credentials:", error);
@@ -412,22 +408,24 @@ export async function registerRoutes(
     }
   });
 
-  // Save Facebook App credentials (admin only)
+  // Save Facebook App credentials for current user
   app.post("/api/facebook/credentials", isAuthenticated, async (req, res) => {
     try {
-      const { isAdmin } = await getUserContext(req);
-      if (!isAdmin) {
-        return res.status(403).json({ error: "Admin access required" });
-      }
-
+      const { userId } = await getUserContext(req);
       const { facebookAppId, facebookAppSecret } = req.body;
 
       if (!facebookAppId || !facebookAppSecret) {
         return res.status(400).json({ error: "App ID and App Secret are required" });
       }
 
-      await storage.setSetting("facebookAppId", facebookAppId);
-      await storage.setSetting("facebookAppSecret", facebookAppSecret);
+      // Encrypt the secret before storing
+      const { encrypt } = await import("./encryption");
+      const encryptedSecret = encrypt(facebookAppSecret);
+
+      await authStorage.updateUser(userId, {
+        facebookAppId,
+        facebookAppSecret: encryptedSecret,
+      });
 
       res.json({ success: true });
     } catch (error) {
@@ -439,11 +437,11 @@ export async function registerRoutes(
   // Start Instagram OAuth flow
   app.get("/api/instagram/auth", isAuthenticated, async (req, res) => {
     try {
-      const allSettings = await storage.getSettings();
-      const facebookAppId = allSettings.facebookAppId;
+      const { userId } = await getUserContext(req);
+      const user = await authStorage.getUser(userId);
 
-      if (!facebookAppId) {
-        return res.status(400).json({ error: "Facebook App not configured. Please ask an admin to configure credentials." });
+      if (!user?.facebookAppId || !user?.facebookAppSecret) {
+        return res.status(400).json({ error: "Facebook App not configured. Please configure your Facebook App credentials first." });
       }
 
       // Get the base URL for redirect
@@ -452,8 +450,6 @@ export async function registerRoutes(
       const redirectUri = `${protocol}://${host}/api/instagram/callback`;
 
       // Store user ID in session for callback
-      const user = req.user as any;
-      const userId = user.actualUserId || user.claims?.sub || user.id;
       (req.session as any).instagramAuthUserId = userId;
       
       // Save session before redirect
@@ -475,7 +471,7 @@ export async function registerRoutes(
         "business_management"
       ].join(",");
 
-      const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=instagram_connect`;
+      const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${user.facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=instagram_connect`;
 
       res.json({ authUrl });
     } catch (error) {
@@ -491,32 +487,36 @@ export async function registerRoutes(
 
       if (oauthError) {
         console.error("OAuth error:", oauthError, error_description);
-        return res.redirect("/?instagram_error=" + encodeURIComponent(String(error_description || oauthError)));
+        return res.redirect("/settings?instagram_error=" + encodeURIComponent(String(error_description || oauthError)));
       }
 
       if (!code) {
-        return res.redirect("/?instagram_error=no_code");
+        return res.redirect("/settings?instagram_error=no_code");
       }
 
       const userId = (req.session as any)?.instagramAuthUserId;
       if (!userId) {
-        return res.redirect("/?instagram_error=session_expired");
+        return res.redirect("/settings?instagram_error=session_expired");
       }
 
-      const allSettings = await storage.getSettings();
-      const facebookAppId = allSettings.facebookAppId;
-      const facebookAppSecret = allSettings.facebookAppSecret;
-
-      if (!facebookAppId || !facebookAppSecret) {
-        return res.redirect("/?instagram_error=credentials_missing");
+      // Get user's credentials
+      const user = await authStorage.getUser(userId);
+      if (!user?.facebookAppId || !user?.facebookAppSecret) {
+        return res.redirect("/settings?instagram_error=credentials_missing");
       }
+
+      // Decrypt the secret
+      const { decrypt, isEncrypted } = await import("./encryption");
+      const facebookAppSecret = isEncrypted(user.facebookAppSecret) 
+        ? decrypt(user.facebookAppSecret) 
+        : user.facebookAppSecret;
 
       const protocol = req.headers["x-forwarded-proto"] || "https";
       const host = req.headers["x-forwarded-host"] || req.headers.host;
       const redirectUri = `${protocol}://${host}/api/instagram/callback`;
 
       // Exchange code for access token
-      const tokenUrl = `${FACEBOOK_GRAPH_API}/oauth/access_token?client_id=${facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${facebookAppSecret}&code=${code}`;
+      const tokenUrl = `${FACEBOOK_GRAPH_API}/oauth/access_token?client_id=${user.facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${facebookAppSecret}&code=${code}`;
 
       const tokenResponse = await fetch(tokenUrl);
       const tokenData = await tokenResponse.json() as any;
@@ -529,7 +529,7 @@ export async function registerRoutes(
       const accessToken = tokenData.access_token;
 
       // Get long-lived token
-      const longLivedUrl = `${FACEBOOK_GRAPH_API}/oauth/access_token?grant_type=fb_exchange_token&client_id=${facebookAppId}&client_secret=${facebookAppSecret}&fb_exchange_token=${accessToken}`;
+      const longLivedUrl = `${FACEBOOK_GRAPH_API}/oauth/access_token?grant_type=fb_exchange_token&client_id=${user.facebookAppId}&client_secret=${facebookAppSecret}&fb_exchange_token=${accessToken}`;
       
       const longLivedResponse = await fetch(longLivedUrl);
       const longLivedData = await longLivedResponse.json() as any;
@@ -565,14 +565,11 @@ export async function registerRoutes(
       const instagramUsername = igUserData.username || "";
 
       // Update user with Instagram credentials
-      const user = await authStorage.getUser(userId);
-      if (user) {
-        await authStorage.updateUser(userId, {
-          instagramAccountId,
-          instagramUsername,
-          instagramAccessToken: pageAccessToken,
-        });
-      }
+      await authStorage.updateUser(userId, {
+        instagramAccountId,
+        instagramUsername,
+        instagramAccessToken: pageAccessToken,
+      });
 
       // Update global settings
       await storage.setSetting("instagramConnected", "true");
@@ -594,14 +591,11 @@ export async function registerRoutes(
       const { userId } = await getUserContext(req);
       
       // Clear user's Instagram credentials
-      const user = await authStorage.getUser(userId);
-      if (user) {
-        await authStorage.updateUser(userId, {
-          instagramAccountId: null,
-          instagramUsername: null,
-          instagramAccessToken: null,
-        });
-      }
+      await authStorage.updateUser(userId, {
+        instagramAccountId: null,
+        instagramUsername: null,
+        instagramAccessToken: null,
+      });
 
       // Update global settings
       await storage.setSetting("instagramConnected", "false");

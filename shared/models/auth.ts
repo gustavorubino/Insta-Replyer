@@ -23,6 +23,8 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   isAdmin: boolean("is_admin").default(false).notNull(),
+  facebookAppId: varchar("facebook_app_id"),
+  facebookAppSecret: varchar("facebook_app_secret"),
   instagramAccountId: varchar("instagram_account_id"),
   instagramUsername: varchar("instagram_username"),
   instagramAccessToken: varchar("instagram_access_token"),
