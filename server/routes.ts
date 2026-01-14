@@ -461,14 +461,14 @@ export async function registerRoutes(
       });
 
       // Build OAuth URL with required scopes for Instagram Business API (2025)
-      // Note: instagram_basic was replaced by instagram_business_basic
-      // However, instagram_manage_messages and instagram_manage_comments do NOT have the "business_" prefix
+      // Required scopes for Instagram Graph API with Business/Creator accounts
       const scopes = [
-        "instagram_business_basic",
+        "instagram_basic",
         "instagram_manage_messages",
         "instagram_manage_comments",
         "pages_show_list",
-        "pages_read_engagement"
+        "pages_read_engagement",
+        "pages_manage_metadata"
       ].join(",");
 
       const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${user.facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=instagram_connect`;
