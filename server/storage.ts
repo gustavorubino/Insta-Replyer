@@ -26,6 +26,7 @@ export interface IStorage {
   getPendingMessages(userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]>;
   getRecentMessages(limit?: number, userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]>;
   getMessage(id: number): Promise<MessageWithResponse | undefined>;
+  getMessageByInstagramId(instagramId: string): Promise<InstagramMessage | undefined>;
   createMessage(message: InsertInstagramMessage): Promise<InstagramMessage>;
   updateMessageStatus(id: number, status: string): Promise<void>;
 
@@ -125,6 +126,14 @@ export class DatabaseStorage implements IStorage {
       ...result.instagram_messages,
       aiResponse: result.ai_responses,
     };
+  }
+
+  async getMessageByInstagramId(instagramId: string): Promise<InstagramMessage | undefined> {
+    const [message] = await db
+      .select()
+      .from(instagramMessages)
+      .where(eq(instagramMessages.instagramId, instagramId));
+    return message || undefined;
   }
 
   async createMessage(message: InsertInstagramMessage): Promise<InstagramMessage> {

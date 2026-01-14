@@ -571,6 +571,175 @@ export async function registerRoutes(
     }
   });
 
+  // Sync Instagram messages and comments
+  app.post("/api/instagram/sync", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const user = await authStorage.getUser(userId);
+
+      if (!user?.instagramAccessToken || !user?.instagramAccountId) {
+        return res.status(400).json({ error: "Instagram not connected" });
+      }
+
+      const accessToken = user.instagramAccessToken;
+      const instagramId = user.instagramAccountId;
+      const results = { messages: 0, comments: 0, errors: [] as string[] };
+
+      // Fetch recent media (posts) to get comments
+      try {
+        const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,comments_count&access_token=${accessToken}&limit=10`;
+        const mediaResponse = await fetch(mediaUrl);
+        const mediaData = await mediaResponse.json() as any;
+
+        if (mediaData.error) {
+          console.error("Media fetch error:", mediaData.error);
+          results.errors.push("Failed to fetch posts: " + (mediaData.error.message || "API error"));
+        } else if (mediaData.data) {
+          for (const post of mediaData.data) {
+            if (post.comments_count > 0) {
+              try {
+                const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp&access_token=${accessToken}`;
+                const commentsResponse = await fetch(commentsUrl);
+                const commentsData = await commentsResponse.json() as any;
+
+                if (commentsData.error) {
+                  console.error("Comments fetch error:", commentsData.error);
+                  continue;
+                }
+
+                if (commentsData.data) {
+                  for (const comment of commentsData.data) {
+                    try {
+                      const existingMessage = await storage.getMessageByInstagramId(comment.id);
+                      if (!existingMessage) {
+                        const newMessage = await storage.createMessage({
+                          userId,
+                          instagramId: comment.id,
+                          type: "comment",
+                          senderName: comment.username || "Unknown",
+                          senderUsername: comment.username || "unknown",
+                          content: comment.text,
+                          postId: post.id,
+                          status: "pending",
+                        });
+
+                        try {
+                          const aiResult = await generateAIResponse(
+                            comment.text,
+                            "comment",
+                            comment.username || "Unknown"
+                          );
+
+                          await storage.createAiResponse({
+                            messageId: newMessage.id,
+                            suggestedResponse: aiResult.suggestedResponse,
+                            confidenceScore: aiResult.confidenceScore,
+                          });
+                        } catch (aiError: any) {
+                          console.error("AI response error for comment:", aiError);
+                          results.errors.push(`AI error for comment ${comment.id}: ${aiError.message}`);
+                        }
+
+                        results.comments++;
+                      }
+                    } catch (commentError: any) {
+                      console.error("Error processing comment:", commentError);
+                      results.errors.push(`Error processing comment: ${commentError.message}`);
+                    }
+                  }
+                }
+              } catch (postError: any) {
+                console.error("Error fetching comments for post:", postError);
+              }
+            }
+          }
+        }
+      } catch (error: any) {
+        console.error("Error fetching comments:", error);
+        results.errors.push("Failed to fetch comments: " + (error.message || "Unknown error"));
+      }
+
+      // Fetch Instagram DMs using Facebook Graph API
+      // The instagram_business_manage_messages permission allows access to conversations
+      try {
+        const conversationsUrl = `${FACEBOOK_GRAPH_API}/${instagramId}/conversations?fields=id,participants,messages{id,message,from,created_time}&access_token=${accessToken}`;
+        const conversationsResponse = await fetch(conversationsUrl);
+        const conversationsData = await conversationsResponse.json() as any;
+
+        if (conversationsData.error) {
+          // DM access might not be available without specific permissions
+          console.error("DM fetch error:", conversationsData.error);
+          if (conversationsData.error.code !== 100) { // 100 = permissions error
+            results.errors.push("Failed to fetch DMs: " + (conversationsData.error.message || "API error"));
+          }
+        } else if (conversationsData.data) {
+          for (const conversation of conversationsData.data) {
+            if (conversation.messages?.data) {
+              for (const message of conversation.messages.data) {
+                try {
+                  // Skip messages from the account owner
+                  if (message.from?.id === instagramId) continue;
+
+                  const existingMessage = await storage.getMessageByInstagramId(message.id);
+                  if (!existingMessage) {
+                    const senderUsername = message.from?.username || "Unknown";
+                    
+                    const newMessage = await storage.createMessage({
+                      userId,
+                      instagramId: message.id,
+                      type: "dm",
+                      senderName: senderUsername,
+                      senderUsername: senderUsername,
+                      content: message.message || "",
+                      status: "pending",
+                    });
+
+                    try {
+                      const aiResult = await generateAIResponse(
+                        message.message || "",
+                        "dm",
+                        senderUsername
+                      );
+
+                      await storage.createAiResponse({
+                        messageId: newMessage.id,
+                        suggestedResponse: aiResult.suggestedResponse,
+                        confidenceScore: aiResult.confidenceScore,
+                      });
+                    } catch (aiError: any) {
+                      console.error("AI response error for DM:", aiError);
+                      results.errors.push(`AI error for DM ${message.id}: ${aiError.message}`);
+                    }
+
+                    results.messages++;
+                  }
+                } catch (dmError: any) {
+                  console.error("Error processing DM:", dmError);
+                  results.errors.push(`Error processing DM: ${dmError.message}`);
+                }
+              }
+            }
+          }
+        }
+      } catch (error: any) {
+        console.error("Error fetching DMs:", error);
+        results.errors.push("Failed to fetch DMs: " + (error.message || "Unknown error"));
+      }
+
+      res.json({
+        success: true,
+        synced: {
+          messages: results.messages,
+          comments: results.comments,
+        },
+        errors: results.errors.length > 0 ? results.errors : undefined,
+      });
+    } catch (error) {
+      console.error("Error syncing Instagram:", error);
+      res.status(500).json({ error: "Failed to sync Instagram" });
+    }
+  });
+
   // Disconnect Instagram
   app.post("/api/instagram/disconnect", isAuthenticated, async (req, res) => {
     try {
