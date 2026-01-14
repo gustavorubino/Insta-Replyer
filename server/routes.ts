@@ -957,19 +957,57 @@ export async function registerRoutes(
   }
 
   // Helper function to fetch Instagram user info via Graph API
-  async function fetchInstagramUserInfo(senderId: string, accessToken: string): Promise<{ name: string; username: string; avatar?: string }> {
+  async function fetchInstagramUserInfo(senderId: string, accessToken: string, recipientId?: string): Promise<{ name: string; username: string; avatar?: string }> {
     try {
-      // URL-encode the access token to handle special characters
-      const encodedToken = encodeURIComponent(accessToken);
-      const url = `${FACEBOOK_GRAPH_API}/${senderId}?fields=name,username,profile_pic&access_token=${encodedToken}`;
+      console.log(`Fetching user info for sender ${senderId}, token length: ${accessToken.length}`);
       
-      console.log(`Fetching user info for ${senderId}, token length: ${accessToken.length}`);
+      // Try Instagram Graph API first (for Instagram Business tokens)
+      const instagramUrl = `https://graph.instagram.com/${senderId}?fields=name,username,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`;
+      console.log(`Trying Instagram Graph API...`);
       
-      const response = await fetch(url);
+      let response = await fetch(instagramUrl);
       
       if (response.ok) {
         const data = await response.json();
-        console.log("Fetched Instagram user info:", data);
+        console.log("Fetched Instagram user info (Instagram API):", JSON.stringify(data));
+        return {
+          name: data.name || data.username || `Instagram User`,
+          username: data.username || senderId,
+          avatar: data.profile_picture_url || undefined,
+        };
+      }
+      
+      // Try Facebook Graph API with conversations endpoint
+      if (recipientId) {
+        console.log(`Trying Conversations API for recipient ${recipientId}...`);
+        const conversationsUrl = `${FACEBOOK_GRAPH_API}/${recipientId}/conversations?fields=participants&user_id=${senderId}&access_token=${encodeURIComponent(accessToken)}`;
+        
+        response = await fetch(conversationsUrl);
+        if (response.ok) {
+          const data = await response.json();
+          console.log("Conversations API response:", JSON.stringify(data));
+          
+          if (data.data?.[0]?.participants?.data) {
+            const participant = data.data[0].participants.data.find((p: any) => p.id === senderId);
+            if (participant) {
+              return {
+                name: participant.name || participant.username || `Instagram User`,
+                username: participant.username || senderId,
+                avatar: participant.profile_pic || undefined,
+              };
+            }
+          }
+        }
+      }
+      
+      // Try direct Facebook Graph API call
+      console.log(`Trying Facebook Graph API...`);
+      const fbUrl = `${FACEBOOK_GRAPH_API}/${senderId}?fields=name,username,profile_pic&access_token=${encodeURIComponent(accessToken)}`;
+      response = await fetch(fbUrl);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Fetched user info (Facebook API):", JSON.stringify(data));
         return {
           name: data.name || data.username || `Instagram User`,
           username: data.username || senderId,
@@ -977,12 +1015,7 @@ export async function registerRoutes(
         };
       } else {
         const errorData = await response.json().catch(() => ({}));
-        console.log("Failed to fetch user info:", JSON.stringify(errorData));
-        
-        // If token is invalid, this might be a permission issue
-        if (errorData?.error?.code === 190) {
-          console.log("Access token issue - user may need to reconnect Instagram");
-        }
+        console.log("All API attempts failed. Last error:", JSON.stringify(errorData));
       }
     } catch (error) {
       console.error("Error fetching Instagram user info:", error);
@@ -1041,7 +1074,7 @@ export async function registerRoutes(
       let senderAvatar: string | undefined = undefined;
       
       if (senderId && instagramUser.instagramAccessToken) {
-        const userInfo = await fetchInstagramUserInfo(senderId, instagramUser.instagramAccessToken);
+        const userInfo = await fetchInstagramUserInfo(senderId, instagramUser.instagramAccessToken, recipientId);
         senderName = userInfo.name;
         senderUsername = userInfo.username;
         senderAvatar = userInfo.avatar;
