@@ -460,15 +460,14 @@ export async function registerRoutes(
         });
       });
 
-      // Build OAuth URL with required scopes for Instagram
+      // Build OAuth URL with required scopes for Instagram Business API (2025)
+      // Note: instagram_basic was replaced by instagram_business_basic
       const scopes = [
-        "instagram_basic",
-        "instagram_manage_messages",
-        "instagram_manage_comments",
+        "instagram_business_basic",
+        "instagram_business_manage_messages",
+        "instagram_business_manage_comments",
         "pages_show_list",
-        "pages_manage_metadata",
-        "pages_read_engagement",
-        "business_management"
+        "pages_read_engagement"
       ].join(",");
 
       const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${user.facebookAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=instagram_connect`;
