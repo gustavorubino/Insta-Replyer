@@ -608,12 +608,18 @@ export async function registerRoutes(
                     try {
                       const existingMessage = await storage.getMessageByInstagramId(comment.id);
                       if (!existingMessage) {
+                        // Extract username from different possible fields
+                        const username = comment.username || comment.from?.username || "unknown";
+                        const displayName = comment.from?.name || comment.username || "Unknown";
+                        
+                        console.log(`Processing comment ${comment.id}: username=${username}, from=${JSON.stringify(comment.from)}`);
+                        
                         const newMessage = await storage.createMessage({
                           userId,
                           instagramId: comment.id,
                           type: "comment",
-                          senderName: comment.username || "Unknown",
-                          senderUsername: comment.username || "unknown",
+                          senderName: displayName,
+                          senderUsername: username,
                           content: comment.text,
                           postId: post.id,
                           status: "pending",
@@ -645,8 +651,8 @@ export async function registerRoutes(
                   }
                 };
 
-                // Fetch comments with pagination support
-                let commentsUrl: string | null = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp&access_token=${accessToken}&limit=50`;
+                // Fetch comments with pagination support - include 'from' field for user info
+                let commentsUrl: string | null = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from&access_token=${accessToken}&limit=50`;
                 let pageCount = 0;
                 const maxPages = 3; // Limit to 3 pages per post to avoid timeout
                 
