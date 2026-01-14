@@ -983,7 +983,7 @@ export async function registerRoutes(
       if (recipientId) {
         endpoints.unshift({
           name: "Instagram Conversations API",
-          url: `https://graph.instagram.com/v21.0/${recipientId}/conversations?fields=participants{id,username,name}&user_id=${senderId}&access_token=${encodeURIComponent(accessToken)}`
+          url: `https://graph.instagram.com/v21.0/${recipientId}/conversations?fields=participants{id,username,name,profile_picture_url}&user_id=${senderId}&access_token=${encodeURIComponent(accessToken)}`
         });
       }
 
