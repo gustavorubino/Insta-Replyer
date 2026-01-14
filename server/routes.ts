@@ -5,6 +5,7 @@ import { generateAIResponse, regenerateResponse } from "./openai";
 import { createMessageApiSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "./replit_integrations/auth";
+import crypto from "crypto";
 
 // Instagram Business Login OAuth endpoints
 const FACEBOOK_GRAPH_API = "https://graph.facebook.com/v18.0";
@@ -17,6 +18,24 @@ const INSTAGRAM_APP_SECRET = process.env.INSTAGRAM_APP_SECRET || "";
 
 // Webhook verification token (generated randomly for security)
 const WEBHOOK_VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || "instagram_webhook_verify_2024";
+
+// Verify webhook signature from Meta
+function verifyWebhookSignature(payload: string, signature: string | undefined): boolean {
+  if (!signature || !INSTAGRAM_APP_SECRET) {
+    return false;
+  }
+  
+  const signatureHash = signature.replace("sha256=", "");
+  const expectedHash = crypto
+    .createHmac("sha256", INSTAGRAM_APP_SECRET)
+    .update(payload)
+    .digest("hex");
+  
+  return crypto.timingSafeEqual(
+    Buffer.from(signatureHash),
+    Buffer.from(expectedHash)
+  );
+}
 
 // Helper to extract user info from request
 async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean }> {
@@ -750,8 +769,19 @@ export async function registerRoutes(
   });
 
   // Webhook event handler (POST) - receives real-time updates from Instagram
+  // Note: Signature verification is done using the parsed body stringified,
+  // which works when the JSON is compact (no extra whitespace)
   app.post("/api/webhooks/instagram", async (req, res) => {
     try {
+      // Verify webhook signature from Meta
+      const signature = req.headers["x-hub-signature-256"] as string | undefined;
+      const rawBody = JSON.stringify(req.body);
+      
+      if (!verifyWebhookSignature(rawBody, signature)) {
+        console.error("Invalid webhook signature");
+        return res.sendStatus(401);
+      }
+
       const { object, entry } = req.body;
       console.log("Webhook received:", JSON.stringify({ object, entryCount: entry?.length }));
 
@@ -765,20 +795,20 @@ export async function registerRoutes(
         const changes = entryItem.changes || [];
         const messaging = entryItem.messaging || [];
 
-        // Process comments
+        // Process comments (Instagram Graph API format)
         for (const change of changes) {
           if (change.field === "comments") {
             await processWebhookComment(change.value);
           } else if (change.field === "mentions") {
             console.log("Mention received:", change.value);
-            // Handle mentions similarly to comments
+            await processWebhookComment(change.value);
           }
         }
 
-        // Process direct messages
-        for (const message of messaging) {
-          if (message.message) {
-            await processWebhookMessage(message);
+        // Process direct messages (Messenger Platform format)
+        for (const messageEvent of messaging) {
+          if (messageEvent.message) {
+            await processWebhookMessage(messageEvent);
           }
         }
       }

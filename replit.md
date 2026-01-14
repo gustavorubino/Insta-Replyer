@@ -20,22 +20,26 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - Regenerar resposta da IA
 - Tema claro/escuro
 
-### Instagram OAuth Integration
-- **Per-User Facebook App Configuration**: 
-  - Each user configures their own Facebook App credentials (App ID and App Secret)
-  - Credentials configured via Settings page (not centralized admin config)
-  - Facebook App Secret encrypted using AES-256-GCM with server-side key
-  - Each user must create their own Facebook Developer App
+### Instagram Integration (Meta Graph API)
+- **Centralized App Configuration**:
+  - Uses environment variables: `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`
+  - Single Facebook App for all users (centralized architecture)
+  - Webhook token: `WEBHOOK_VERIFY_TOKEN` for Meta webhook verification
 - **User Instagram Connection**:
-  - OAuth flow initiated from Settings page "Connect Instagram" button
-  - Uses user's own Facebook App credentials for authentication
+  - OAuth 2.0 flow via Instagram Business Login
   - Access tokens stored per-user in database (instagramAccessToken, instagramAccountId)
-  - Users can disconnect their Instagram accounts
+  - Users can connect/disconnect their Instagram Business accounts
+- **Webhooks (Real-time Updates)**:
+  - Endpoint: `GET/POST /api/webhooks/instagram`
+  - Signature verification using X-Hub-Signature-256 (HMAC-SHA256)
+  - Subscribed fields: comments, mentions, messages
+  - Automatically creates messages and generates AI responses on incoming events
 - **API Endpoints**:
-  - `GET/POST /api/facebook/credentials` - User's own credential management
-  - `GET /api/instagram/auth` - Initiates OAuth flow (uses user's credentials)
+  - `GET /api/instagram/auth` - Initiates OAuth flow
   - `GET /api/instagram/callback` - OAuth callback handler
   - `POST /api/instagram/disconnect` - Disconnect Instagram account
+  - `POST /api/instagram/sync` - Manual sync of messages/comments
+  - `GET /api/webhooks/config` - Get webhook configuration info (admin only)
 
 ### Authentication System
 - **Social Login (Primary)**:
