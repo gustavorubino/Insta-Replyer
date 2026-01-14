@@ -21,18 +21,19 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - Tema claro/escuro
 
 ### Instagram OAuth Integration
-- **Admin Configuration**: 
-  - Facebook App credentials (App ID and App Secret) configured via Admin panel
-  - Credentials stored securely in database settings table
-  - Only admins can view/modify Facebook App credentials
+- **Per-User Facebook App Configuration**: 
+  - Each user configures their own Facebook App credentials (App ID and App Secret)
+  - Credentials configured via Settings page (not centralized admin config)
+  - Facebook App Secret encrypted using AES-256-GCM with server-side key
+  - Each user must create their own Facebook Developer App
 - **User Instagram Connection**:
   - OAuth flow initiated from Settings page "Connect Instagram" button
-  - Uses Facebook Graph API for Instagram Business account authentication
+  - Uses user's own Facebook App credentials for authentication
   - Access tokens stored per-user in database (instagramAccessToken, instagramAccountId)
   - Users can disconnect their Instagram accounts
 - **API Endpoints**:
-  - `GET/POST /api/facebook/credentials` - Admin-only credential management
-  - `GET /api/instagram/auth` - Initiates OAuth flow
+  - `GET/POST /api/facebook/credentials` - User's own credential management
+  - `GET /api/instagram/auth` - Initiates OAuth flow (uses user's credentials)
   - `GET /api/instagram/callback` - OAuth callback handler
   - `POST /api/instagram/disconnect` - Disconnect Instagram account
 
@@ -54,7 +55,6 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
   - Promote/demote admin privileges
   - Self-demotion protection
   - Only visible to admins in sidebar
-  - Facebook App credential configuration
 - **Session Management**: 
   - actualUserId stored for users with existing email accounts
   - Token refresh for OIDC sessions
