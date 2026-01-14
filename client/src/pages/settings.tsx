@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import {
-  Settings as SettingsIcon,
   Link as LinkIcon,
   Bot,
   Brain,
@@ -21,7 +20,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -46,34 +44,17 @@ interface SettingsData {
   autoReplyEnabled: boolean;
 }
 
-interface FacebookCredentials {
-  facebookAppId: string;
-  hasCredentials: boolean;
-}
-
 export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const searchString = useSearch();
   const [isConnecting, setIsConnecting] = useState(false);
-  const [facebookAppId, setFacebookAppId] = useState("");
-  const [facebookAppSecret, setFacebookAppSecret] = useState("");
 
   const { data: settings, isLoading } = useQuery<SettingsData>({
     queryKey: ["/api/settings"],
   });
 
-  const { data: fbCredentials, isLoading: isLoadingFb } = useQuery<FacebookCredentials>({
-    queryKey: ["/api/facebook/credentials"],
-  });
-
   const [localSettings, setLocalSettings] = useState<SettingsData | null>(null);
-
-  useEffect(() => {
-    if (fbCredentials) {
-      setFacebookAppId(fbCredentials.facebookAppId || "");
-    }
-  }, [fbCredentials]);
 
   useEffect(() => {
     if (settings) {
@@ -153,39 +134,6 @@ export default function Settings() {
       });
     },
   });
-
-  const saveCredentialsMutation = useMutation({
-    mutationFn: async (data: { facebookAppId: string; facebookAppSecret: string }) => {
-      await apiRequest("POST", "/api/facebook/credentials", data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/facebook/credentials"] });
-      setFacebookAppSecret("");
-      toast({
-        title: "Credenciais salvas",
-        description: "Suas credenciais do Facebook App foram salvas com sucesso.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Erro",
-        description: "Não foi possível salvar as credenciais.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const handleSaveCredentials = () => {
-    if (!facebookAppId || !facebookAppSecret) {
-      toast({
-        title: "Campos obrigatórios",
-        description: "Preencha o App ID e o App Secret.",
-        variant: "destructive",
-      });
-      return;
-    }
-    saveCredentialsMutation.mutate({ facebookAppId, facebookAppSecret });
-  };
 
   const handleConnectInstagram = async () => {
     setIsConnecting(true);
@@ -273,90 +221,6 @@ export default function Settings() {
         </TabsList>
 
         <TabsContent value="connection" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Configuração do Instagram Business Login</CardTitle>
-              <CardDescription>
-                Configure as credenciais do Instagram para habilitar a conexão com sua conta Business/Creator.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {fbCredentials?.hasCredentials && (
-                <Alert className="border-green-200 bg-green-50 dark:bg-green-900/20">
-                  <CheckCircle className="h-4 w-4 text-green-600" />
-                  <AlertTitle className="text-green-800 dark:text-green-400">Credenciais configuradas</AlertTitle>
-                  <AlertDescription className="text-green-700 dark:text-green-500">
-                    Suas credenciais estão configuradas. Você pode atualizar abaixo se necessário.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-900/20">
-                <AlertCircle className="h-4 w-4 text-blue-600" />
-                <AlertTitle className="text-blue-800 dark:text-blue-400">Credenciais do Instagram</AlertTitle>
-                <AlertDescription className="text-blue-700 dark:text-blue-500">
-                  Use o <strong>Instagram App ID</strong> e <strong>Instagram App Secret</strong> da seção 
-                  "API setup with Instagram login" - são diferentes das credenciais principais do Facebook App.
-                </AlertDescription>
-              </Alert>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="fb-app-id">Instagram App ID</Label>
-                  <Input
-                    id="fb-app-id"
-                    type="text"
-                    placeholder="Ex: 123456789012345"
-                    value={facebookAppId}
-                    onChange={(e) => setFacebookAppId(e.target.value)}
-                    data-testid="input-facebook-app-id"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Encontrado em: Instagram → API setup with Instagram login → Instagram App ID
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="fb-app-secret">Instagram App Secret</Label>
-                  <Input
-                    id="fb-app-secret"
-                    type="password"
-                    placeholder={fbCredentials?.hasCredentials ? "••••••••••••••••" : "Insira o Instagram App Secret"}
-                    value={facebookAppSecret}
-                    onChange={(e) => setFacebookAppSecret(e.target.value)}
-                    data-testid="input-facebook-app-secret"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Encontrado em: Instagram → API setup with Instagram login → Instagram App Secret
-                  </p>
-                </div>
-
-                <Button
-                  onClick={handleSaveCredentials}
-                  disabled={saveCredentialsMutation.isPending || !facebookAppId || !facebookAppSecret}
-                  data-testid="button-save-fb-credentials"
-                >
-                  <Save className="h-4 w-4 mr-2" />
-                  {saveCredentialsMutation.isPending ? "Salvando..." : "Salvar Credenciais"}
-                </Button>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-2">
-                <Label>Como obter as credenciais</Label>
-                <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
-                  <li>Acesse o <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Facebook Developers</a></li>
-                  <li>Selecione seu aplicativo</li>
-                  <li>No menu lateral: <strong>Instagram → API setup with Instagram login</strong></li>
-                  <li>Copie o <strong>Instagram App ID</strong> (diferente do Facebook App ID)</li>
-                  <li>Copie o <strong>Instagram App Secret</strong> (clique em "Show")</li>
-                  <li>Em "Redirect URIs", adicione: <code className="bg-muted px-1 rounded text-xs">{window.location.origin}/api/instagram/callback</code></li>
-                </ol>
-              </div>
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
