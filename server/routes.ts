@@ -1455,10 +1455,12 @@ export async function registerRoutes(
       const operationMode = await storage.getSetting("operationMode");
       const confidenceThreshold = await storage.getSetting("confidenceThreshold");
       
+      const thresholdValue = parseFloat(confidenceThreshold?.value || "80") / 100;
+      
       const shouldAutoSend = 
         operationMode?.value === "auto" || // 100% automatic mode
         (operationMode?.value === "semi_auto" && 
-         aiResult.confidenceScore >= (parseFloat(confidenceThreshold?.value || "80") / 100));
+         aiResult.confidenceScore >= thresholdValue);
       
       if (shouldAutoSend && senderId) {
         // Get the AI response to update it
