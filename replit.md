@@ -63,7 +63,13 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
   - actualUserId stored for users with existing email accounts
   - Token refresh for OIDC sessions
   - instagramAuthUserId for OAuth state management
-- **Security**: Password hashing with bcrypt, userId injection on server-side
+- **Security**:
+  - Password hashing with bcrypt
+  - userId injection on server-side
+  - AES-256-GCM encryption for sensitive tokens (instagramAccessToken, facebookAppSecret)
+  - API response sanitization (removes password, tokens, secrets from responses)
+  - Log redaction system to prevent credential exposure in server logs
+  - Requires SESSION_SECRET environment variable for encryption
 
 ### Technical Stack
 - **Frontend**: React, TypeScript, TailwindCSS, Shadcn UI, Wouter (routing), TanStack Query
@@ -86,6 +92,7 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 │   ├── storage.ts       # Database operations
 │   ├── openai.ts        # OpenAI integration with retry logic
 │   ├── db.ts            # Database connection
+│   ├── encryption.ts    # AES-256-GCM token encryption
 │   └── replit_integrations/auth/  # Replit Auth integration
 └── shared/
     ├── schema.ts        # Database schema and types
@@ -131,7 +138,8 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - Design: Modern dashboard style inspired by Linear, Notion, Vercel
 
 ## Notes
-- Instagram API integration is simulated for development
+- Instagram API integration via Meta Graph API (DMs and comment replies)
 - Real Instagram integration requires Facebook Developer App approval
 - AI uses pRetry for robust error handling with rate limit retries
 - 401 errors on /api/auth/user when not logged in are expected behavior
+- Tokens encrypted with AES-256-GCM; backward compatible with unencrypted legacy tokens
