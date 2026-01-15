@@ -1154,18 +1154,30 @@ export async function registerRoutes(
         (operationMode?.value === "semi_auto" && 
          aiResult.confidenceScore >= (parseFloat(confidenceThreshold?.value || "80") / 100));
       
-      if (shouldAutoSend) {
+      if (shouldAutoSend && instagramUser.instagramAccessToken) {
         // Get the AI response to update it
         const aiResponse = await storage.getAiResponse(newMessage.id);
         if (aiResponse) {
-          await storage.updateMessageStatus(newMessage.id, "auto_sent");
-          await storage.updateAiResponse(aiResponse.id, {
-            finalResponse: aiResult.suggestedResponse,
-            wasApproved: true,
-            approvedAt: new Date(),
-          });
+          // Actually send the comment reply via Instagram API
+          const sendResult = await replyToInstagramComment(
+            commentId,
+            aiResult.suggestedResponse,
+            instagramUser.instagramAccessToken
+          );
+          
+          if (sendResult.success) {
+            await storage.updateMessageStatus(newMessage.id, "auto_sent");
+            await storage.updateAiResponse(aiResponse.id, {
+              finalResponse: aiResult.suggestedResponse,
+              wasApproved: true,
+              approvedAt: new Date(),
+            });
+            console.log(`Auto-sent comment reply to ${username}`);
+          } else {
+            console.error(`Failed to auto-send comment reply: ${sendResult.error}`);
+            // Keep as pending if send failed
+          }
         }
-        // TODO: Actually send the response via Instagram API
       }
 
       console.log("Webhook comment processed successfully:", commentId);
@@ -1448,18 +1460,31 @@ export async function registerRoutes(
         (operationMode?.value === "semi_auto" && 
          aiResult.confidenceScore >= (parseFloat(confidenceThreshold?.value || "80") / 100));
       
-      if (shouldAutoSend) {
+      if (shouldAutoSend && senderId) {
         // Get the AI response to update it
         const aiResponse = await storage.getAiResponse(newMessage.id);
         if (aiResponse) {
-          await storage.updateMessageStatus(newMessage.id, "auto_sent");
-          await storage.updateAiResponse(aiResponse.id, {
-            finalResponse: aiResult.suggestedResponse,
-            wasApproved: true,
-            approvedAt: new Date(),
-          });
+          // Actually send the DM via Instagram API
+          const sendResult = await sendInstagramMessage(
+            senderId,
+            aiResult.suggestedResponse,
+            instagramUser.instagramAccessToken!,
+            instagramUser.instagramAccountId!
+          );
+          
+          if (sendResult.success) {
+            await storage.updateMessageStatus(newMessage.id, "auto_sent");
+            await storage.updateAiResponse(aiResponse.id, {
+              finalResponse: aiResult.suggestedResponse,
+              wasApproved: true,
+              approvedAt: new Date(),
+            });
+            console.log(`Auto-sent DM response to ${senderUsername || senderId}`);
+          } else {
+            console.error(`Failed to auto-send DM: ${sendResult.error}`);
+            // Keep as pending if send failed
+          }
         }
-        // TODO: Actually send the response via Instagram API
       }
 
       console.log("Webhook DM processed successfully:", messageId, mediaType ? `(with ${mediaType})` : '');
