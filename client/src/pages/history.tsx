@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -11,7 +11,8 @@ import {
   Check,
   X,
   Bot,
-  Eye,
+  ChevronRight,
+  ArrowLeft,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -22,47 +23,88 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { EmptyState } from "@/components/empty-state";
 import { ConfidenceBadge } from "@/components/confidence-badge";
 import type { MessageWithResponse } from "@shared/schema";
 
+interface ConversationGroup {
+  senderUsername: string;
+  senderName: string;
+  senderAvatar: string | null;
+  messages: MessageWithResponse[];
+  lastMessage: MessageWithResponse;
+  messageCount: number;
+}
+
 export default function History() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [selectedMessage, setSelectedMessage] = useState<MessageWithResponse | null>(null);
+  const [selectedConversation, setSelectedConversation] = useState<ConversationGroup | null>(null);
 
   const { data: messages, isLoading } = useQuery<MessageWithResponse[]>({
     queryKey: ["/api/messages"],
   });
 
-  const filteredMessages = messages?.filter((msg) => {
-    const matchesSearch =
-      searchQuery === "" ||
-      msg.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      msg.senderName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      msg.senderUsername.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredMessages = useMemo(() => {
+    return messages?.filter((msg) => {
+      const matchesSearch =
+        searchQuery === "" ||
+        (msg.content?.toLowerCase() || "").includes(searchQuery.toLowerCase()) ||
+        msg.senderName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        msg.senderUsername.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesStatus = statusFilter === "all" || msg.status === statusFilter;
+      const matchesStatus = statusFilter === "all" || msg.status === statusFilter;
 
-    return matchesSearch && matchesStatus;
-  });
+      return matchesSearch && matchesStatus;
+    });
+  }, [messages, searchQuery, statusFilter]);
+
+  const conversations = useMemo(() => {
+    if (!filteredMessages) return [];
+
+    const grouped = new Map<string, ConversationGroup>();
+
+    filteredMessages.forEach((msg) => {
+      const key = msg.senderUsername || msg.senderId || `unknown-${msg.id}`;
+      
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          senderUsername: msg.senderUsername,
+          senderName: msg.senderName,
+          senderAvatar: msg.senderAvatar,
+          messages: [],
+          lastMessage: msg,
+          messageCount: 0,
+        });
+      }
+
+      const group = grouped.get(key)!;
+      group.messages.push(msg);
+      group.messageCount++;
+      
+      if (new Date(msg.createdAt) > new Date(group.lastMessage.createdAt)) {
+        group.lastMessage = msg;
+      }
+    });
+
+    const result = Array.from(grouped.values());
+    result.sort((a, b) => 
+      new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime()
+    );
+    
+    result.forEach(group => {
+      group.messages.sort((a, b) => 
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+    });
+
+    return result;
+  }, [filteredMessages]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -108,12 +150,117 @@ export default function History() {
       .slice(0, 2);
   };
 
+  if (selectedConversation) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSelectedConversation(null)}
+            data-testid="button-back-to-list"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="flex items-center gap-3">
+            <Avatar className="h-10 w-10 border">
+              <AvatarImage src={selectedConversation.senderAvatar || undefined} />
+              <AvatarFallback>
+                {getInitials(selectedConversation.senderName)}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <h1 className="text-xl font-semibold">{selectedConversation.senderName}</h1>
+              <p className="text-sm text-muted-foreground">
+                @{selectedConversation.senderUsername} · {selectedConversation.messageCount} mensagens
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <ScrollArea className="h-[calc(100vh-200px)]">
+          <div className="space-y-4 pr-4">
+            {selectedConversation.messages.map((message) => (
+              <Card key={message.id} className="overflow-hidden" data-testid={`card-message-${message.id}`}>
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="h-5">
+                        {message.type === "dm" ? (
+                          <MessageSquare className="h-3 w-3 mr-1" />
+                        ) : (
+                          <AtSign className="h-3 w-3 mr-1" />
+                        )}
+                        {message.type === "dm" ? "DM" : "Comentario"}
+                      </Badge>
+                      {getStatusBadge(message.status)}
+                      {message.aiResponse && (
+                        <ConfidenceBadge
+                          score={message.aiResponse.confidenceScore}
+                          showLabel={false}
+                          size="sm"
+                        />
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {format(new Date(message.createdAt), "dd/MM/yyyy 'as' HH:mm", {
+                        locale: ptBR,
+                      })}
+                    </span>
+                  </div>
+
+                  <div className="rounded-lg bg-muted/50 p-3">
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Mensagem recebida:</p>
+                    <p className="text-sm whitespace-pre-wrap">{message.content || "[Midia recebida]"}</p>
+                    {message.mediaUrl && (
+                      <div className="mt-2">
+                        {message.mediaType?.includes("image") || message.mediaType?.includes("photo") ? (
+                          <img 
+                            src={message.mediaUrl} 
+                            alt="Midia" 
+                            className="max-w-[200px] rounded-lg"
+                          />
+                        ) : message.mediaType?.includes("video") ? (
+                          <video 
+                            src={message.mediaUrl} 
+                            controls 
+                            className="max-w-[200px] rounded-lg"
+                          />
+                        ) : (
+                          <Badge variant="outline">{message.mediaType}</Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {message.aiResponse && (message.aiResponse.finalResponse || message.aiResponse.suggestedResponse) && (
+                    <div className="rounded-lg bg-primary/5 border border-primary/20 p-3">
+                      <p className="text-sm font-medium text-primary mb-1 flex items-center gap-2">
+                        Resposta {message.status === "auto_sent" ? "auto-enviada" : "enviada"}:
+                        {message.aiResponse.wasEdited && (
+                          <Badge variant="secondary" className="text-xs">Editada</Badge>
+                        )}
+                      </p>
+                      <p className="text-sm whitespace-pre-wrap">
+                        {message.aiResponse.finalResponse || message.aiResponse.suggestedResponse}
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </ScrollArea>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Histórico</h1>
+        <h1 className="text-2xl font-semibold">Historico</h1>
         <p className="text-muted-foreground">
-          Veja todas as mensagens processadas e suas respostas
+          Conversas agrupadas por usuario
         </p>
       </div>
 
@@ -121,7 +268,7 @@ export default function History() {
         <div className="relative flex-1 min-w-[200px] max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar no histórico..."
+            placeholder="Buscar conversas..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
@@ -144,192 +291,82 @@ export default function History() {
       </div>
 
       {isLoading ? (
-        <div className="border rounded-lg">
-          <div className="p-4 space-y-4">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex items-center gap-4">
-                <Skeleton className="h-8 w-8 rounded-full" />
-                <Skeleton className="h-4 flex-1" />
-                <Skeleton className="h-6 w-20" />
-                <Skeleton className="h-4 w-24" />
-              </div>
-            ))}
-          </div>
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-4">
+                  <Skeleton className="h-12 w-12 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                  <Skeleton className="h-4 w-20" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
-      ) : filteredMessages && filteredMessages.length > 0 ? (
-        <div className="border rounded-lg overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Remetente</TableHead>
-                <TableHead>Mensagem</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Confiança</TableHead>
-                <TableHead>Data</TableHead>
-                <TableHead className="w-[50px]"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredMessages.map((message) => (
-                <TableRow
-                  key={message.id}
-                  className="cursor-pointer hover-elevate"
-                  onClick={() => setSelectedMessage(message)}
-                  data-testid={`row-message-${message.id}`}
-                >
-                  <TableCell>
+      ) : conversations.length > 0 ? (
+        <div className="space-y-2">
+          {conversations.map((conversation) => (
+            <Card
+              key={conversation.senderUsername}
+              className="cursor-pointer hover-elevate transition-colors"
+              onClick={() => setSelectedConversation(conversation)}
+              data-testid={`card-conversation-${conversation.senderUsername}`}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center gap-4">
+                  <Avatar className="h-12 w-12 border">
+                    <AvatarImage src={conversation.senderAvatar || undefined} />
+                    <AvatarFallback>
+                      {getInitials(conversation.senderName)}
+                    </AvatarFallback>
+                  </Avatar>
+                  
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <Avatar className="h-8 w-8 border">
-                        <AvatarImage src={message.senderAvatar || undefined} />
-                        <AvatarFallback className="text-xs">
-                          {getInitials(message.senderName)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="font-medium text-sm truncate max-w-[120px]">
-                          {message.senderName}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          @{message.senderUsername}
-                        </div>
-                      </div>
+                      <span className="font-medium truncate">
+                        {conversation.senderName}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        @{conversation.senderUsername}
+                      </span>
                     </div>
-                  </TableCell>
-                  <TableCell className="max-w-[200px]">
-                    <p className="text-sm truncate">{message.content}</p>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary" className="h-5">
-                      {message.type === "dm" ? (
-                        <MessageSquare className="h-3 w-3 mr-1" />
-                      ) : (
-                        <AtSign className="h-3 w-3 mr-1" />
-                      )}
-                      {message.type === "dm" ? "DM" : "Comentário"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{getStatusBadge(message.status)}</TableCell>
-                  <TableCell>
-                    {message.aiResponse && (
-                      <ConfidenceBadge
-                        score={message.aiResponse.confidenceScore}
-                        showLabel={false}
-                        size="sm"
-                      />
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {format(new Date(message.createdAt), "dd/MM/yyyy HH:mm", {
-                      locale: ptBR,
-                    })}
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedMessage(message);
-                      }}
-                      data-testid={`button-view-history-${message.id}`}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                    <p className="text-sm text-muted-foreground truncate mt-0.5">
+                      {conversation.lastMessage.content || "[Midia]"}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="text-xs text-muted-foreground">
+                      {formatDistanceToNow(new Date(conversation.lastMessage.createdAt), {
+                        addSuffix: true,
+                        locale: ptBR,
+                      })}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-xs">
+                        {conversation.messageCount} msg
+                      </Badge>
+                      {getStatusBadge(conversation.lastMessage.status)}
+                    </div>
+                  </div>
+
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       ) : (
         <EmptyState
           icon={Calendar}
-          title="Nenhum registro encontrado"
-          description="O histórico de mensagens processadas aparecerá aqui."
+          title="Nenhuma conversa encontrada"
+          description="O historico de conversas aparecera aqui."
         />
       )}
-
-      <Dialog
-        open={!!selectedMessage}
-        onOpenChange={(open) => !open && setSelectedMessage(null)}
-      >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Detalhes da Mensagem</DialogTitle>
-          </DialogHeader>
-          {selectedMessage && (
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <Avatar className="h-10 w-10 border">
-                  <AvatarImage src={selectedMessage.senderAvatar || undefined} />
-                  <AvatarFallback>
-                    {getInitials(selectedMessage.senderName)}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <div className="font-medium">{selectedMessage.senderName}</div>
-                  <div className="text-sm text-muted-foreground">
-                    @{selectedMessage.senderUsername}
-                  </div>
-                </div>
-                <div className="ml-auto flex items-center gap-2">
-                  {getStatusBadge(selectedMessage.status)}
-                  {selectedMessage.aiResponse && (
-                    <ConfidenceBadge
-                      score={selectedMessage.aiResponse.confidenceScore}
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-lg border bg-muted/30 p-4">
-                <h4 className="text-sm font-medium mb-2">Mensagem Original</h4>
-                <p className="text-sm whitespace-pre-wrap">
-                  {selectedMessage.content}
-                </p>
-              </div>
-
-              {selectedMessage.aiResponse && (
-                <div className="rounded-lg border bg-muted/30 p-4">
-                  <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-                    Resposta Enviada
-                    {selectedMessage.aiResponse.wasEdited && (
-                      <Badge variant="secondary" className="text-xs">
-                        Editada
-                      </Badge>
-                    )}
-                  </h4>
-                  <p className="text-sm whitespace-pre-wrap">
-                    {selectedMessage.aiResponse.finalResponse ||
-                      selectedMessage.aiResponse.suggestedResponse}
-                  </p>
-                </div>
-              )}
-
-              <div className="text-xs text-muted-foreground">
-                Recebida em{" "}
-                {format(
-                  new Date(selectedMessage.createdAt),
-                  "dd/MM/yyyy 'às' HH:mm",
-                  { locale: ptBR }
-                )}
-                {selectedMessage.processedAt && (
-                  <>
-                    {" "}
-                    • Processada em{" "}
-                    {format(
-                      new Date(selectedMessage.processedAt),
-                      "dd/MM/yyyy 'às' HH:mm",
-                      { locale: ptBR }
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
