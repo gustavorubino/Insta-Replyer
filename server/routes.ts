@@ -8,6 +8,55 @@ import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "./r
 import crypto from "crypto";
 import { downloadAndStoreMedia } from "./utils/media-storage";
 
+// Helper function to get media type description for AI and learning (bracketed format)
+function getMediaTypeDescription(mediaType: string | null | undefined): string {
+  if (!mediaType) return '[Mensagem de mídia]';
+  const descriptions: Record<string, string> = {
+    'image': '[Foto recebida]',
+    'video': '[Vídeo recebido]',
+    'audio': '[Áudio recebido]',
+    'gif': '[GIF animado recebido]',
+    'animated_gif': '[GIF animado recebido]',
+    'reel': '[Reel recebido]',
+    'story_mention': '[Menção em story recebida]',
+    'story_reply': '[Resposta a story recebida]',
+    'share': '[Compartilhamento recebido]',
+    'sticker': '[Sticker recebido]',
+    'like': '[Curtida recebida]',
+  };
+  return descriptions[mediaType] || '[Mídia recebida]';
+}
+
+// Helper function to get natural language media description for webhook AI prompts
+function getMediaDescriptionNatural(mediaType: string | null | undefined): string {
+  if (!mediaType) return 'uma mídia';
+  const descriptions: Record<string, string> = {
+    'image': 'uma foto',
+    'video': 'um vídeo',
+    'audio': 'uma mensagem de voz',
+    'gif': 'um GIF animado',
+    'animated_gif': 'um GIF animado',
+    'reel': 'um reel',
+    'story_mention': 'uma menção em story',
+    'story_reply': 'uma resposta a story',
+    'share': 'um compartilhamento',
+    'sticker': 'um sticker',
+    'like': 'uma curtida',
+  };
+  return descriptions[mediaType] || 'uma mídia';
+}
+
+// Helper to get message content for AI (includes media description)
+function getMessageContentForAI(message: { content: string | null; mediaType?: string | null }): string {
+  if (message.content) {
+    if (message.mediaType) {
+      return `${getMediaTypeDescription(message.mediaType)} ${message.content}`;
+    }
+    return message.content;
+  }
+  return getMediaTypeDescription(message.mediaType);
+}
+
 // Instagram Business Login OAuth endpoints
 const FACEBOOK_GRAPH_API = "https://graph.facebook.com/v18.0";
 const INSTAGRAM_AUTH_URL = "https://api.instagram.com/oauth/authorize";
@@ -279,7 +328,7 @@ export async function registerRoutes(
 
       // Generate AI response
       const aiResult = await generateAIResponse(
-        message.content || "[Mensagem de mídia]",
+        getMessageContentForAI(message),
         message.type as "dm" | "comment",
         message.senderName
       );
@@ -389,10 +438,10 @@ export async function registerRoutes(
         approvedAt: sendResult.success ? new Date() : undefined,
       });
 
-      // If edited, add to learning history
+      // If edited, add to learning history with proper media context
       if (wasEdited) {
         await storage.createLearningEntry({
-          originalMessage: message.content || "[Mensagem de mídia]",
+          originalMessage: getMessageContentForAI(message),
           originalSuggestion: aiResponse.suggestedResponse,
           correctedResponse: response,
         });
@@ -464,7 +513,7 @@ export async function registerRoutes(
       const previousResponse = message.aiResponse?.suggestedResponse || "";
 
       const aiResult = await regenerateResponse(
-        message.content || "[Mensagem de mídia]",
+        getMessageContentForAI(message),
         message.type as "dm" | "comment",
         message.senderName,
         previousResponse
@@ -593,7 +642,7 @@ export async function registerRoutes(
         const message = await storage.createMessage(msg);
         
         const aiResult = await generateAIResponse(
-          message.content || "[Mensagem de mídia]",
+          getMessageContentForAI(message),
           message.type as "dm" | "comment",
           message.senderName
         );
@@ -1217,25 +1266,7 @@ export async function registerRoutes(
     };
   }
 
-  // Helper function to get media type description for AI
-  function getMediaTypeDescription(mediaType: string): string {
-    const descriptions: Record<string, string> = {
-      'image': 'uma foto',
-      'video': 'um vídeo',
-      'audio': 'uma mensagem de voz',
-      'gif': 'um GIF animado',
-      'animated_gif': 'um GIF animado',
-      'reel': 'um reel',
-      'story_mention': 'uma menção em story',
-      'story_reply': 'uma resposta a story',
-      'share': 'um compartilhamento',
-      'sticker': 'um sticker',
-      'like': 'uma curtida',
-    };
-    return descriptions[mediaType] || 'uma mídia';
-  }
-
-  // Helper function to process incoming DMs from webhooks
+// Helper function to process incoming DMs from webhooks
   async function processWebhookMessage(messageData: any) {
     try {
       console.log("Processing webhook DM:", JSON.stringify(messageData));
@@ -1363,14 +1394,14 @@ export async function registerRoutes(
         }
       }
 
-      // Build content description for AI
+      // Build content description for AI (used for webhook path - uses natural language)
       let contentForAI = text || '';
       if (mediaType && !text) {
-        // If no text, describe what was received
-        contentForAI = `[O usuário enviou ${getMediaTypeDescription(mediaType)}]`;
+        // If no text, describe what was received in natural language
+        contentForAI = `[O usuário enviou ${getMediaDescriptionNatural(mediaType)}]`;
       } else if (mediaType && text) {
-        // If both text and media
-        contentForAI = `[Anexo: ${getMediaTypeDescription(mediaType)}] ${text}`;
+        // If both text and media, combine them
+        contentForAI = `[Anexo: ${getMediaDescriptionNatural(mediaType)}] ${text}`;
       }
 
       // Create the message

@@ -128,7 +128,7 @@ export default function Dashboard() {
                     senderName={msg.senderName}
                     senderAvatar={msg.senderAvatar}
                     timestamp={new Date(msg.createdAt)}
-                    preview={msg.content.slice(0, 50)}
+                    preview={(msg.content || '[Mídia]').slice(0, 50)}
                   />
                 ))}
               </div>
