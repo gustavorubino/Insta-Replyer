@@ -29,7 +29,7 @@ export default function Queue() {
 
   const { data: messages, isLoading, refetch, isRefetching } = useQuery<MessageWithResponse[]>({
     queryKey: ["/api/messages/pending"],
-    refetchInterval: 30000,
+    refetchInterval: 5000, // Auto-refresh every 5 seconds
   });
 
   const approveMutation = useMutation({

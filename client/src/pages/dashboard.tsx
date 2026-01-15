@@ -26,12 +26,14 @@ interface DashboardStats {
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/stats"],
+    refetchInterval: 5000, // Auto-refresh every 5 seconds
   });
 
   const { data: recentMessages, isLoading: messagesLoading } = useQuery<
     MessageWithResponse[]
   >({
     queryKey: ["/api/messages/recent"],
+    refetchInterval: 5000, // Auto-refresh every 5 seconds
   });
 
   return (
