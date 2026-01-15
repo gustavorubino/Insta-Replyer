@@ -440,16 +440,13 @@ export async function registerRoutes(
         approvedAt: sendResult.success ? new Date() : undefined,
       });
 
-      // If edited and learning is enabled, add to learning history with proper media context
+      // If edited, add to learning history (always enabled)
       if (wasEdited) {
-        const learningEnabled = await storage.getSetting("learningEnabled");
-        if (learningEnabled?.value === "true") {
-          await storage.createLearningEntry({
-            originalMessage: getMessageContentForAI(message),
-            originalSuggestion: aiResponse.suggestedResponse,
-            correctedResponse: response,
-          });
-        }
+        await storage.createLearningEntry({
+          originalMessage: getMessageContentForAI(message),
+          originalSuggestion: aiResponse.suggestedResponse,
+          correctedResponse: response,
+        });
       }
 
       if (sendResult.success) {

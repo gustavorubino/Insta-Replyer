@@ -496,35 +496,20 @@ export default function Settings() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Aprendizado</CardTitle>
+              <CardTitle>Aprendizado Automatico</CardTitle>
               <CardDescription>
-                Configure como a IA aprende com suas correções.
+                A IA aprende continuamente com suas correcoes.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Aprendizado Ativo</Label>
-                  <p className="text-sm text-muted-foreground">
-                    A IA aprenderá com as correções que você fizer nas respostas.
-                  </p>
-                </div>
-                <Switch
-                  checked={localSettings.autoReplyEnabled}
-                  onCheckedChange={(checked) =>
-                    setLocalSettings({
-                      ...localSettings,
-                      autoReplyEnabled: checked,
-                    })
-                  }
-                  data-testid="switch-learning-enabled"
-                />
-              </div>
-              <Separator />
-              <div className="text-sm text-muted-foreground">
+            <CardContent>
+              <div className="text-sm text-muted-foreground space-y-2">
                 <p>
-                  Quando você edita uma resposta sugerida pela IA, o sistema
-                  armazena a correção para melhorar futuras sugestões.
+                  Quando voce edita uma resposta sugerida pela IA e envia, o sistema 
+                  armazena a correcao automaticamente para melhorar futuras sugestoes.
+                </p>
+                <p>
+                  Quanto mais correcoes voce fizer, mais precisa a IA se torna ao 
+                  responder mensagens similares.
                 </p>
               </div>
             </CardContent>
