@@ -498,11 +498,17 @@ export async function registerRoutes(
   // Get settings
   app.get("/api/settings", isAuthenticated, async (req, res) => {
     try {
+      const { userId } = await getUserContext(req);
       const allSettings = await storage.getSettings();
       
+      // Check Instagram connection from user data (more reliable)
+      const user = await authStorage.getUser(userId);
+      const isInstagramConnected = !!(user?.instagramAccountId && user?.instagramAccessToken);
+      const instagramUsername = user?.instagramUsername || "";
+      
       res.json({
-        instagramConnected: allSettings.instagramConnected === "true",
-        instagramUsername: allSettings.instagramUsername || "",
+        instagramConnected: isInstagramConnected,
+        instagramUsername: instagramUsername,
         operationMode: allSettings.operationMode || "manual",
         confidenceThreshold: parseInt(allSettings.confidenceThreshold || "80"),
         systemPrompt: allSettings.systemPrompt || "",
