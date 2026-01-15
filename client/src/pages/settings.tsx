@@ -407,9 +407,9 @@ export default function Settings() {
                             data-testid="slider-confidence-threshold"
                           />
                           <p className="text-xs text-muted-foreground mt-2">
-                            Mensagens com certeza de {localSettings.confidenceThreshold}% ou mais = envio automatico.
-                            {" "}Abaixo de {localSettings.confidenceThreshold}% = voce aprova manualmente.
-                            {" "}Slider mais baixo = mais mensagens automaticas. Slider mais alto = mais revisao humana.
+                            Mensagens com certeza de {localSettings.confidenceThreshold}% ou mais = envio automático.
+                            {" "}Abaixo de {localSettings.confidenceThreshold}% = você aprova manualmente.
+                            {" "}Slider mais baixo = mais mensagens automáticas. Slider mais alto = mais revisão humana.
                           </p>
                         </div>
                       )}
@@ -496,19 +496,19 @@ export default function Settings() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Aprendizado Automatico</CardTitle>
+              <CardTitle>Aprendizado Automático</CardTitle>
               <CardDescription>
-                A IA aprende continuamente com suas correcoes.
+                A IA aprende continuamente com suas correções.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="text-sm text-muted-foreground space-y-2">
                 <p>
-                  Quando voce edita uma resposta sugerida pela IA e envia, o sistema 
-                  armazena a correcao automaticamente para melhorar futuras sugestoes.
+                  Quando você edita uma resposta sugerida pela IA e envia, o sistema 
+                  armazena a correção automaticamente para melhorar futuras sugestões.
                 </p>
                 <p>
-                  Quanto mais correcoes voce fizer, mais precisa a IA se torna ao 
+                  Quanto mais correções você fizer, mais precisa a IA se torna ao 
                   responder mensagens similares.
                 </p>
               </div>
