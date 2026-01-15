@@ -91,6 +91,48 @@ async function sendInstagramMessage(
   }
 }
 
+// Reply to Instagram comment via Graph API
+async function replyToInstagramComment(
+  commentId: string,
+  messageText: string,
+  accessToken: string
+): Promise<{ success: boolean; commentId?: string; error?: string }> {
+  try {
+    console.log(`Replying to Instagram comment ${commentId}...`);
+    
+    // Use the Instagram Graph API to reply to comments
+    // The endpoint is POST /{comment-id}/replies
+    const url = `https://graph.instagram.com/v21.0/${commentId}/replies`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        message: messageText,
+        access_token: accessToken,
+      }),
+    });
+    
+    const data = await response.json();
+    console.log(`Instagram reply comment response:`, JSON.stringify(data));
+    
+    if (response.ok && data.id) {
+      console.log(`Comment reply sent successfully! ID: ${data.id}`);
+      return { success: true, commentId: data.id };
+    } else if (data.error) {
+      console.error(`Instagram API error:`, data.error.message);
+      return { success: false, error: data.error.message };
+    } else {
+      return { success: false, error: 'Unknown error replying to comment' };
+    }
+  } catch (error) {
+    console.error(`Error replying to Instagram comment:`, error);
+    return { success: false, error: String(error) };
+  }
+}
+
 // Helper to extract user info from request
 async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean }> {
   const user = req.user as any;
@@ -315,9 +357,25 @@ export async function registerRoutes(
         } else {
           sendResult = { success: false, error: "Instagram not connected for this user" };
         }
-      } else if (message.type === "comment") {
-        // TODO: Implement comment reply via Instagram API
-        sendResult = { success: false, error: "Comment replies not yet implemented" };
+      } else if (message.type === "comment" && message.instagramId) {
+        // Reply to comment via Instagram API
+        const messageOwner = await authStorage.getUser(message.userId);
+        if (messageOwner?.instagramAccessToken) {
+          const result = await replyToInstagramComment(
+            message.instagramId,
+            response,
+            messageOwner.instagramAccessToken
+          );
+          sendResult = { 
+            success: result.success, 
+            messageId: result.commentId, 
+            error: result.error 
+          };
+        } else {
+          sendResult = { success: false, error: "Instagram not connected for this user" };
+        }
+      } else if (message.type === "comment" && !message.instagramId) {
+        sendResult = { success: false, error: "Comment ID not available for reply" };
       }
 
       // Update message status based on send result
