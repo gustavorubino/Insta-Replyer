@@ -47,6 +47,50 @@ function verifyWebhookSignature(payload: string, signature: string | undefined):
   }
 }
 
+// Send Instagram DM via Graph API
+async function sendInstagramMessage(
+  recipientIgsid: string,
+  messageText: string,
+  accessToken: string,
+  instagramAccountId: string
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  try {
+    console.log(`Sending Instagram DM to ${recipientIgsid}...`);
+    
+    // Use the Instagram Graph API to send messages
+    // The endpoint is POST /{ig-user-id}/messages
+    const url = `https://graph.instagram.com/v21.0/${instagramAccountId}/messages`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        recipient: { id: recipientIgsid },
+        message: { text: messageText },
+        access_token: accessToken,
+      }),
+    });
+    
+    const data = await response.json();
+    console.log(`Instagram send message response:`, JSON.stringify(data));
+    
+    if (response.ok && data.message_id) {
+      console.log(`Message sent successfully! ID: ${data.message_id}`);
+      return { success: true, messageId: data.message_id };
+    } else if (data.error) {
+      console.error(`Instagram API error:`, data.error.message);
+      return { success: false, error: data.error.message };
+    } else {
+      return { success: false, error: 'Unknown error sending message' };
+    }
+  } catch (error) {
+    console.error(`Error sending Instagram message:`, error);
+    return { success: false, error: String(error) };
+  }
+}
+
 // Helper to extract user info from request
 async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean }> {
   const user = req.user as any;
@@ -253,12 +297,37 @@ export async function registerRoutes(
         return res.status(404).json({ error: "AI response not found" });
       }
 
-      await storage.updateMessageStatus(id, "approved");
+      // Send the message via Instagram API (only for DMs with senderId)
+      let sendResult: { success: boolean; messageId?: string; error?: string } = { 
+        success: false, 
+        error: "No senderId available" 
+      };
+      if (message.type === "dm" && message.senderId) {
+        // Get the message owner's Instagram credentials
+        const messageOwner = await authStorage.getUser(message.userId);
+        if (messageOwner?.instagramAccessToken && messageOwner?.instagramAccountId) {
+          sendResult = await sendInstagramMessage(
+            message.senderId,
+            response,
+            messageOwner.instagramAccessToken,
+            messageOwner.instagramAccountId
+          );
+        } else {
+          sendResult = { success: false, error: "Instagram not connected for this user" };
+        }
+      } else if (message.type === "comment") {
+        // TODO: Implement comment reply via Instagram API
+        sendResult = { success: false, error: "Comment replies not yet implemented" };
+      }
+
+      // Update message status based on send result
+      const newStatus = sendResult.success ? "approved" : "pending";
+      await storage.updateMessageStatus(id, newStatus);
       await storage.updateAiResponse(aiResponse.id, {
         finalResponse: response,
         wasEdited: wasEdited,
-        wasApproved: true,
-        approvedAt: new Date(),
+        wasApproved: sendResult.success,
+        approvedAt: sendResult.success ? new Date() : undefined,
       });
 
       // If edited, add to learning history
@@ -270,7 +339,15 @@ export async function registerRoutes(
         });
       }
 
-      res.json({ success: true });
+      if (sendResult.success) {
+        res.json({ success: true, messageSent: true });
+      } else {
+        res.json({ 
+          success: false, 
+          messageSent: false, 
+          error: sendResult.error 
+        });
+      }
     } catch (error) {
       console.error("Error approving message:", error);
       res.status(500).json({ error: "Failed to approve message" });
@@ -1144,6 +1221,7 @@ export async function registerRoutes(
         senderName: senderName,
         senderUsername: senderUsername,
         senderAvatar: senderAvatar || null,
+        senderId: senderId, // Save IGSID for replying
         content: text,
       });
 

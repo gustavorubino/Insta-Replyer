@@ -42,21 +42,31 @@ export default function Queue() {
       response: string;
       wasEdited: boolean;
     }) => {
-      await apiRequest("POST", `/api/messages/${messageId}/approve`, {
+      const res = await apiRequest("POST", `/api/messages/${messageId}/approve`, {
         response,
         wasEdited,
       });
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/messages/pending"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/messages/recent"] });
       setIsModalOpen(false);
       setSelectedMessage(null);
-      toast({
-        title: "Resposta aprovada",
-        description: "A resposta foi enviada com sucesso.",
-      });
+      
+      if (data.messageSent) {
+        toast({
+          title: "Resposta enviada",
+          description: "A resposta foi enviada com sucesso para o Instagram.",
+        });
+      } else {
+        toast({
+          title: "Erro ao enviar",
+          description: data.error || "Não foi possível enviar a resposta para o Instagram.",
+          variant: "destructive",
+        });
+      }
     },
     onError: () => {
       toast({

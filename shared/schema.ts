@@ -15,6 +15,7 @@ export const instagramMessages = pgTable("instagram_messages", {
   senderName: text("sender_name").notNull(),
   senderUsername: text("sender_username").notNull(),
   senderAvatar: text("sender_avatar"),
+  senderId: text("sender_id"), // IGSID of the sender for replying
   content: text("content").notNull(),
   mediaUrl: text("media_url"),
   postId: text("post_id"), // For comments, reference to the post
