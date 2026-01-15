@@ -407,9 +407,8 @@ export default function Settings() {
                             data-testid="slider-confidence-threshold"
                           />
                           <p className="text-xs text-muted-foreground mt-2">
-                            Respostas com confiança acima de{" "}
-                            {localSettings.confidenceThreshold}% serão enviadas
-                            automaticamente.
+                            Se a IA tiver {localSettings.confidenceThreshold}% ou mais de certeza, a resposta sera enviada automaticamente. 
+                            Abaixo disso, voce precisara aprovar manualmente.
                           </p>
                         </div>
                       )}
