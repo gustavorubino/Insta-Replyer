@@ -1,6 +1,6 @@
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { MessageSquare, AtSign, Eye, Image, Video, Mic, FileImage } from "lucide-react";
+import { MessageSquare, AtSign, Eye, Image, Video, Mic, FileImage, Play } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -142,8 +142,18 @@ export function MessageCard({ message, onView }: MessageCardProps) {
                     data-testid={`media-thumbnail-${message.id}`}
                   />
                 ) : message.mediaType === 'video' || message.mediaType === 'reel' ? (
-                  <div className="w-16 h-16 bg-muted rounded-md border flex items-center justify-center">
-                    <Video className="h-6 w-6 text-muted-foreground" />
+                  <div className="relative w-16 h-16 rounded-md border overflow-hidden">
+                    <img 
+                      src={message.mediaUrl} 
+                      alt="Thumbnail do vídeo" 
+                      className="w-full h-full object-cover"
+                      data-testid={`video-thumbnail-${message.id}`}
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                      <div className="w-6 h-6 rounded-full bg-white/90 flex items-center justify-center">
+                        <Play className="h-3 w-3 text-black fill-black ml-0.5" />
+                      </div>
+                    </div>
                   </div>
                 ) : message.mediaType === 'audio' ? (
                   <div className="w-16 h-16 bg-muted rounded-md border flex items-center justify-center">
