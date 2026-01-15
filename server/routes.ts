@@ -1054,6 +1054,20 @@ export async function registerRoutes(
       const username = fromUser?.username || "instagram_user";
       const displayName = fromUser?.name || fromUser?.username || "Usuário do Instagram";
 
+      // Ignore comments from the account owner (these are our own replies)
+      const fromUserId = fromUser?.id;
+      if (fromUserId && fromUserId === instagramUser.instagramAccountId) {
+        console.log("Ignoring comment from account owner (our own reply):", commentId);
+        return;
+      }
+      
+      // Also check by username match
+      if (username && instagramUser.instagramUsername && 
+          username.toLowerCase() === instagramUser.instagramUsername.toLowerCase()) {
+        console.log("Ignoring comment from account owner (username match):", commentId);
+        return;
+      }
+
       // Create the message
       const newMessage = await storage.createMessage({
         userId: instagramUser.id,
