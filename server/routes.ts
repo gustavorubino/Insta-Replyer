@@ -577,6 +577,7 @@ export async function registerRoutes(
       res.json({
         instagramConnected: isInstagramConnected,
         instagramUsername: instagramUsername,
+        instagramAccountId: user?.instagramAccountId || "",
         operationMode: allSettings.operationMode || "manual",
         confidenceThreshold: parseInt(allSettings.confidenceThreshold || "80"),
         systemPrompt: allSettings.systemPrompt || "",
@@ -823,20 +824,37 @@ export async function registerRoutes(
       const longLivedData = await longLivedResponse.json() as any;
       const longLivedToken = longLivedData.access_token || shortLivedToken;
 
-      // Get Instagram user info using Instagram Graph API
-      const igUserUrl = `https://graph.instagram.com/me?fields=user_id,username&access_token=${longLivedToken}`;
+      // Get Instagram user info using Instagram Graph API - fetch multiple fields
+      const igUserUrl = `https://graph.instagram.com/me?fields=id,username,account_type,name&access_token=${longLivedToken}`;
+      console.log("Fetching Instagram user info...");
       const igUserResponse = await fetch(igUserUrl);
       const igUserData = await igUserResponse.json() as any;
-      
-      const instagramAccountId = String(igUserData.user_id || instagramUserId);
+      console.log("Instagram user data received:", JSON.stringify(igUserData));
+
+      // Use 'id' from the response (Instagram API returns 'id', not 'user_id')
+      const instagramAccountId = String(igUserData.id || instagramUserId);
       const instagramUsername = igUserData.username || "";
 
-      // Update user with Instagram credentials
-      await authStorage.updateUser(userId, {
+      // Also try to get the user's Instagram ID from the token exchange response
+      // The instagramUserId from token exchange might be different from igUserData.id
+      const tokenUserId = String(tokenData.user_id);
+
+      console.log(`OAuth IDs - Token user_id: ${tokenUserId}, API id: ${instagramAccountId}, username: ${instagramUsername}`);
+
+      // Store both IDs - the API id as instagramAccountId and token user_id as potential recipient ID
+      const updates: any = {
         instagramAccountId,
         instagramUsername,
         instagramAccessToken: longLivedToken,
-      });
+      };
+
+      // If the token user_id is different from API id, store it as a potential recipient ID
+      if (tokenUserId && tokenUserId !== instagramAccountId && tokenUserId !== 'undefined') {
+        updates.instagramRecipientId = tokenUserId;
+        console.log(`Storing token user_id ${tokenUserId} as instagramRecipientId (differs from API id ${instagramAccountId})`);
+      }
+
+      await authStorage.updateUser(userId, updates);
 
       // Update global settings
       await storage.setSetting("instagramConnected", "true");
@@ -1338,16 +1356,59 @@ export async function registerRoutes(
       console.log(`Total users found: ${allUsers.length}`);
       console.log(`Users with Instagram accounts: ${allUsers.filter((u: any) => u.instagramAccountId).map((u: any) => ({ id: u.id, instagramAccountId: u.instagramAccountId }))}`);
       
-      const instagramUser = allUsers.find((u: any) => 
+      // Try to match by instagramAccountId first
+      let instagramUser = allUsers.find((u: any) => 
         u.instagramAccountId && u.instagramAccountId === recipientId
       );
 
+      // If matched by instagramAccountId and recipientId is not stored yet, store it
+      if (instagramUser && !instagramUser.instagramRecipientId) {
+        try {
+          await authStorage.updateUser(instagramUser.id, {
+            instagramRecipientId: recipientId
+          });
+          console.log(`Stored instagramRecipientId=${recipientId} for user ${instagramUser.id}`);
+        } catch (err) {
+          console.error("Failed to store instagramRecipientId:", err);
+        }
+      }
+
+      // If not found by instagramAccountId, try by instagramRecipientId
       if (!instagramUser) {
-        console.log(`No user with Instagram account ${recipientId} found in database`);
+        instagramUser = allUsers.find((u: any) => 
+          u.instagramRecipientId && u.instagramRecipientId === recipientId
+        );
+        if (instagramUser) {
+          console.log(`Matched user ${instagramUser.id} by instagramRecipientId`);
+        }
+      }
+
+      // If still not found, log error and return - NO UNSAFE FALLBACK
+      if (!instagramUser) {
+        console.log("=== NO USER MATCH FOR WEBHOOK ===");
+        console.log(`Webhook recipient ID: ${recipientId}`);
+        console.log("Available Instagram accounts:", 
+          allUsers.filter((u: any) => u.instagramAccountId || u.instagramRecipientId).map((u: any) => ({
+            userId: u.id,
+            email: u.email,
+            instagramAccountId: u.instagramAccountId,
+            instagramRecipientId: u.instagramRecipientId
+          }))
+        );
+        
+        // Store the last unmapped webhook recipient ID for admin reference
+        try {
+          await storage.setSetting("lastUnmappedWebhookRecipientId", recipientId);
+          await storage.setSetting("lastUnmappedWebhookTimestamp", new Date().toISOString());
+        } catch (err) {
+          console.error("Failed to store unmapped webhook info:", err);
+        }
+        
+        console.log("ACTION REQUIRED: Configure instagramRecipientId in Admin > Contas Instagram for the relevant user");
         return;
       }
 
-      console.log(`Found user ${instagramUser.id} for Instagram account ${recipientId}`);
+      console.log(`Processing webhook for user ${instagramUser.id} (${instagramUser.email})`);
 
       // Try to fetch sender's name and username from Instagram API
       let senderName = senderId || "Instagram User";

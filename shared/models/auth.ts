@@ -28,6 +28,7 @@ export const users = pgTable("users", {
   instagramAccountId: varchar("instagram_account_id"),
   instagramUsername: varchar("instagram_username"),
   instagramAccessToken: varchar("instagram_access_token"),
+  instagramRecipientId: varchar("instagram_recipient_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

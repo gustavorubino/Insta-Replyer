@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users,
@@ -14,6 +15,7 @@ import {
   MessageSquare,
   Clock,
   AlertCircle,
+  Edit,
 } from "lucide-react";
 import {
   Card,
@@ -44,6 +46,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -60,6 +63,7 @@ interface UserData {
   createdAt?: string;
   instagramAccountId?: string;
   instagramUsername?: string;
+  instagramRecipientId?: string;
 }
 
 interface UserStats {
@@ -80,6 +84,12 @@ export default function Admin() {
   const { user, isLoading: isAuthLoading } = useAuth();
   const [, navigate] = useLocation();
   
+  const [editRecipientDialog, setEditRecipientDialog] = useState<{
+    open: boolean;
+    user: UserData | null;
+  }>({ open: false, user: null });
+  const [newRecipientId, setNewRecipientId] = useState("");
+  
   const { data: users, isLoading: isLoadingUsers, isError: isErrorUsers, refetch: refetchUsers } = useQuery<UserData[]>({
     queryKey: ["/api/auth/users"],
     enabled: !!user?.isAdmin,
@@ -88,6 +98,15 @@ export default function Admin() {
   const { data: userStats, isLoading: isLoadingStats, isError: isErrorStats, refetch: refetchStats } = useQuery<UserStats[]>({
     queryKey: ["/api/admin/user-stats"],
     enabled: !!user?.isAdmin,
+  });
+
+  const { data: webhookStatusData } = useQuery<{
+    lastUnmappedWebhookRecipientId?: string | null;
+    lastUnmappedWebhookTimestamp?: string | null;
+  }>({
+    queryKey: ["/api/admin/webhook-status"],
+    enabled: !!user?.isAdmin,
+    refetchInterval: 30000,
   });
 
   const toggleAdminMutation = useMutation({
@@ -154,6 +173,55 @@ export default function Admin() {
       });
     },
   });
+
+  const updateRecipientMutation = useMutation({
+    mutationFn: async ({ userId, instagramRecipientId }: { userId: string; instagramRecipientId: string }) => {
+      return apiRequest("PATCH", `/api/admin/users/${userId}/instagram`, {
+        instagramRecipientId
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/users"] });
+      toast({
+        title: "Sucesso",
+        description: "ID de Webhook atualizado com sucesso",
+      });
+      setEditRecipientDialog({ open: false, user: null });
+      setNewRecipientId("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Erro",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const clearWebhookAlertMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("DELETE", "/api/admin/webhook-status");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/webhook-status"] });
+      toast({
+        title: "Sucesso",
+        description: "Alerta de webhook limpo com sucesso",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Erro",
+        description: "Não foi possível limpar o alerta",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const openEditRecipientDialog = (userData: UserData) => {
+    setNewRecipientId(userData.instagramRecipientId || "");
+    setEditRecipientDialog({ open: true, user: userData });
+  };
 
   const getUserStatsById = (userId: string): UserStats | undefined => {
     return userStats?.find((stat) => stat.userId === userId);
@@ -463,6 +531,43 @@ export default function Admin() {
         </TabsContent>
 
         <TabsContent value="instagram" className="space-y-4">
+          {webhookStatusData?.lastUnmappedWebhookRecipientId && (
+            <div className="p-4 border border-amber-500 bg-amber-50 dark:bg-amber-950/20 rounded-lg" data-testid="alert-unmapped-webhook">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-amber-500" />
+                  <span className="font-semibold text-amber-700 dark:text-amber-500">
+                    Webhook não mapeado detectado
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => clearWebhookAlertMutation.mutate()}
+                  disabled={clearWebhookAlertMutation.isPending}
+                  data-testid="button-clear-webhook-alert"
+                >
+                  {clearWebhookAlertMutation.isPending ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <XCircle className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+              <p className="text-sm text-amber-600 dark:text-amber-400 mb-2">
+                Um webhook do Instagram chegou com o ID: <code className="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">{webhookStatusData.lastUnmappedWebhookRecipientId}</code>
+              </p>
+              <p className="text-sm text-amber-600 dark:text-amber-400">
+                Configure o "ID Webhook" de um usuário abaixo com este valor para receber mensagens.
+              </p>
+              {webhookStatusData.lastUnmappedWebhookTimestamp && (
+                <p className="text-xs text-amber-500 dark:text-amber-500/70 mt-1">
+                  Detectado em: {new Date(webhookStatusData.lastUnmappedWebhookTimestamp).toLocaleString('pt-BR')}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
@@ -514,6 +619,7 @@ export default function Admin() {
                     <TableRow>
                       <TableHead>Usuário</TableHead>
                       <TableHead>Conta Instagram</TableHead>
+                      <TableHead>ID Webhook</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Mensagens</TableHead>
                       <TableHead>Última Atividade</TableHead>
@@ -540,6 +646,25 @@ export default function Admin() {
                               <span data-testid={`text-ig-username-${userData.id}`}>
                                 {userData.instagramUsername || userData.instagramAccountId}
                               </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-mono" data-testid={`text-ig-recipient-${userData.id}`}>
+                                {userData.instagramRecipientId || (
+                                  <Badge variant="outline" className="text-amber-600 dark:text-amber-500">
+                                    Não configurado
+                                  </Badge>
+                                )}
+                              </span>
+                              <Button 
+                                size="icon" 
+                                variant="ghost" 
+                                onClick={() => openEditRecipientDialog(userData)}
+                                data-testid={`button-edit-recipient-${userData.id}`}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -622,6 +747,58 @@ export default function Admin() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <AlertDialog 
+        open={editRecipientDialog.open} 
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditRecipientDialog({ open: false, user: null });
+            setNewRecipientId("");
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Editar ID de Webhook do Instagram</AlertDialogTitle>
+            <AlertDialogDescription>
+              O ID de Webhook é recebido automaticamente quando o Instagram envia a primeira mensagem.
+              Você pode configurá-lo manualmente se necessário, usando o ID que aparece nos logs do webhook.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Input
+              placeholder="Ex: 17841400000000000"
+              value={newRecipientId}
+              onChange={(e) => setNewRecipientId(e.target.value)}
+              data-testid="input-recipient-id"
+            />
+            {editRecipientDialog.user && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Usuário: {editRecipientDialog.user.firstName || editRecipientDialog.user.email}
+              </p>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-edit-recipient">
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (editRecipientDialog.user) {
+                  updateRecipientMutation.mutate({
+                    userId: editRecipientDialog.user.id,
+                    instagramRecipientId: newRecipientId,
+                  });
+                }
+              }}
+              disabled={updateRecipientMutation.isPending}
+              data-testid="button-save-recipient"
+            >
+              {updateRecipientMutation.isPending ? "Salvando..." : "Salvar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

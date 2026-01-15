@@ -38,6 +38,7 @@ import { apiRequest } from "@/lib/queryClient";
 interface SettingsData {
   instagramConnected: boolean;
   instagramUsername?: string;
+  instagramAccountId?: string;
   operationMode: "manual" | "semi_auto" | "auto";
   confidenceThreshold: number;
   systemPrompt: string;
@@ -234,27 +235,40 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="space-y-4">
               {localSettings.instagramConnected ? (
-                <div className="flex items-center justify-between p-4 rounded-lg border bg-green-50 dark:bg-green-900/20">
-                  <div className="flex items-center gap-3">
-                    <CheckCircle className="h-5 w-5 text-green-600" />
-                    <div>
-                      <p className="font-medium text-green-800 dark:text-green-400">
-                        Conta conectada
-                      </p>
-                      <p className="text-sm text-green-700 dark:text-green-500">
-                        @{localSettings.instagramUsername || "sua_conta"}
-                      </p>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 rounded-lg border bg-green-50 dark:bg-green-900/20">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      <div>
+                        <p className="font-medium text-green-800 dark:text-green-400">
+                          Conta conectada
+                        </p>
+                        <p className="text-sm text-green-700 dark:text-green-500">
+                          @{localSettings.instagramUsername || (localSettings.instagramAccountId ? `ID: ${localSettings.instagramAccountId}` : "sua_conta")}
+                        </p>
+                      </div>
                     </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => disconnectMutation.mutate()}
+                      disabled={disconnectMutation.isPending}
+                      data-testid="button-disconnect-instagram"
+                    >
+                      {disconnectMutation.isPending ? "Desconectando..." : "Desconectar"}
+                    </Button>
                   </div>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={() => disconnectMutation.mutate()}
-                    disabled={disconnectMutation.isPending}
-                    data-testid="button-disconnect-instagram"
-                  >
-                    {disconnectMutation.isPending ? "Desconectando..." : "Desconectar"}
-                  </Button>
+                  
+                  <div className="p-4 rounded-lg border bg-blue-50 dark:bg-blue-900/20">
+                    <p className="font-medium text-blue-800 dark:text-blue-400 mb-2">
+                      Como verificar a conexão
+                    </p>
+                    <ol className="text-sm text-blue-700 dark:text-blue-500 space-y-1 list-decimal list-inside">
+                      <li>Envie uma DM para sua conta Instagram de outra conta</li>
+                      <li>A mensagem deve aparecer na Fila de Aprovação em alguns segundos</li>
+                      <li>Se não aparecer, peça a um administrador verificar o mapeamento de webhook</li>
+                    </ol>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">

@@ -30,12 +30,15 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - **User Instagram Connection**:
   - OAuth 2.0 flow via Instagram Business Login
   - Access tokens stored per-user in database (instagramAccessToken, instagramAccountId)
+  - `instagramRecipientId` field stores the webhook recipient ID for reliable matching
   - Users can connect/disconnect their Instagram Business accounts
 - **Webhooks (Real-time Updates)**:
   - Endpoint: `GET/POST /api/webhooks/instagram`
   - Signature verification using X-Hub-Signature-256 (HMAC-SHA256)
   - Subscribed fields: comments, mentions, messages
-  - Automatically creates messages and generates AI responses on incoming events
+  - Multi-step user matching: by instagramAccountId, then by instagramRecipientId
+  - Unmapped webhooks are logged and stored for admin visibility
+  - NO unsafe fallback - rejects unmatched webhooks safely
 - **API Endpoints**:
   - `GET /api/instagram/auth` - Initiates OAuth flow
   - `GET /api/instagram/callback` - OAuth callback handler
@@ -57,9 +60,11 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
   - Admins see all messages from all users
   - Regular users see only their own messages
 - **Admin Panel** (/admin):
-  - View all registered users
+  - View all registered users with delete functionality
   - Promote/demote admin privileges
-  - Self-demotion protection
+  - Self-demotion/deletion protection
+  - Instagram accounts tab with webhook ID management
+  - Alert for unmapped webhooks with recipient ID display
   - Only visible to admins in sidebar
 - **Session Management**: 
   - actualUserId stored for users with existing email accounts
@@ -131,6 +136,13 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 
 #### Settings (Protected)
 - `GET/PATCH /api/settings` - System settings
+
+#### Admin (Protected - admin only)
+- `GET /api/admin/user-stats` - Get per-user message statistics
+- `DELETE /api/admin/users/:userId` - Delete user and their messages
+- `PATCH /api/admin/users/:userId/instagram` - Update user's Instagram recipient ID
+- `GET /api/admin/webhook-status` - Get last unmapped webhook info
+- `DELETE /api/admin/webhook-status` - Clear unmapped webhook alert
 
 #### Development
 - `POST /api/seed-demo` - Seed demo data (dev only)

@@ -285,4 +285,77 @@ export function registerAuthRoutes(app: Express): void {
       res.status(500).json({ message: "Erro ao excluir usuário" });
     }
   });
+
+  // Admin: Update user's Instagram mapping
+  app.patch("/api/admin/users/:userId/instagram", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
+      const currentUser = await authStorage.getUser(currentUserId);
+      
+      if (!currentUser?.isAdmin) {
+        return res.status(403).json({ message: "Acesso negado" });
+      }
+      
+      const { userId } = req.params;
+      const { instagramRecipientId } = req.body;
+      
+      const targetUser = await authStorage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "Usuário não encontrado" });
+      }
+      
+      const updatedUser = await authStorage.updateUser(userId, {
+        instagramRecipientId: instagramRecipientId || null
+      });
+      
+      if (!updatedUser) {
+        return res.status(500).json({ message: "Erro ao atualizar usuário" });
+      }
+      
+      res.json({ success: true, message: "ID de Webhook atualizado com sucesso" });
+    } catch (error) {
+      console.error("Error updating Instagram mapping:", error);
+      res.status(500).json({ message: "Erro ao atualizar mapeamento" });
+    }
+  });
+
+  // Admin: Get webhook status
+  app.get("/api/admin/webhook-status", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
+      const currentUser = await authStorage.getUser(currentUserId);
+      
+      if (!currentUser?.isAdmin) {
+        return res.status(403).json({ message: "Acesso negado" });
+      }
+      
+      const allSettings = await storage.getSettings();
+      res.json({
+        lastUnmappedWebhookRecipientId: allSettings.lastUnmappedWebhookRecipientId || null,
+        lastUnmappedWebhookTimestamp: allSettings.lastUnmappedWebhookTimestamp || null,
+      });
+    } catch (error) {
+      console.error("Error getting webhook status:", error);
+      res.status(500).json({ error: "Erro ao buscar status do webhook" });
+    }
+  });
+
+  // Admin: Clear webhook status alert
+  app.delete("/api/admin/webhook-status", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
+      const currentUser = await authStorage.getUser(currentUserId);
+      
+      if (!currentUser?.isAdmin) {
+        return res.status(403).json({ message: "Acesso negado" });
+      }
+      
+      await storage.setSetting("lastUnmappedWebhookRecipientId", "");
+      await storage.setSetting("lastUnmappedWebhookTimestamp", "");
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error clearing webhook status:", error);
+      res.status(500).json({ error: "Erro ao limpar status do webhook" });
+    }
+  });
 }
