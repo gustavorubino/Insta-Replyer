@@ -384,6 +384,35 @@ export default function Settings() {
                         A IA envia automaticamente respostas com alta confiança.
                         Respostas com baixa confiança são enviadas para aprovação.
                       </p>
+                      {localSettings.operationMode === "semi_auto" && (
+                        <div className="mt-4 pt-4 border-t" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-between mb-2">
+                            <Label>Limiar de Confiança</Label>
+                            <span className="text-sm font-medium">
+                              {localSettings.confidenceThreshold}%
+                            </span>
+                          </div>
+                          <Slider
+                            value={[localSettings.confidenceThreshold]}
+                            onValueChange={([value]) =>
+                              setLocalSettings({
+                                ...localSettings,
+                                confidenceThreshold: value,
+                              })
+                            }
+                            min={50}
+                            max={95}
+                            step={5}
+                            className="w-full"
+                            data-testid="slider-confidence-threshold"
+                          />
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Respostas com confiança acima de{" "}
+                            {localSettings.confidenceThreshold}% serão enviadas
+                            automaticamente.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -431,38 +460,6 @@ export default function Settings() {
                   </div>
                 </div>
               </div>
-
-              {localSettings.operationMode === "semi_auto" && (
-                <div className="space-y-4 pt-4 border-t">
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <Label>Limiar de Confiança</Label>
-                      <span className="text-sm font-medium">
-                        {localSettings.confidenceThreshold}%
-                      </span>
-                    </div>
-                    <Slider
-                      value={[localSettings.confidenceThreshold]}
-                      onValueChange={([value]) =>
-                        setLocalSettings({
-                          ...localSettings,
-                          confidenceThreshold: value,
-                        })
-                      }
-                      min={50}
-                      max={95}
-                      step={5}
-                      className="w-full"
-                      data-testid="slider-confidence-threshold"
-                    />
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Respostas com confiança acima de{" "}
-                      {localSettings.confidenceThreshold}% serão enviadas
-                      automaticamente.
-                    </p>
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
         </TabsContent>
