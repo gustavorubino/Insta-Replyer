@@ -240,7 +240,7 @@ export function ApprovalModal({
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-primary" />
-                Resposta Sugerida
+                Resposta Sugerida (Aprendizado da IA)
               </h3>
               {message.aiResponse && (
                 <ConfidenceBadge
