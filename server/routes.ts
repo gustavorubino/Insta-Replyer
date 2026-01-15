@@ -339,14 +339,16 @@ export async function registerRoutes(
         confidenceScore: aiResult.confidenceScore,
       });
 
-      // Check if semi-auto mode and high confidence
+      // Check if auto mode (100% auto) or semi-auto mode with high confidence
       const operationMode = await storage.getSetting("operationMode");
       const confidenceThreshold = await storage.getSetting("confidenceThreshold");
       
-      if (
-        operationMode?.value === "semi_auto" &&
-        aiResult.confidenceScore >= (parseFloat(confidenceThreshold?.value || "80") / 100)
-      ) {
+      const shouldAutoSend = 
+        operationMode?.value === "auto" || // 100% automatic mode
+        (operationMode?.value === "semi_auto" && 
+         aiResult.confidenceScore >= (parseFloat(confidenceThreshold?.value || "80") / 100));
+      
+      if (shouldAutoSend) {
         // Auto-approve and send
         await storage.updateMessageStatus(message.id, "auto_sent");
         await storage.updateAiResponse(aiResponse.id, {
@@ -1143,15 +1145,26 @@ export async function registerRoutes(
         confidenceScore: aiResult.confidenceScore,
       });
 
-      // Check for auto-send
+      // Check for auto-send (auto mode = 100%, semi_auto = based on confidence)
       const operationMode = await storage.getSetting("operationMode");
       const confidenceThreshold = await storage.getSetting("confidenceThreshold");
       
-      if (
-        operationMode?.value === "semi_auto" &&
-        aiResult.confidenceScore >= (parseFloat(confidenceThreshold?.value || "80") / 100)
-      ) {
-        await storage.updateMessageStatus(newMessage.id, "auto_sent");
+      const shouldAutoSend = 
+        operationMode?.value === "auto" || // 100% automatic mode
+        (operationMode?.value === "semi_auto" && 
+         aiResult.confidenceScore >= (parseFloat(confidenceThreshold?.value || "80") / 100));
+      
+      if (shouldAutoSend) {
+        // Get the AI response to update it
+        const aiResponse = await storage.getAiResponse(newMessage.id);
+        if (aiResponse) {
+          await storage.updateMessageStatus(newMessage.id, "auto_sent");
+          await storage.updateAiResponse(aiResponse.id, {
+            finalResponse: aiResult.suggestedResponse,
+            wasApproved: true,
+            approvedAt: new Date(),
+          });
+        }
         // TODO: Actually send the response via Instagram API
       }
 
@@ -1425,6 +1438,29 @@ export async function registerRoutes(
         suggestedResponse: aiResult.suggestedResponse,
         confidenceScore: aiResult.confidenceScore,
       });
+
+      // Check for auto-send (auto mode = 100%, semi_auto = based on confidence)
+      const operationMode = await storage.getSetting("operationMode");
+      const confidenceThreshold = await storage.getSetting("confidenceThreshold");
+      
+      const shouldAutoSend = 
+        operationMode?.value === "auto" || // 100% automatic mode
+        (operationMode?.value === "semi_auto" && 
+         aiResult.confidenceScore >= (parseFloat(confidenceThreshold?.value || "80") / 100));
+      
+      if (shouldAutoSend) {
+        // Get the AI response to update it
+        const aiResponse = await storage.getAiResponse(newMessage.id);
+        if (aiResponse) {
+          await storage.updateMessageStatus(newMessage.id, "auto_sent");
+          await storage.updateAiResponse(aiResponse.id, {
+            finalResponse: aiResult.suggestedResponse,
+            wasApproved: true,
+            approvedAt: new Date(),
+          });
+        }
+        // TODO: Actually send the response via Instagram API
+      }
 
       console.log("Webhook DM processed successfully:", messageId, mediaType ? `(with ${mediaType})` : '');
     } catch (error) {

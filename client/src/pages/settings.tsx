@@ -38,7 +38,7 @@ import { apiRequest } from "@/lib/queryClient";
 interface SettingsData {
   instagramConnected: boolean;
   instagramUsername?: string;
-  operationMode: "manual" | "semi_auto";
+  operationMode: "manual" | "semi_auto" | "auto";
   confidenceThreshold: number;
   systemPrompt: string;
   autoReplyEnabled: boolean;
@@ -374,8 +374,8 @@ export default function Settings() {
                       )}
                     </div>
                     <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-medium">Modo Semi-Automático (90% Auto)</h4>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-medium">Modo Semi-Automático</h4>
                         <Badge variant="secondary" className="text-xs">
                           Recomendado
                         </Badge>
@@ -383,6 +383,49 @@ export default function Settings() {
                       <p className="text-sm text-muted-foreground mt-1">
                         A IA envia automaticamente respostas com alta confiança.
                         Respostas com baixa confiança são enviadas para aprovação.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className={`p-4 rounded-lg border cursor-pointer transition-colors ${
+                    localSettings.operationMode === "auto"
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-muted/50"
+                  }`}
+                  onClick={() =>
+                    setLocalSettings({
+                      ...localSettings,
+                      operationMode: "auto",
+                    })
+                  }
+                  data-testid="option-auto-mode"
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`h-4 w-4 rounded-full border-2 mt-0.5 ${
+                        localSettings.operationMode === "auto"
+                          ? "border-primary bg-primary"
+                          : "border-muted-foreground"
+                      }`}
+                    >
+                      {localSettings.operationMode === "auto" && (
+                        <div className="h-full w-full flex items-center justify-center">
+                          <div className="h-1.5 w-1.5 rounded-full bg-white"></div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-medium">Modo Automático (100% Auto)</h4>
+                        <Badge variant="outline" className="text-xs border-amber-500 text-amber-600">
+                          IA Treinada
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Todas as respostas são enviadas automaticamente sem aprovação.
+                        Use apenas quando a IA estiver bem treinada.
                       </p>
                     </div>
                   </div>
