@@ -34,6 +34,39 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+// Sensitive fields to redact from logs
+const LOG_SENSITIVE_FIELDS = [
+  'password', 'instagramAccessToken', 'facebookAppSecret', 'facebookAppId',
+  'claims', 'access_token', 'refresh_token', 'expires_at', 'secret', 'token'
+];
+
+// Deep clone and redact sensitive fields from objects for logging
+function redactSensitiveData(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj !== 'object') return obj;
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => redactSensitiveData(item));
+  }
+  
+  const redacted: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const lowercaseKey = key.toLowerCase();
+    const isSensitive = LOG_SENSITIVE_FIELDS.some(field => 
+      lowercaseKey.includes(field.toLowerCase())
+    );
+    
+    if (isSensitive && value) {
+      redacted[key] = '[REDACTED]';
+    } else if (typeof value === 'object' && value !== null) {
+      redacted[key] = redactSensitiveData(value);
+    } else {
+      redacted[key] = value;
+    }
+  }
+  return redacted;
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -50,7 +83,9 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        // Redact sensitive data from logs
+        const safeResponse = redactSensitiveData(capturedJsonResponse);
+        logLine += ` :: ${JSON.stringify(safeResponse)}`;
       }
 
       log(logLine);

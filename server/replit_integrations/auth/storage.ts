@@ -2,6 +2,48 @@ import { users, type User, type UpsertUser } from "@shared/models/auth";
 import { db } from "../../db";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { encrypt, decrypt, isEncrypted } from "../../encryption";
+
+// Fields that should be encrypted in the database
+const ENCRYPTED_FIELDS = ['instagramAccessToken', 'facebookAppSecret'] as const;
+
+// Helper to decrypt sensitive user fields
+function decryptUserFields(user: User): User {
+  const decrypted = { ...user };
+  
+  if (decrypted.instagramAccessToken && isEncrypted(decrypted.instagramAccessToken)) {
+    try {
+      decrypted.instagramAccessToken = decrypt(decrypted.instagramAccessToken);
+    } catch (e) {
+      console.error("Failed to decrypt instagramAccessToken");
+    }
+  }
+  
+  if (decrypted.facebookAppSecret && isEncrypted(decrypted.facebookAppSecret)) {
+    try {
+      decrypted.facebookAppSecret = decrypt(decrypted.facebookAppSecret);
+    } catch (e) {
+      console.error("Failed to decrypt facebookAppSecret");
+    }
+  }
+  
+  return decrypted;
+}
+
+// Helper to encrypt sensitive fields before saving
+function encryptSensitiveFields(updates: Partial<UpsertUser>): Partial<UpsertUser> {
+  const encrypted = { ...updates };
+  
+  if (encrypted.instagramAccessToken && !isEncrypted(encrypted.instagramAccessToken)) {
+    encrypted.instagramAccessToken = encrypt(encrypted.instagramAccessToken);
+  }
+  
+  if (encrypted.facebookAppSecret && !isEncrypted(encrypted.facebookAppSecret)) {
+    encrypted.facebookAppSecret = encrypt(encrypted.facebookAppSecret);
+  }
+  
+  return encrypted;
+}
 
 // Interface for auth storage operations
 export interface IAuthStorage {
@@ -22,39 +64,41 @@ export interface IAuthStorage {
 class AuthStorage implements IAuthStorage {
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+    return user ? decryptUserFields(user) : undefined;
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user;
+    return user ? decryptUserFields(user) : undefined;
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
+    const encryptedData = encryptSensitiveFields(userData);
     const [user] = await db
       .insert(users)
-      .values(userData)
+      .values(encryptedData)
       .onConflictDoUpdate({
         target: users.id,
         set: {
-          ...userData,
+          ...encryptedData,
           updatedAt: new Date(),
         },
       })
       .returning();
-    return user;
+    return decryptUserFields(user);
   }
 
   async updateUserById(id: string, updates: Partial<UpsertUser>): Promise<User | undefined> {
+    const encryptedUpdates = encryptSensitiveFields(updates);
     const [user] = await db
       .update(users)
       .set({
-        ...updates,
+        ...encryptedUpdates,
         updatedAt: new Date(),
       })
       .where(eq(users.id, id))
       .returning();
-    return user;
+    return user ? decryptUserFields(user) : undefined;
   }
 
   async updateUser(id: string, updates: Partial<UpsertUser>): Promise<User | undefined> {
@@ -90,7 +134,8 @@ class AuthStorage implements IAuthStorage {
   }
 
   async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users);
+    const allUsers = await db.select().from(users);
+    return allUsers.map(user => decryptUserFields(user));
   }
 }
 

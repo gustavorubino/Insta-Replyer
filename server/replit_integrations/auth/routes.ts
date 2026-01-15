@@ -16,6 +16,28 @@ const loginSchema = z.object({
   password: z.string().min(1, "Senha obrigatória"),
 });
 
+// Sensitive fields that should never be exposed in API responses
+const SENSITIVE_FIELDS = [
+  'password',
+  'instagramAccessToken',
+  'facebookAppSecret',
+  'facebookAppId',        // App credentials
+  'claims',               // OAuth tokens
+  'access_token',
+  'refresh_token',
+  'expires_at',
+] as const;
+
+// Sanitize user object by removing sensitive fields
+function sanitizeUser(user: any): any {
+  if (!user) return user;
+  const sanitized = { ...user };
+  for (const field of SENSITIVE_FIELDS) {
+    delete sanitized[field];
+  }
+  return sanitized;
+}
+
 const getOidcConfig = memoize(
   async () => {
     return await client.discovery(
@@ -87,9 +109,8 @@ export function registerAuthRoutes(app: Express): void {
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      // Don't expose password
-      const { password, ...safeUser } = user;
-      res.json(safeUser);
+      // Remove sensitive fields before sending to client
+      res.json(sanitizeUser(user));
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
@@ -115,8 +136,7 @@ export function registerAuthRoutes(app: Express): void {
           console.error("Error logging in after registration:", err);
           return res.status(500).json({ message: "Erro ao fazer login" });
         }
-        const { password, ...safeUser } = user;
-        res.status(201).json(safeUser);
+        res.status(201).json(sanitizeUser(user));
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -142,8 +162,7 @@ export function registerAuthRoutes(app: Express): void {
           console.error("Error logging in:", err);
           return res.status(500).json({ message: "Erro ao fazer login" });
         }
-        const { password, ...safeUser } = user;
-        res.json(safeUser);
+        res.json(sanitizeUser(user));
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -176,8 +195,8 @@ export function registerAuthRoutes(app: Express): void {
       }
 
       const allUsers = await authStorage.getAllUsers();
-      // Remove passwords from response
-      const safeUsers = allUsers.map(({ password, ...user }) => user);
+      // Remove all sensitive fields from response
+      const safeUsers = allUsers.map(user => sanitizeUser(user));
       res.json(safeUsers);
     } catch (error) {
       console.error("Error fetching users:", error);
