@@ -59,6 +59,7 @@ export interface IAuthStorage {
   }): Promise<User>;
   verifyPassword(email: string, password: string): Promise<User | null>;
   getAllUsers(): Promise<User[]>;
+  deleteUser(id: string): Promise<boolean>;
 }
 
 class AuthStorage implements IAuthStorage {
@@ -136,6 +137,11 @@ class AuthStorage implements IAuthStorage {
   async getAllUsers(): Promise<User[]> {
     const allUsers = await db.select().from(users);
     return allUsers.map(user => decryptUserFields(user));
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    const result = await db.delete(users).where(eq(users.id, id)).returning();
+    return result.length > 0;
   }
 }
 

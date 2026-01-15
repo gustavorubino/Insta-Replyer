@@ -134,6 +134,27 @@ export default function Admin() {
     },
   });
 
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return await apiRequest("DELETE", `/api/admin/users/${userId}`);
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/user-stats"] });
+      toast({
+        title: "Usuário excluído",
+        description: `Usuário removido com sucesso. ${data.deleted?.messages || 0} mensagens foram excluídas.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Erro",
+        description: "Não foi possível excluir o usuário.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const getUserStatsById = (userId: string): UserStats | undefined => {
     return userStats?.find((stat) => stat.userId === userId);
   };
@@ -344,55 +365,90 @@ export default function Admin() {
                         </TableCell>
                         <TableCell className="text-right">
                           {userData.id !== user?.id ? (
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant={userData.isAdmin ? "outline" : "default"}
-                                  size="sm"
-                                  data-testid={`button-toggle-admin-${userData.id}`}
-                                >
-                                  {userData.isAdmin ? (
-                                    <>
-                                      <ShieldOff className="h-4 w-4 mr-2" />
-                                      Remover Admin
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Shield className="h-4 w-4 mr-2" />
-                                      Tornar Admin
-                                    </>
-                                  )}
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>
-                                    {userData.isAdmin
-                                      ? "Remover privilégios de administrador?"
-                                      : "Promover a administrador?"}
-                                  </AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    {userData.isAdmin
-                                      ? `${userData.firstName || userData.email} perderá acesso às funções administrativas.`
-                                      : `${userData.firstName || userData.email} terá acesso a todas as mensagens e configurações do sistema.`}
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() =>
-                                      toggleAdminMutation.mutate({
-                                        userId: userData.id,
-                                        isAdmin: !userData.isAdmin,
-                                      })
-                                    }
-                                    data-testid="button-confirm-toggle-admin"
+                            <div className="flex items-center justify-end gap-2">
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant={userData.isAdmin ? "outline" : "default"}
+                                    size="sm"
+                                    data-testid={`button-toggle-admin-${userData.id}`}
                                   >
-                                    Confirmar
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                                    {userData.isAdmin ? (
+                                      <>
+                                        <ShieldOff className="h-4 w-4 mr-2" />
+                                        Remover Admin
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Shield className="h-4 w-4 mr-2" />
+                                        Tornar Admin
+                                      </>
+                                    )}
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>
+                                      {userData.isAdmin
+                                        ? "Remover privilégios de administrador?"
+                                        : "Promover a administrador?"}
+                                    </AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      {userData.isAdmin
+                                        ? `${userData.firstName || userData.email} perderá acesso às funções administrativas.`
+                                        : `${userData.firstName || userData.email} terá acesso a todas as mensagens e configurações do sistema.`}
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() =>
+                                        toggleAdminMutation.mutate({
+                                          userId: userData.id,
+                                          isAdmin: !userData.isAdmin,
+                                        })
+                                      }
+                                      data-testid="button-confirm-toggle-admin"
+                                    >
+                                      Confirmar
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="destructive"
+                                    size="icon"
+                                    data-testid={`button-delete-user-${userData.id}`}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>
+                                      Excluir usuário?
+                                    </AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Esta ação irá excluir permanentemente o usuário{" "}
+                                      <strong>{userData.firstName || userData.email}</strong> e todas as suas mensagens.
+                                      Esta ação não pode ser desfeita.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => deleteUserMutation.mutate(userData.id)}
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      data-testid="button-confirm-delete-user"
+                                    >
+                                      Excluir
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
                           ) : (
                             <Badge variant="outline">Você</Badge>
                           )}

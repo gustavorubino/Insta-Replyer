@@ -63,6 +63,8 @@ export interface IStorage {
     editedResponses: number;
     lastActivity: Date | null;
   }>>;
+
+  deleteUserData(userId: string): Promise<{ messages: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -341,6 +343,13 @@ export class DatabaseStorage implements IStorage {
       editedResponses: Number(row.editedResponses) || 0,
       lastActivity: row.lastActivity || null,
     }));
+  }
+
+  async deleteUserData(userId: string): Promise<{ messages: number }> {
+    const deleted = await db.delete(instagramMessages)
+      .where(eq(instagramMessages.userId, userId))
+      .returning();
+    return { messages: deleted.length };
   }
 }
 

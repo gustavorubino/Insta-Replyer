@@ -2,6 +2,7 @@ import type { Express, RequestHandler } from "express";
 import * as client from "openid-client";
 import memoize from "memoizee";
 import { authStorage } from "./storage";
+import { storage } from "../../storage";
 import { z } from "zod";
 
 const registerSchema = z.object({
@@ -237,6 +238,51 @@ export function registerAuthRoutes(app: Express): void {
     } catch (error) {
       console.error("Error updating user admin status:", error);
       res.status(500).json({ message: "Erro ao atualizar permissões" });
+    }
+  });
+
+  // Delete user (admin only)
+  app.delete("/api/admin/users/:userId", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
+      const currentUser = await authStorage.getUser(currentUserId);
+      
+      if (!currentUser?.isAdmin) {
+        return res.status(403).json({ message: "Acesso negado" });
+      }
+
+      const { userId } = req.params;
+
+      // Prevent self-deletion
+      if (userId === currentUserId) {
+        return res.status(400).json({ message: "Você não pode excluir sua própria conta" });
+      }
+
+      const targetUser = await authStorage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "Usuário não encontrado" });
+      }
+
+      // Delete user's messages first (AI responses cascade automatically due to FK)
+      const deletedData = await storage.deleteUserData(userId);
+      
+      // Delete the user
+      const deleted = await authStorage.deleteUser(userId);
+      
+      if (!deleted) {
+        return res.status(500).json({ message: "Erro ao excluir usuário" });
+      }
+
+      res.json({ 
+        success: true, 
+        message: "Usuário excluído com sucesso",
+        deleted: {
+          messages: deletedData.messages
+        }
+      });
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      res.status(500).json({ message: "Erro ao excluir usuário" });
     }
   });
 }
