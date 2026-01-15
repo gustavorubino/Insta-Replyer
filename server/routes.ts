@@ -6,6 +6,7 @@ import { createMessageApiSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "./replit_integrations/auth";
 import crypto from "crypto";
+import { downloadAndStoreMedia } from "./utils/media-storage";
 
 // Instagram Business Login OAuth endpoints
 const FACEBOOK_GRAPH_API = "https://graph.facebook.com/v18.0";
@@ -278,7 +279,7 @@ export async function registerRoutes(
 
       // Generate AI response
       const aiResult = await generateAIResponse(
-        message.content,
+        message.content || "[Mensagem de mídia]",
         message.type as "dm" | "comment",
         message.senderName
       );
@@ -391,7 +392,7 @@ export async function registerRoutes(
       // If edited, add to learning history
       if (wasEdited) {
         await storage.createLearningEntry({
-          originalMessage: message.content,
+          originalMessage: message.content || "[Mensagem de mídia]",
           originalSuggestion: aiResponse.suggestedResponse,
           correctedResponse: response,
         });
@@ -463,7 +464,7 @@ export async function registerRoutes(
       const previousResponse = message.aiResponse?.suggestedResponse || "";
 
       const aiResult = await regenerateResponse(
-        message.content,
+        message.content || "[Mensagem de mídia]",
         message.type as "dm" | "comment",
         message.senderName,
         previousResponse
@@ -592,7 +593,7 @@ export async function registerRoutes(
         const message = await storage.createMessage(msg);
         
         const aiResult = await generateAIResponse(
-          message.content,
+          message.content || "[Mensagem de mídia]",
           message.type as "dm" | "comment",
           message.senderName
         );
@@ -1216,6 +1217,24 @@ export async function registerRoutes(
     };
   }
 
+  // Helper function to get media type description for AI
+  function getMediaTypeDescription(mediaType: string): string {
+    const descriptions: Record<string, string> = {
+      'image': 'uma foto',
+      'video': 'um vídeo',
+      'audio': 'uma mensagem de voz',
+      'gif': 'um GIF animado',
+      'animated_gif': 'um GIF animado',
+      'reel': 'um reel',
+      'story_mention': 'uma menção em story',
+      'story_reply': 'uma resposta a story',
+      'share': 'um compartilhamento',
+      'sticker': 'um sticker',
+      'like': 'uma curtida',
+    };
+    return descriptions[mediaType] || 'uma mídia';
+  }
+
   // Helper function to process incoming DMs from webhooks
   async function processWebhookMessage(messageData: any) {
     try {
@@ -1224,9 +1243,11 @@ export async function registerRoutes(
       const senderId = messageData.sender?.id;
       const messageId = messageData.message?.mid;
       const text = messageData.message?.text;
+      const attachments = messageData.message?.attachments;
 
-      if (!messageId || !text) {
-        console.log("Missing required message data");
+      // Accept messages with text OR attachments
+      if (!messageId || (!text && !attachments?.length)) {
+        console.log("Missing required message data (no text and no attachments)");
         return;
       }
 
@@ -1291,6 +1312,67 @@ export async function registerRoutes(
         console.log(`Resolved sender info: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}`);
       }
 
+      // Process attachments (photos, videos, audio, gifs, etc.)
+      let mediaUrl: string | null = null;
+      let mediaType: string | null = null;
+      
+      if (attachments && attachments.length > 0) {
+        const attachment = attachments[0]; // Process first attachment
+        console.log("Processing attachment:", JSON.stringify(attachment));
+        
+        // Instagram attachment types: image, video, audio, file, fallback, reel, ig_reel, story_mention, animated_gif
+        const rawType = attachment.type?.toLowerCase() || 'unknown';
+        
+        // Normalize media type
+        if (rawType.includes('image') || rawType === 'photo') {
+          mediaType = 'image';
+        } else if (rawType.includes('video') || rawType === 'ig_reel' || rawType === 'reel') {
+          mediaType = rawType === 'ig_reel' || rawType === 'reel' ? 'reel' : 'video';
+        } else if (rawType.includes('audio') || rawType === 'voice') {
+          mediaType = 'audio';
+        } else if (rawType.includes('gif') || rawType === 'animated_gif') {
+          mediaType = 'gif';
+        } else if (rawType === 'story_mention') {
+          mediaType = 'story_mention';
+        } else if (rawType === 'sticker') {
+          mediaType = 'sticker';
+        } else if (rawType === 'share') {
+          mediaType = 'share';
+        } else {
+          mediaType = rawType;
+        }
+        
+        // Try to download and store media
+        const payloadUrl = attachment.payload?.url;
+        if (payloadUrl) {
+          console.log(`Downloading ${mediaType} from:`, payloadUrl.substring(0, 100) + '...');
+          try {
+            const mediaResult = await downloadAndStoreMedia(payloadUrl, messageId);
+            if (mediaResult.success && mediaResult.url) {
+              mediaUrl = mediaResult.url;
+              console.log(`Media stored successfully at: ${mediaUrl}`);
+            } else {
+              console.log(`Failed to store media: ${mediaResult.error}`);
+              // Keep the original URL as fallback
+              mediaUrl = payloadUrl;
+            }
+          } catch (e) {
+            console.log(`Error downloading media:`, e);
+            mediaUrl = payloadUrl; // Use original URL as fallback
+          }
+        }
+      }
+
+      // Build content description for AI
+      let contentForAI = text || '';
+      if (mediaType && !text) {
+        // If no text, describe what was received
+        contentForAI = `[O usuário enviou ${getMediaTypeDescription(mediaType)}]`;
+      } else if (mediaType && text) {
+        // If both text and media
+        contentForAI = `[Anexo: ${getMediaTypeDescription(mediaType)}] ${text}`;
+      }
+
       // Create the message
       const newMessage = await storage.createMessage({
         userId: instagramUser.id,
@@ -1300,18 +1382,20 @@ export async function registerRoutes(
         senderUsername: senderUsername,
         senderAvatar: senderAvatar || null,
         senderId: senderId, // Save IGSID for replying
-        content: text,
+        content: text || null,
+        mediaUrl: mediaUrl,
+        mediaType: mediaType,
       });
 
       // Generate AI response
-      const aiResult = await generateAIResponse(text, "dm", senderName);
+      const aiResult = await generateAIResponse(contentForAI, "dm", senderName);
       await storage.createAiResponse({
         messageId: newMessage.id,
         suggestedResponse: aiResult.suggestedResponse,
         confidenceScore: aiResult.confidenceScore,
       });
 
-      console.log("Webhook DM processed successfully:", messageId);
+      console.log("Webhook DM processed successfully:", messageId, mediaType ? `(with ${mediaType})` : '');
     } catch (error) {
       console.error("Error processing webhook DM:", error);
     }

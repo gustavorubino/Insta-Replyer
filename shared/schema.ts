@@ -16,8 +16,9 @@ export const instagramMessages = pgTable("instagram_messages", {
   senderUsername: text("sender_username").notNull(),
   senderAvatar: text("sender_avatar"),
   senderId: text("sender_id"), // IGSID of the sender for replying
-  content: text("content").notNull(),
+  content: text("content"), // Can be null for media-only messages
   mediaUrl: text("media_url"),
+  mediaType: text("media_type"), // 'image', 'video', 'audio', 'gif', 'reel', 'story_mention', etc.
   postId: text("post_id"), // For comments, reference to the post
   status: text("status").notNull().default("pending"), // 'pending', 'approved', 'rejected', 'auto_sent'
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),

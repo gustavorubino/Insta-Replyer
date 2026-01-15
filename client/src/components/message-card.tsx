@@ -1,6 +1,6 @@
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { MessageSquare, AtSign, MoreVertical, Eye } from "lucide-react";
+import { MessageSquare, AtSign, Eye, Image, Video, Mic, FileImage } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +77,24 @@ export function MessageCard({ message, onView }: MessageCardProps) {
     return gradients[Math.abs(hash) % gradients.length];
   };
 
+  // Get media type icon and label
+  const getMediaInfo = () => {
+    if (!message.mediaType) return null;
+    const mediaTypes: Record<string, { icon: typeof Image; label: string }> = {
+      'image': { icon: Image, label: 'Foto' },
+      'video': { icon: Video, label: 'Vídeo' },
+      'audio': { icon: Mic, label: 'Áudio' },
+      'gif': { icon: FileImage, label: 'GIF' },
+      'animated_gif': { icon: FileImage, label: 'GIF' },
+      'reel': { icon: Video, label: 'Reel' },
+      'story_mention': { icon: Image, label: 'Story' },
+      'sticker': { icon: Image, label: 'Sticker' },
+    };
+    return mediaTypes[message.mediaType] || { icon: FileImage, label: 'Mídia' };
+  };
+
+  const mediaInfo = getMediaInfo();
+
   return (
     <Card
       className="hover-elevate cursor-pointer transition-colors"
@@ -113,9 +131,52 @@ export function MessageCard({ message, onView }: MessageCardProps) {
               </Badge>
             </div>
             
-            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-              {message.content}
-            </p>
+            {/* Media thumbnail */}
+            {message.mediaUrl && (
+              <div className="mt-2 flex items-start gap-2">
+                {message.mediaType === 'image' || message.mediaType === 'gif' || message.mediaType === 'animated_gif' || message.mediaType === 'sticker' ? (
+                  <img 
+                    src={message.mediaUrl} 
+                    alt="Mídia anexada" 
+                    className="w-16 h-16 object-cover rounded-md border"
+                    data-testid={`media-thumbnail-${message.id}`}
+                  />
+                ) : message.mediaType === 'video' || message.mediaType === 'reel' ? (
+                  <div className="w-16 h-16 bg-muted rounded-md border flex items-center justify-center">
+                    <Video className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                ) : message.mediaType === 'audio' ? (
+                  <div className="w-16 h-16 bg-muted rounded-md border flex items-center justify-center">
+                    <Mic className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 bg-muted rounded-md border flex items-center justify-center">
+                    <FileImage className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                )}
+                {message.content ? (
+                  <p className="text-sm text-muted-foreground flex-1 line-clamp-2">
+                    {message.content}
+                  </p>
+                ) : mediaInfo && (
+                  <p className="text-sm text-muted-foreground flex-1 italic">
+                    {mediaInfo.label} recebido
+                  </p>
+                )}
+              </div>
+            )}
+            
+            {/* Text only (no media) */}
+            {!message.mediaUrl && (
+              <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                {message.content || (mediaInfo && (
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    <mediaInfo.icon className="h-3 w-3" />
+                    {mediaInfo.label} recebido
+                  </span>
+                ))}
+              </p>
+            )}
             
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               {getStatusBadge()}

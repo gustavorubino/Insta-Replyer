@@ -19,6 +19,8 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - Sistema de aprendizado que armazena correções humanas
 - Regenerar resposta da IA
 - Tema claro/escuro
+- Seletor de emojis no modal de aprovação
+- **Suporte a mídia**: Fotos, vídeos, áudios, GIFs, reels, stickers e desenhos recebidos via DM
 
 ### Instagram Integration (Meta Graph API)
 - **Centralized App Configuration**:
@@ -102,7 +104,7 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 ### Database Tables
 - `users`: User accounts (id, email, password, firstName, lastName, isAdmin, instagramAccountId, etc.)
 - `sessions`: Session storage for authentication
-- `instagram_messages`: DMs and comments from Instagram (with userId for ownership)
+- `instagram_messages`: DMs and comments from Instagram (with userId for ownership, mediaUrl, mediaType)
 - `ai_responses`: AI-generated responses with confidence scores
 - `learning_history`: Human corrections for AI learning
 - `settings`: System configuration

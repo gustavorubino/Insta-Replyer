@@ -148,7 +148,7 @@ export default function Queue() {
   const filteredMessages = messages?.filter((msg) => {
     const matchesSearch =
       searchQuery === "" ||
-      msg.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (msg.content || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       msg.senderName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       msg.senderUsername.toLowerCase().includes(searchQuery.toLowerCase());
 

@@ -181,7 +181,58 @@ export function ApprovalModal({
                 </div>
               </div>
               <Separator className="my-3" />
-              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              
+              {/* Media display */}
+              {message.mediaUrl && (
+                <div className="mb-3">
+                  {message.mediaType === 'image' || message.mediaType === 'gif' || message.mediaType === 'sticker' ? (
+                    <img 
+                      src={message.mediaUrl} 
+                      alt="Mídia anexada" 
+                      className="max-w-full max-h-48 object-contain rounded-md border"
+                      data-testid="media-image"
+                    />
+                  ) : message.mediaType === 'video' || message.mediaType === 'reel' ? (
+                    <video 
+                      src={message.mediaUrl} 
+                      controls 
+                      className="max-w-full max-h-48 rounded-md border"
+                      data-testid="media-video"
+                    >
+                      Seu navegador não suporta vídeo.
+                    </video>
+                  ) : message.mediaType === 'audio' ? (
+                    <audio 
+                      src={message.mediaUrl} 
+                      controls 
+                      className="w-full"
+                      data-testid="media-audio"
+                    >
+                      Seu navegador não suporta áudio.
+                    </audio>
+                  ) : (
+                    <a 
+                      href={message.mediaUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="underline text-sm"
+                      data-testid="media-link"
+                    >
+                      Ver mídia anexada ({message.mediaType || 'arquivo'})
+                    </a>
+                  )}
+                </div>
+              )}
+              
+              {message.content && (
+                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              )}
+              
+              {!message.content && message.mediaType && (
+                <p className="text-sm text-muted-foreground italic">
+                  Mensagem contém apenas mídia ({message.mediaType})
+                </p>
+              )}
             </div>
           </div>
 
