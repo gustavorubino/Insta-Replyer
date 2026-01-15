@@ -298,6 +298,22 @@ export async function registerRoutes(
     }
   });
 
+  // Get user stats (admin only)
+  app.get("/api/admin/user-stats", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const stats = await storage.getUserStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching user stats:", error);
+      res.status(500).json({ error: "Failed to fetch user stats" });
+    }
+  });
+
   // Get single message
   app.get("/api/messages/:id", isAuthenticated, async (req, res) => {
     try {

@@ -51,6 +51,18 @@ export interface IStorage {
     autoSentToday: number;
     avgConfidence: number;
   }>;
+
+  getUserStats(): Promise<Array<{
+    userId: string;
+    totalMessages: number;
+    pendingMessages: number;
+    approvedMessages: number;
+    rejectedMessages: number;
+    autoSentMessages: number;
+    averageConfidence: number;
+    editedResponses: number;
+    lastActivity: Date | null;
+  }>>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -289,6 +301,46 @@ export class DatabaseStorage implements IStorage {
       autoSentToday: Number(autoSentResult?.count) || 0,
       avgConfidence: Number(avgConfidenceResult?.avg) || 0,
     };
+  }
+
+  async getUserStats(): Promise<Array<{
+    userId: string;
+    totalMessages: number;
+    pendingMessages: number;
+    approvedMessages: number;
+    rejectedMessages: number;
+    autoSentMessages: number;
+    averageConfidence: number;
+    editedResponses: number;
+    lastActivity: Date | null;
+  }>> {
+    const results = await db
+      .select({
+        userId: instagramMessages.userId,
+        totalMessages: sql<number>`count(*)`,
+        pendingMessages: sql<number>`count(*) filter (where ${instagramMessages.status} = 'pending')`,
+        approvedMessages: sql<number>`count(*) filter (where ${instagramMessages.status} = 'approved')`,
+        rejectedMessages: sql<number>`count(*) filter (where ${instagramMessages.status} = 'rejected')`,
+        autoSentMessages: sql<number>`count(*) filter (where ${instagramMessages.status} = 'auto_sent')`,
+        averageConfidence: sql<number>`coalesce(avg(${aiResponses.confidenceScore}), 0)`,
+        editedResponses: sql<number>`count(*) filter (where ${aiResponses.wasEdited} = true)`,
+        lastActivity: sql<Date>`max(${instagramMessages.createdAt})`,
+      })
+      .from(instagramMessages)
+      .leftJoin(aiResponses, eq(instagramMessages.id, aiResponses.messageId))
+      .groupBy(instagramMessages.userId);
+
+    return results.map((row) => ({
+      userId: row.userId,
+      totalMessages: Number(row.totalMessages) || 0,
+      pendingMessages: Number(row.pendingMessages) || 0,
+      approvedMessages: Number(row.approvedMessages) || 0,
+      rejectedMessages: Number(row.rejectedMessages) || 0,
+      autoSentMessages: Number(row.autoSentMessages) || 0,
+      averageConfidence: Number(row.averageConfidence) || 0,
+      editedResponses: Number(row.editedResponses) || 0,
+      lastActivity: row.lastActivity || null,
+    }));
   }
 }
 
