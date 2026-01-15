@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -10,6 +10,7 @@ import {
   AtSign,
   Sparkles,
   RotateCcw,
+  Smile,
 } from "lucide-react";
 import {
   Dialog,
@@ -23,7 +24,23 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ConfidenceBadge } from "@/components/confidence-badge";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+
 import type { MessageWithResponse } from "@shared/schema";
+
+const EMOJI_LIST = [
+  "😊", "😃", "😄", "😁", "😆", "😅", "🤣", "😂",
+  "🙂", "😉", "😍", "🥰", "😘", "😗", "😙", "😚",
+  "👍", "👎", "👏", "🙌", "🤝", "🙏", "💪", "✌️",
+  "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍",
+  "⭐", "🌟", "✨", "💫", "🔥", "💯", "🎉", "🎊",
+  "👋", "🤗", "🤔", "🤷", "💬", "📢", "📣", "🔔",
+  "✅", "❌", "⚠️", "💡", "📌", "📍", "🎯", "🚀",
+];
 
 interface ApprovalModalProps {
   message: MessageWithResponse | null;
@@ -46,6 +63,25 @@ export function ApprovalModal({
 }: ApprovalModalProps) {
   const [editedResponse, setEditedResponse] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  const [emojiPopoverOpen, setEmojiPopoverOpen] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const insertEmoji = (emoji: string) => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newText = editedResponse.substring(0, start) + emoji + editedResponse.substring(end);
+      setEditedResponse(newText);
+      setTimeout(() => {
+        textarea.focus();
+        textarea.selectionStart = textarea.selectionEnd = start + emoji.length;
+      }, 0);
+    } else {
+      setEditedResponse(editedResponse + emoji);
+    }
+    setEmojiPopoverOpen(false);
+  };
 
   useEffect(() => {
     if (message?.aiResponse) {
@@ -165,6 +201,7 @@ export function ApprovalModal({
             <div className="flex-1 flex flex-col gap-2 overflow-hidden">
               <div className="flex-1 relative overflow-hidden">
                 <Textarea
+                  ref={textareaRef}
                   value={editedResponse}
                   onChange={(e) => setEditedResponse(e.target.value)}
                   placeholder="Resposta sugerida pela IA..."
@@ -191,6 +228,34 @@ export function ApprovalModal({
                   <Edit3 className="h-4 w-4 mr-1" />
                   {isEditing ? "Salvar" : "Editar"}
                 </Button>
+                <Popover open={emojiPopoverOpen} onOpenChange={setEmojiPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!isEditing}
+                      data-testid="button-emoji"
+                    >
+                      <Smile className="h-4 w-4 mr-1" />
+                      Emoji
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72 p-2" align="start">
+                    <div className="grid grid-cols-8 gap-1">
+                      {EMOJI_LIST.map((emoji, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          className="p-1.5 text-xl hover:bg-muted rounded cursor-pointer transition-colors"
+                          onClick={() => insertEmoji(emoji)}
+                          data-testid={`emoji-${index}`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
                 <Button
                   variant="outline"
                   size="sm"
