@@ -1,0 +1,92 @@
+🚨 O PROBLEMA NÃO FOI RESOLVIDO!
+
+Você disse que o código estava correto, mas o usuário Rodolfo (donettirodolfo@gmail.com) 
+continua SEM RECEBER mensagens/comentários. A fila dele está VAZIA.
+
+DIAGNÓSTICO OBRIGATÓRIO - Execute cada item e mostre os resultados:
+
+═══════════════════════════════════════════════════════
+1. VERIFICAR CONEXÃO INSTAGRAM DO RODOLFO
+═══════════════════════════════════════════════════════
+
+Execute esta query e mostre o resultado COMPLETO:
+
+SELECT 
+    ic.*,
+    u.email,
+    u.username
+FROM instagram_connections ic
+JOIN users u ON ic.user_id = u.id
+WHERE u.email = 'donettirodolfo@gmail.com';
+
+PRECISO VER:
+- instagram_id está preenchido?
+- access_token está preenchido?
+- webhook_verify_token existe?
+- Quando foi criado (created_at)?
+
+═══════════════════════════════════════════════════════
+2. COMPARAR COM ADMIN (que funciona)
+═══════════════════════════════════════════════════════
+
+Execute e mostre LADO A LADO:
+
+SELECT 
+    u.email,
+    ic.instagram_id,
+    ic.instagram_username,
+    ic.access_token IS NOT NULL as has_token,
+    ic.page_id,
+    ic.page_access_token IS NOT NULL as has_page_token,
+    ic.webhook_subscribed,
+    ic.created_at
+FROM instagram_connections ic
+JOIN users u ON ic.user_id = u.id
+WHERE u.email IN ('guguinha.rubino@gmail.com', 'donettirodolfo@gmail.com');
+
+═══════════════════════════════════════════════════════
+3. VERIFICAR SE WEBHOOK ESTÁ REGISTRADO PARA RODOLFO
+═══════════════════════════════════════════════════════
+
+O webhook do Instagram precisa estar SUBSCRITO para cada conta.
+
+Verifique nos logs ou no banco:
+- O Rodolfo fez o fluxo completo de conexão OAuth?
+- O webhook foi registrado para a conta dele?
+- Existe algum erro salvo?
+
+SELECT * FROM webhook_logs 
+WHERE instagram_account_id = '26421104450824756'
+ORDER BY created_at DESC
+LIMIT 10;
+
+═══════════════════════════════════════════════════════
+4. VERIFICAR SE HÁ MENSAGENS SALVAS PARA RODOLFO
+═══════════════════════════════════════════════════════
+
+SELECT COUNT(*) as total, status
+FROM messages 
+WHERE user_id = (SELECT id FROM users WHERE email = 'donettirodolfo@gmail.com')
+GROUP BY status;
+
+Se retornar 0 → Mensagens nunca chegaram
+Se retornar algo → Mensagens existem mas não aparecem na UI (bug de frontend)
+
+═══════════════════════════════════════════════════════
+5. TESTAR WEBHOOK MANUALMENTE
+═══════════════════════════════════════════════════════
+
+Simule um webhook para a conta do Rodolfo:
+
+curl -X POST http://localhost:5000/api/instagram/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "object": "instagram",
+    "entry": [{
+      "id": "26421104450824756",
+      "time": 1705412345,
+      "messaging": [{
+        "sender": {"id": "999999"},
+        "recipient": {"id": "26421104450824756"},
+        "timestamp": 1705412345,
+        "message": {"mid": "tes
