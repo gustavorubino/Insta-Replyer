@@ -16,7 +16,7 @@ import {
   type MessageWithResponse,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql, ne } from "drizzle-orm";
+import { eq, desc, and, sql, ne, or, isNull } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -84,16 +84,17 @@ export class DatabaseStorage implements IStorage {
   async getMessages(userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]> {
     // Build condition: if admin, show all except own sent messages
     // if user, show only their messages
+    // Note: Must use or(isNull(senderId), ne(senderId, excludeSenderId)) because NULL != value returns NULL, not TRUE
     let condition;
     if (isAdmin || !userId) {
       // Admin sees all messages, but exclude messages where sender is the admin's Instagram account
       condition = excludeSenderId 
-        ? ne(instagramMessages.senderId, excludeSenderId)
+        ? or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId))
         : undefined;
     } else {
       // Regular user sees only their messages, excluding their own sent messages
       condition = excludeSenderId
-        ? and(eq(instagramMessages.userId, userId), ne(instagramMessages.senderId, excludeSenderId))
+        ? and(eq(instagramMessages.userId, userId), or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId)))
         : eq(instagramMessages.userId, userId);
     }
 
@@ -116,16 +117,17 @@ export class DatabaseStorage implements IStorage {
     const baseCondition = eq(instagramMessages.status, "pending");
     
     // Build condition based on role and exclude own sent messages
+    // Note: Must use or(isNull(senderId), ne(senderId, excludeSenderId)) because NULL != value returns NULL, not TRUE
     let condition;
     if (isAdmin || !userId) {
       // Admin sees all pending messages, but exclude messages where sender is the admin's Instagram account
       condition = excludeSenderId 
-        ? and(baseCondition, ne(instagramMessages.senderId, excludeSenderId))
+        ? and(baseCondition, or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId)))
         : baseCondition;
     } else {
       // Regular user sees only their pending messages, excluding their own sent messages
       condition = excludeSenderId
-        ? and(baseCondition, eq(instagramMessages.userId, userId), ne(instagramMessages.senderId, excludeSenderId))
+        ? and(baseCondition, eq(instagramMessages.userId, userId), or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId)))
         : and(baseCondition, eq(instagramMessages.userId, userId));
     }
 
@@ -144,16 +146,17 @@ export class DatabaseStorage implements IStorage {
 
   async getRecentMessages(limit: number = 10, userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]> {
     // Build condition based on role and exclude own sent messages
+    // Note: Must use or(isNull(senderId), ne(senderId, excludeSenderId)) because NULL != value returns NULL, not TRUE
     let condition;
     if (isAdmin || !userId) {
       // Admin sees all messages, but exclude messages where sender is the admin's Instagram account
       condition = excludeSenderId 
-        ? ne(instagramMessages.senderId, excludeSenderId)
+        ? or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId))
         : undefined;
     } else {
       // Regular user sees only their messages, excluding their own sent messages
       condition = excludeSenderId
-        ? and(eq(instagramMessages.userId, userId), ne(instagramMessages.senderId, excludeSenderId))
+        ? and(eq(instagramMessages.userId, userId), or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId)))
         : eq(instagramMessages.userId, userId);
     }
 

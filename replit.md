@@ -14,6 +14,7 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - **Statistics**: Dashboard avgConfidence and all stats are filtered by userId (admins see all, users see own)
 - **User Indicator**: Sidebar displays user name, email, and role (Administrador/Usuário)
 - **Own Sent Message Filter**: Messages where senderId matches user's instagramAccountId are excluded from all queries (pending, recent, history). Users never see messages they sent in their own approval queues - only messages they received.
+- **NULL Sender ID Handling**: Comment messages may have NULL senderId. Storage queries use `or(isNull(senderId), ne(senderId, excludeSenderId))` pattern to correctly include these messages (SQL NULL comparisons return NULL, not TRUE).
 
 ## Features
 
