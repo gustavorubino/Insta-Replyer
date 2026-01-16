@@ -1,0 +1,127 @@
+🚨 ALERTA CRÍTICO: VOCÊ NÃO ESTÁ ENTENDENDO A ARQUITETURA SAAS!
+
+PROBLEMA GRAVE:
+Toda vez que você corrige algo, funciona APENAS para o admin.
+O usuário "donettirodolfo@gmail.com" continua com bugs.
+
+EXEMPLO CONCRETO:
+- Você corrigiu recebimento de comentários
+- Admin (guguinha.rubino@gmail.com) → Recebe comentários ✅
+- Usuário (donettirodolfo@gmail.com) → NÃO recebe comentários ❌
+
+ISSO SIGNIFICA QUE VOCÊ ESTÁ FAZENDO ERRADO!
+
+═══════════════════════════════════════════════════════
+REGRA DE OURO DE SAAS (MEMORIZE!):
+═══════════════════════════════════════════════════════
+
+1 CÓDIGO → TODOS OS USUÁRIOS
+
+Quando eu peço "arrume X", você deve arrumar de forma que:
+✅ Admin funcione
+✅ Usuário 1 funcione
+✅ Usuário 2 funcione
+✅ Usuário N funcione
+
+TODOS usando o MESMO código!
+
+═══════════════════════════════════════════════════════
+
+ARQUITETURA CORRETA:
+
+┌─────────────────────────────────────────────────────┐
+│                    APLICAÇÃO                        │
+│                                                     │
+│  ┌─────────────────────────────────────────────┐   │
+│  │         CÓDIGO ÚNICO (sem if isAdmin)        │   │
+│  │                                              │   │
+│  │  function getMessages(userEmail) {           │   │
+│  │    return db.query(                          │   │
+│  │      "SELECT * FROM messages                 │   │
+│  │       WHERE user_email = ?", [userEmail]     │   │
+│  │    );                                        │   │
+│  │  }                                           │   │
+│  │                                              │   │
+│  │  // MESMO código para TODOS:                 │   │
+│  │  // - Admin chama: getMessages("admin@x.com")│   │
+│  │  // - User1 chama: getMessages("user1@x.com")│   │
+│  │  // - User2 chama: getMessages("user2@x.com")│   │
+│  │                                              │   │
+│  └─────────────────────────────────────────────┘   │
+│                                                     │
+│  ┌─────────────────────────────────────────────┐   │
+│  │      PAINEL ADMIN (rota /admin APENAS)       │   │
+│  │      Só aqui pode ter lógica exclusiva       │   │
+│  └─────────────────────────────────────────────┘   │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════
+
+VERIFICAÇÃO OBRIGATÓRIA:
+
+Antes de dizer "pronto", você DEVE verificar:
+
+1. O código que você alterou funciona para QUALQUER user_email?
+2. Há algum "if (isAdmin)" no código alterado? Se sim → REMOVA!
+3. O filtro é SEMPRE por user_email? Se não → CORRIJA!
+
+═══════════════════════════════════════════════════════
+
+CORREÇÃO ESPECÍFICA - COMENTÁRIOS:
+
+O webhook de comentários que você "corrigiu" está funcionando assim:
+
+ERRADO (como está):
+app.post('/webhook', (req, res) => {
+  const comment = req.body;
+  
+  // Salva APENAS para admin ❌
+  const adminEmail = "guguinha.rubino@gmail.com";
+  saveComment(adminEmail, comment);
+});
+
+CERTO (como deve ser):
+app.post('/webhook', (req, res) => {
+  const comment = req.body;
+  const instagramAccountId = comment.recipient_id;
+  
+  // Busca QUAL usuário é dono dessa conta Instagram ✅
+  const user = db.query(
+    "SELECT user_email FROM instagram_connections WHERE instagram_id = ?",
+    [instagramAccountId]
+  );
+  
+  if (user) {
+    // Salva para o usuário CORRETO ✅
+    saveComment(user.user_email, comment);
+  }
+});
+
+═══════════════════════════════════════════════════════
+
+TAREFA AGORA:
+
+1. Abra o código do webhook que processa comentários
+
+2. Verifique se está buscando o user_email correto baseado no instagram_id
+
+3. Se estiver hardcoded para admin → CORRIJA!
+
+4. Teste:
+   - Envie comentário para conta do admin → Deve aparecer para admin
+   - Envie comentário para conta do Rodolfo → Deve aparecer para Rodolfo
+
+5. MOSTRE-ME o código do webhook ANTES e DEPOIS da correção
+
+═══════════════════════════════════════════════════════
+
+CHECKLIST FINAL (responda SIM ou NÃO para cada):
+
+□ O webhook identifica o usuário pelo instagram_id? (SIM/NÃO)
+□ A função saveComment/saveMessage recebe user_email como parâmetro? (SIM/NÃO)
+□ Há algum email hardcoded no código? (SIM/NÃO - deve ser NÃO)
+□ Há algum "if isAdmin" fora da rota /admin? (SIM/NÃO - deve ser NÃO)
+□ Testou com usuário diferente do admin? (SIM/NÃO)
+
+SE QUALQUER RESPOSTA ESTIVER ERRADA → CORRIJA ANTES DE DIZER "PRONTO"!
