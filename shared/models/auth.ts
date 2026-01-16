@@ -31,6 +31,12 @@ export const users = pgTable("users", {
   instagramProfilePic: varchar("instagram_profile_pic"),
   instagramAccessToken: varchar("instagram_access_token"),
   instagramRecipientId: varchar("instagram_recipient_id"),
+  // Token management for auto-renewal
+  tokenExpiresAt: timestamp("token_expires_at"),
+  tokenRefreshedAt: timestamp("token_refreshed_at"),
+  refreshAttempts: varchar("refresh_attempts").default("0"),
+  lastRefreshError: varchar("last_refresh_error"),
+  showTokenWarning: boolean("show_token_warning").default(false),
   // Per-user settings (previously global)
   operationMode: varchar("operation_mode").default("manual"),
   autoApproveThreshold: varchar("auto_approve_threshold").default("0.9"),

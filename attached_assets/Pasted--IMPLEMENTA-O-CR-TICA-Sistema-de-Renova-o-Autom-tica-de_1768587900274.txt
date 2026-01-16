@@ -1,0 +1,175 @@
+🚨 IMPLEMENTAÇÃO CRÍTICA: Sistema de Renovação Automática de Tokens
+
+PROBLEMA:
+Tokens do Instagram expiram em 60 dias. Em um SaaS, não podemos depender 
+do cliente lembrar de reconectar. Isso causa:
+- Cliente para de receber mensagens sem saber
+- Reclamações e churn
+- Reputação ruim do produto
+
+SOLUÇÃO COMPLETA A IMPLEMENTAR:
+
+═══════════════════════════════════════════════════════
+1. TABELA PARA CONTROLE DE TOKENS
+═══════════════════════════════════════════════════════
+
+Adicionar campos na tabela instagram_connections (se não existirem):
+
+ALTER TABLE instagram_connections ADD COLUMN token_expires_at TIMESTAMP;
+ALTER TABLE instagram_connections ADD COLUMN token_refreshed_at TIMESTAMP;
+ALTER TABLE instagram_connections ADD COLUMN refresh_attempts INTEGER DEFAULT 0;
+ALTER TABLE instagram_connections ADD COLUMN last_refresh_error TEXT;
+
+═══════════════════════════════════════════════════════
+2. FUNÇÃO DE RENOVAÇÃO DE TOKEN
+═══════════════════════════════════════════════════════
+
+// server/utils/token-refresh.ts
+
+import axios from 'axios';
+
+interface RefreshResult {
+  success: boolean;
+  newToken?: string;
+  expiresAt?: Date;
+  error?: string;
+}
+
+export async function refreshInstagramToken(currentToken: string): Promise<RefreshResult> {
+  try {
+    // Meta permite renovar tokens de longa duração que ainda não expiraram
+    const response = await axios.get(
+      'https://graph.facebook.com/v18.0/oauth/access_token',
+      {
+        params: {
+          grant_type: 'fb_exchange_token',
+          client_id: process.env.FACEBOOK_APP_ID,
+          client_secret: process.env.FACEBOOK_APP_SECRET,
+          fb_exchange_token: currentToken
+        }
+      }
+    );
+
+    const { access_token, expires_in } = response.data;
+    
+    // Calcular data de expiração (expires_in vem em segundos)
+    const expiresAt = new Date();
+    expiresAt.setSeconds(expiresAt.getSeconds() + expires_in);
+
+    return {
+      success: true,
+      newToken: access_token,
+      expiresAt: expiresAt
+    };
+
+  } catch (error: any) {
+    console.error('[Token Refresh] Erro:', error.response?.data || error.message);
+    return {
+      success: false,
+      error: error.response?.data?.error?.message || error.message
+    };
+  }
+}
+
+═══════════════════════════════════════════════════════
+3. JOB DE RENOVAÇÃO AUTOMÁTICA (CRON)
+═══════════════════════════════════════════════════════
+
+// server/jobs/token-refresh-job.ts
+
+import cron from 'node-cron';
+import { db } from '../db';
+import { refreshInstagramToken } from '../utils/token-refresh';
+import { sendEmail } from '../utils/email'; // Se tiver sistema de email
+
+export function startTokenRefreshJob() {
+  // Rodar todo dia às 3h da manhã
+  cron.schedule('0 3 * * *', async () => {
+    console.log('[Token Refresh Job] Iniciando verificação de tokens...');
+    
+    try {
+      // Buscar tokens que expiram nos próximos 7 dias
+      const expiringConnections = await db.query(`
+        SELECT 
+          ic.*,
+          u.email,
+          u.username
+        FROM instagram_connections ic
+        JOIN users u ON ic.user_id = u.id
+        WHERE ic.token_expires_at IS NOT NULL
+          AND ic.token_expires_at < NOW() + INTERVAL '7 days'
+          AND ic.token_expires_at > NOW()
+          AND ic.access_token IS NOT NULL
+      `);
+
+      console.log(`[Token Refresh Job] ${expiringConnections.length} tokens para renovar`);
+
+      for (const connection of expiringConnections) {
+        console.log(`[Token Refresh Job] Renovando token de ${connection.email}...`);
+        
+        const result = await refreshInstagramToken(connection.access_token);
+
+        if (result.success) {
+          // Atualizar token no banco
+          await db.query(`
+            UPDATE instagram_connections
+            SET 
+              access_token = $1,
+              token_expires_at = $2,
+              token_refreshed_at = NOW(),
+              refresh_attempts = 0,
+              last_refresh_error = NULL
+            WHERE id = $3
+          `, [result.newToken, result.expiresAt, connection.id]);
+
+          console.log(`[Token Refresh Job] ✅ Token renovado para ${connection.email}`);
+
+        } else {
+          // Registrar falha
+          await db.query(`
+            UPDATE instagram_connections
+            SET 
+              refresh_attempts = refresh_attempts + 1,
+              last_refresh_error = $1
+            WHERE id = $2
+          `, [result.error, connection.id]);
+
+          console.log(`[Token Refresh Job] ❌ Falha ao renovar token de ${connection.email}: ${result.error}`);
+
+          // Se falhou 3x, notificar usuário
+          if (connection.refresh_attempts >= 2) {
+            await notifyUserTokenExpiring(connection);
+          }
+        }
+      }
+
+      console.log('[Token Refresh Job] Verificação concluída!');
+
+    } catch (error) {
+      console.error('[Token Refresh Job] Erro geral:', error);
+    }
+  });
+
+  console.log('[Token Refresh Job] Job agendado para rodar diariamente às 3h');
+}
+
+// Notificar usuário quando renovação falha
+async function notifyUserTokenExpiring(connection: any) {
+  // 1. Marcar no banco para mostrar banner
+  await db.query(`
+    UPDATE users
+    SET show_token_warning = true
+    WHERE id = $1
+  `, [connection.user_id]);
+
+  // 2. Enviar email (se tiver sistema de email configurado)
+  /*
+  await sendEmail({
+    to: connection.email,
+    subject: '⚠️ Sua conexão com Instagram precisa ser renovada',
+    html: `
+      <h2>Olá ${connection.username}!</h2>
+      <p>Sua conexão com o Instagram está prestes a expirar.</p>
+      <p>Para continuar recebendo mensagens e comentários, acesse o sistema e reconecte sua conta:</p>
+      <a href="https://seu-sistema.com/settings">Reconectar Instagram</a>
+      <p>Se não fizer isso, você parará de receber notificações em breve.</p>

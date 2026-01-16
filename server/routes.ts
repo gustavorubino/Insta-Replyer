@@ -930,6 +930,12 @@ export async function registerRoutes(
       const longLivedResponse = await fetch(longLivedUrl);
       const longLivedData = await longLivedResponse.json() as any;
       const longLivedToken = longLivedData.access_token || shortLivedToken;
+      
+      // Calculate token expiration date (expires_in is in seconds, default 60 days)
+      const expiresIn = longLivedData.expires_in || 5184000; // 60 days in seconds
+      const tokenExpiresAt = new Date();
+      tokenExpiresAt.setSeconds(tokenExpiresAt.getSeconds() + expiresIn);
+      console.log(`Token expires at: ${tokenExpiresAt.toISOString()} (in ${Math.round(expiresIn / 86400)} days)`);
 
       // Get Instagram user info using Instagram Graph API - fetch multiple fields including profile_pic
       const igUserUrl = `https://graph.instagram.com/me?fields=id,username,account_type,name,profile_picture_url&access_token=${longLivedToken}`;
@@ -990,6 +996,12 @@ export async function registerRoutes(
         instagramUsername,
         instagramProfilePic: profilePictureUrl || null,
         instagramAccessToken: longLivedToken,
+        // Token management fields
+        tokenExpiresAt,
+        tokenRefreshedAt: new Date(),
+        refreshAttempts: "0",
+        lastRefreshError: null,
+        showTokenWarning: false,
         // Always set recipientId - prefer token user_id if different, otherwise use accountId
         // This will be auto-updated when the first webhook arrives with the real recipient ID
         instagramRecipientId: (tokenUserId && tokenUserId !== instagramAccountId && tokenUserId !== 'undefined')

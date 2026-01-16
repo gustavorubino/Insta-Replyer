@@ -10,6 +10,7 @@ import {
   User,
   Shield,
   Users,
+  AlertTriangle,
 } from "lucide-react";
 import { SiInstagram } from "react-icons/si";
 import {
@@ -97,6 +98,26 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
           </div>
         </div>
       </SidebarHeader>
+      
+      {user?.showTokenWarning && (
+        <div className="mx-4 mb-2 p-3 rounded-md bg-yellow-500/10 border border-yellow-500/30">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-yellow-600 dark:text-yellow-400">
+                Conexão expirando
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Sua conexão com o Instagram precisa ser renovada.
+              </span>
+              <Link href="/settings" className="text-xs text-primary hover:underline">
+                Reconectar agora
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+      
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Menu</SidebarGroupLabel>
