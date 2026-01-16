@@ -76,7 +76,12 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - **Session Management**: 
   - actualUserId stored for users with existing email accounts
   - Token refresh for OIDC sessions
-  - instagramAuthUserId for OAuth state management
+- **Instagram OAuth Security**:
+  - Database-backed nonce storage for CSRF protection
+  - HMAC-SHA256 signed state parameter (no session fallback)
+  - Single-use nonces with automatic deletion after use
+  - 1-hour expiry with periodic cleanup of stale entries
+  - Strict validation: no state = no connection (no fallback paths)
 - **Security**:
   - Password hashing with bcrypt
   - userId injection on server-side

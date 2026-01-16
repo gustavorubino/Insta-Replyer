@@ -206,6 +206,29 @@ export async function registerRoutes(
   await setupAuth(app);
   registerAuthRoutes(app);
 
+  // Cleanup expired OAuth states on startup and periodically (every hour)
+  (async () => {
+    try {
+      const cleaned = await storage.cleanupExpiredOAuthStates();
+      if (cleaned > 0) {
+        console.log(`Cleaned up ${cleaned} expired OAuth state(s)`);
+      }
+    } catch (e) {
+      console.error("OAuth state cleanup error:", e);
+    }
+  })();
+  
+  setInterval(async () => {
+    try {
+      const cleaned = await storage.cleanupExpiredOAuthStates();
+      if (cleaned > 0) {
+        console.log(`Cleaned up ${cleaned} expired OAuth state(s)`);
+      }
+    } catch (e) {
+      console.error("OAuth state cleanup error:", e);
+    }
+  }, 60 * 60 * 1000); // Every hour
+
   // Privacy Policy page (required by Meta/Facebook)
   app.get("/privacy", (req, res) => {
     res.send(`
@@ -741,21 +764,31 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Instagram App credentials not configured. Please contact the administrator." });
       }
 
+      // Require SESSION_SECRET for secure OAuth
+      if (!process.env.SESSION_SECRET) {
+        console.error("SESSION_SECRET not configured - OAuth security compromised");
+        return res.status(500).json({ error: "Server configuration error" });
+      }
+
       // Get the base URL for redirect
       const protocol = req.headers["x-forwarded-proto"] || "https";
       const host = req.headers["x-forwarded-host"] || req.headers.host;
       const redirectUri = `${protocol}://${host}/api/instagram/callback`;
 
-      // Store user ID in session for callback
-      (req.session as any).instagramAuthUserId = userId;
+      // Generate a random nonce and store it in the database with the userId
+      // Note: No session fallback - state parameter is the single source of truth
+      const { randomBytes, createHmac } = await import("crypto");
+      const nonce = randomBytes(16).toString("hex");
+      const expiresAt = Date.now() + (60 * 60 * 1000); // 1 hour expiry
       
-      // Save session before redirect
-      await new Promise<void>((resolve, reject) => {
-        req.session.save((err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
+      // Store the OAuth state in the database (key: oauth_state_{nonce}, value: userId:expiresAt)
+      await storage.setSetting(`oauth_state_${nonce}`, `${userId}:${expiresAt}`);
+      
+      // Create state parameter with nonce and full HMAC signature for security
+      const signature = createHmac("sha256", process.env.SESSION_SECRET)
+        .update(nonce)
+        .digest("hex");
+      const stateData = `${nonce}.${signature}`;
 
       // Build OAuth URL with required scopes for Instagram Business Login
       // Using Meta Graph API permissions
@@ -765,8 +798,9 @@ export async function registerRoutes(
         "instagram_business_manage_comments"
       ].join(",");
 
-      const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=instagram_connect`;
+      const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=${stateData}`;
 
+      console.log(`Instagram OAuth initiated for user (nonce generated)`);
       res.json({ authUrl });
     } catch (error) {
       console.error("Error starting Instagram OAuth:", error);
@@ -777,7 +811,7 @@ export async function registerRoutes(
   // Instagram OAuth callback
   app.get("/api/instagram/callback", async (req, res) => {
     try {
-      const { code, error: oauthError, error_description } = req.query;
+      const { code, error: oauthError, error_description, state } = req.query;
 
       if (oauthError) {
         console.error("OAuth error:", oauthError, error_description);
@@ -788,9 +822,66 @@ export async function registerRoutes(
         return res.redirect("/settings?instagram_error=no_code");
       }
 
-      const userId = (req.session as any)?.instagramAuthUserId;
+      // Validate state parameter - REQUIRED for security (no fallback)
+      if (!state || typeof state !== "string" || !state.includes(".")) {
+        console.error("Instagram OAuth callback: Missing or malformed state parameter");
+        return res.redirect("/settings?instagram_error=invalid_state");
+      }
+      
+      if (!process.env.SESSION_SECRET) {
+        console.error("Instagram OAuth callback: SESSION_SECRET not configured");
+        return res.redirect("/settings?instagram_error=server_config_error");
+      }
+      
+      const [nonce, signature] = state.split(".");
+      
+      if (!nonce || !signature) {
+        console.error("Instagram OAuth callback: Invalid state format");
+        return res.redirect("/settings?instagram_error=invalid_state");
+      }
+      
+      // Verify the full HMAC signature using timing-safe comparison
+      const { createHmac, timingSafeEqual } = await import("crypto");
+      const expectedSignature = createHmac("sha256", process.env.SESSION_SECRET)
+        .update(nonce)
+        .digest("hex");
+      
+      // Use timing-safe comparison to prevent timing attacks
+      const signatureValid = signature.length === expectedSignature.length &&
+        timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+      
+      if (!signatureValid) {
+        console.error("Instagram OAuth callback: State signature mismatch (possible CSRF)");
+        // Clean up the nonce if it exists (may be an attack attempt)
+        await storage.deleteSetting(`oauth_state_${nonce}`);
+        return res.redirect("/settings?instagram_error=invalid_state");
+      }
+      
+      // Look up the nonce in the database
+      const stateData = await storage.getSetting(`oauth_state_${nonce}`);
+      
+      if (!stateData?.value) {
+        console.error("Instagram OAuth callback: State nonce not found (replay or expired)");
+        return res.redirect("/settings?instagram_error=state_expired");
+      }
+      
+      const [stateUserId, expiresAtStr] = stateData.value.split(":");
+      const expiresAt = parseInt(expiresAtStr);
+      
+      // Delete the used nonce immediately (prevent replay attacks)
+      await storage.deleteSetting(`oauth_state_${nonce}`);
+      
+      if (Date.now() >= expiresAt) {
+        console.error("Instagram OAuth callback: State expired");
+        return res.redirect("/settings?instagram_error=state_expired");
+      }
+      
+      const userId = stateUserId;
+      console.log(`Instagram OAuth callback: state validated successfully`);
+      
       if (!userId) {
-        return res.redirect("/settings?instagram_error=session_expired");
+        console.error("Instagram OAuth callback: No userId in state data");
+        return res.redirect("/settings?instagram_error=invalid_state");
       }
 
       // Use environment variables for credentials

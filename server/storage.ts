@@ -40,6 +40,8 @@ export interface IStorage {
   getSetting(key: string): Promise<Setting | undefined>;
   getSettings(): Promise<Record<string, string>>;
   setSetting(key: string, value: string): Promise<void>;
+  deleteSetting(key: string): Promise<void>;
+  cleanupExpiredOAuthStates(): Promise<number>;
 
   clearAllMessages(): Promise<{ aiResponses: number; messages: number }>;
 
@@ -227,6 +229,30 @@ export class DatabaseStorage implements IStorage {
         target: settings.key,
         set: { value, updatedAt: new Date() },
       });
+  }
+
+  async deleteSetting(key: string): Promise<void> {
+    await db.delete(settings).where(eq(settings.key, key));
+  }
+
+  async cleanupExpiredOAuthStates(): Promise<number> {
+    const allSettings = await db.select().from(settings);
+    const now = Date.now();
+    let cleanedCount = 0;
+    
+    for (const setting of allSettings) {
+      if (setting.key.startsWith("oauth_state_")) {
+        const [, expiresAtStr] = setting.value.split(":");
+        const expiresAt = parseInt(expiresAtStr);
+        
+        if (isNaN(expiresAt) || now >= expiresAt) {
+          await db.delete(settings).where(eq(settings.key, setting.key));
+          cleanedCount++;
+        }
+      }
+    }
+    
+    return cleanedCount;
   }
 
   async clearAllMessages(): Promise<{ aiResponses: number; messages: number }> {
