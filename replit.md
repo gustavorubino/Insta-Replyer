@@ -42,6 +42,15 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
   - `instagramRecipientId` field stores the webhook recipient ID for reliable matching
   - `instagramProfilePic` field stores profile picture URL during OAuth for cross-account lookups
   - Users can connect/disconnect their Instagram Business accounts
+- **Token Refresh System**:
+  - Long-lived tokens expire in 60 days (5184000 seconds from Meta API)
+  - Database fields: `tokenExpiresAt`, `tokenRefreshedAt`, `refreshAttempts`, `lastRefreshError`, `showTokenWarning`
+  - Automatic refresh: Daily cron job (3am) refreshes tokens expiring within 7 days
+  - Uses Instagram Graph API endpoint `/refresh_access_token` for renewal
+  - Retry mechanism: Up to 2 attempts before showing warning banner
+  - UI Warning: Yellow banner in sidebar when `showTokenWarning=true`, links to Settings
+  - OAuth callback calculates and saves `tokenExpiresAt` (current time + 60 days)
+  - CRITICAL: Expired tokens prevent Meta from delivering webhooks to user's account
 - **Profile Data Caching**:
   - During OAuth callback, fetches and stores username + profile_picture_url
   - Webhook processing checks if sender matches a known user's Instagram account
