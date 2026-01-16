@@ -1,0 +1,84 @@
+CORREÇÕES CRÍTICAS NECESSÁRIAS:
+
+**PROBLEMA #1: Webhooks de comentários não funcionam para usuários não-admin**
+
+Localização: `server/routes.ts` função `processWebhookComment` (linhas ~1521-1543)
+
+ERRO ATUAL:
+```typescript
+if (!instagramUser) {
+  console.log(`ERRO: Nenhum usuário encontrado com instagramAccountId=${pageId}`);
+  return; // ❌ IGNORA O COMENTÁRIO!
+}
+```
+
+CORREÇÃO NECESSÁRIA:
+1. Adicionar fallback inteligente antes do return
+2. Buscar usuário por outros métodos se instagramAccountId falhar
+3. Adicionar logs detalhados do que está acontecendo
+
+IMPLEMENTAR:
+```typescript
+// Após a busca falhar, antes do return:
+if (!instagramUser) {
+  console.log(`⚠️ Nenhum usuário encontrado com instagramAccountId=${pageId}`);
+  console.log(`Tentando métodos alternativos de busca...`);
+  
+  // Método 2: Buscar todos com Instagram conectado e pegar o primeiro
+  const usersWithToken = allUsers.filter(u => u.instagramAccessToken);
+  if (usersWithToken.length > 0) {
+    console.log(`✓ Encontrado ${usersWithToken.length} usuário(s) com token. Usando primeiro.`);
+    instagramUser = usersWithToken[0];
+  }
+}
+
+if (!instagramUser) {
+  console.log(`❌ CRITICAL: Nenhum usuário com Instagram disponível no sistema.`);
+  console.log(`Usuários no DB: ${allUsers.length}`);
+  console.log(`PageId recebido: ${pageId}`);
+  return;
+}
+```
+
+**PROBLEMA #2: instagramAccountId e instagramUsername não salvam no OAuth**
+
+Localização: `server/replit_integrations/auth` (arquivo de callback do Instagram OAuth)
+
+ADICIONAR após receber o token:
+```typescript
+// Buscar dados da conta Instagram
+const accountResponse = await fetch(
+  `https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}`
+);
+const accountData = await accountResponse.json();
+
+if (accountData.data && accountData.data.length > 0) {
+  const instagramBusinessAccount = accountData.data[0].instagram_business_account;
+  
+  if (instagramBusinessAccount) {
+    const igResponse = await fetch(
+      `https://graph.facebook.com/v18.0/${instagramBusinessAccount.id}?fields=id,username,name&access_token=${accessToken}`
+    );
+    const igData = await igResponse.json();
+    
+    // SALVAR NO USUÁRIO:
+    await updateUser(userId, {
+      instagramAccountId: igData.id,
+      instagramUsername: igData.username,
+      instagramName: igData.name
+    });
+    
+    console.log(`✓ Instagram conectado: @${igData.username} (ID: ${igData.id})`);
+  }
+}
+```
+
+**PROBLEMA #3: UI mostra ID ao invés de username**
+
+Localização: Componentes do client que mostram dados do usuário
+
+BUSCAR e CORRIGIR em todos os lugares que exibem:
+- `instagramUsername` ou `instagramAccountId`
+- Substituir por: `{user.instagramUsername || user.instagramName || user.fullName || user.email || 'Usuário'}`
+
+Execute essas correções agora. Priorize PROBLEMA #1 e #2.

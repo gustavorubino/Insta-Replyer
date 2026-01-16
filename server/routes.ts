@@ -1058,7 +1058,47 @@ export async function registerRoutes(
       
       // Use 'id' from the response (Instagram API returns 'id', not 'user_id')
       const instagramAccountId = String(igUserData.id || instagramUserId);
-      const instagramUsername = igUserData.username || "";
+      let instagramUsername = igUserData.username || "";
+      
+      // FALLBACK: If username not returned, try additional API calls
+      if (!instagramUsername && instagramAccountId) {
+        console.log("Username not in primary response, trying fallback APIs...");
+        
+        // Try 1: Facebook Graph API with username field
+        try {
+          const fbUserUrl = `https://graph.facebook.com/v21.0/${instagramAccountId}?fields=username,name&access_token=${longLivedToken}`;
+          const fbUserRes = await fetch(fbUserUrl);
+          const fbUserData = await fbUserRes.json() as any;
+          if (fbUserData.username) {
+            instagramUsername = fbUserData.username;
+            console.log(`Username from Facebook Graph API: ${instagramUsername}`);
+          }
+        } catch (e) {
+          console.log("Facebook Graph API username fetch failed:", e);
+        }
+        
+        // Try 2: Instagram API with just id and username
+        if (!instagramUsername) {
+          try {
+            const simpleUrl = `https://graph.instagram.com/${instagramAccountId}?fields=id,username&access_token=${longLivedToken}`;
+            const simpleRes = await fetch(simpleUrl);
+            const simpleData = await simpleRes.json() as any;
+            if (simpleData.username) {
+              instagramUsername = simpleData.username;
+              console.log(`Username from Instagram API by ID: ${instagramUsername}`);
+            }
+          } catch (e) {
+            console.log("Instagram API username by ID fetch failed:", e);
+          }
+        }
+        
+        if (!instagramUsername) {
+          console.log("WARNING: Could not fetch Instagram username from any API");
+        }
+      }
+      
+      console.log(`Final Instagram data - ID: ${instagramAccountId}, Username: ${instagramUsername || "(not available)"}`);
+
       
       // Try to get profile picture from the response or via alternative API calls
       let profilePictureUrl = igUserData.profile_picture_url;
@@ -1552,15 +1592,62 @@ export async function registerRoutes(
       });
       
       // Match by pageId (entry.id = Instagram account ID that received the webhook)
-      const instagramUser = allUsers.find((u: any) => 
+      let instagramUser = allUsers.find((u: any) => 
         u.instagramAccountId && u.instagramAccountId === pageId
       );
 
+      // FALLBACK #1: Try matching by instagramRecipientId
       if (!instagramUser) {
-        console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Nenhum usuário encontrado");
+        console.log("[COMMENT-WEBHOOK] ⚠️ Não encontrado por instagramAccountId, tentando instagramRecipientId...");
+        instagramUser = allUsers.find((u: any) => 
+          u.instagramRecipientId && u.instagramRecipientId === pageId
+        );
+        if (instagramUser) {
+          console.log("[COMMENT-WEBHOOK] ✅ Encontrado por instagramRecipientId!");
+          // Update the instagramAccountId for future matches
+          try {
+            await authStorage.updateUser(instagramUser.id, { instagramAccountId: pageId });
+            console.log(`[COMMENT-WEBHOOK] ✅ instagramAccountId atualizado para ${pageId}`);
+          } catch (e) {
+            console.log("[COMMENT-WEBHOOK] ⚠️ Não foi possível atualizar instagramAccountId:", e);
+          }
+        }
+      }
+
+      // FALLBACK #2: If still not found, try any user with Instagram connected
+      if (!instagramUser) {
+        console.log("[COMMENT-WEBHOOK] ⚠️ Tentando fallback: buscar qualquer usuário com token...");
+        const usersWithToken = allUsers.filter((u: any) => u.instagramAccessToken);
+        console.log(`  - Usuários com token: ${usersWithToken.length}`);
+        
+        if (usersWithToken.length === 1) {
+          // Only one user with Instagram - use them
+          instagramUser = usersWithToken[0];
+          console.log(`[COMMENT-WEBHOOK] ✅ Usando único usuário com token: ${instagramUser.email}`);
+          // Update their instagramAccountId for future matches
+          try {
+            await authStorage.updateUser(instagramUser.id, { instagramAccountId: pageId });
+            console.log(`[COMMENT-WEBHOOK] ✅ instagramAccountId atualizado para ${pageId}`);
+          } catch (e) {
+            console.log("[COMMENT-WEBHOOK] ⚠️ Não foi possível atualizar instagramAccountId:", e);
+          }
+        } else if (usersWithToken.length > 1) {
+          // Multiple users - log details to help admin fix
+          console.log("[COMMENT-WEBHOOK] ❌ Múltiplos usuários com token - impossível determinar qual usar:");
+          usersWithToken.forEach((u: any, i: number) => {
+            console.log(`  [${i+1}] ${u.email} - instagramAccountId: ${u.instagramAccountId}, recipientId: ${u.instagramRecipientId}`);
+          });
+          console.log("  AÇÃO: Admin deve atualizar o instagramAccountId do usuário correto para:", pageId);
+        }
+      }
+
+      if (!instagramUser) {
+        console.log("[COMMENT-WEBHOOK] ❌ CRITICAL: Nenhum usuário com Instagram disponível");
         console.log("  - pageId procurado:", pageId);
+        console.log("  - Total usuários no DB:", allUsers.length);
+        console.log("  - Usuários com Instagram:", usersWithInstagram.length);
         console.log("  - instagramAccountIds disponíveis:", usersWithInstagram.map((u: any) => u.instagramAccountId));
-        console.log("  - AÇÃO: Verifique se o usuário conectou o Instagram corretamente");
+        console.log("  - AÇÃO: O usuário precisa reconectar o Instagram em Configurações");
         return;
       }
       
