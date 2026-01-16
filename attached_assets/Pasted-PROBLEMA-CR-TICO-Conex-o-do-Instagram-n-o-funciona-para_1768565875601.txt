@@ -1,0 +1,114 @@
+PROBLEMA CRÍTICO: Conexão do Instagram não funciona para múltiplos usuários.
+
+SITUAÇÃO ATUAL:
+✅ Administrador (guguinha.rubino@gmail.com) → Conecta Instagram OK
+❌ Outros usuários (rodolfodonetti, etc) → NÃO conseguem conectar Instagram
+
+CAUSA RAIZ:
+O sistema está salvando a conexão do Instagram de forma GLOBAL, não por usuário individual.
+
+CORREÇÃO NECESSÁRIA:
+
+1. BANCO DE DADOS - Adicionar user_id à conexão Instagram:
+
+Tabela atual (ERRADO):
+instagram_connections:
+  - instagram_id
+  - access_token
+  - username
+
+Tabela corrigida (CERTO):
+instagram_connections:
+  - id (PRIMARY KEY)
+  - user_id (FK para users.id) ← ADICIONAR
+  - user_email ← ADICIONAR  
+  - instagram_id
+  - access_token
+  - username
+  - created_at
+
+SQL para alterar:
+ALTER TABLE instagram_connections ADD COLUMN user_id TEXT;
+ALTER TABLE instagram_connections ADD COLUMN user_email TEXT;
+
+2. BACKEND - Salvar conexão vinculada ao usuário:
+
+Código atual (ERRADO):
+def save_instagram_connection(instagram_id, token):
+    db.execute("INSERT INTO instagram_connections (instagram_id, access_token) VALUES (?, ?)", 
+               (instagram_id, token))
+
+Código corrigido (CERTO):
+def save_instagram_connection(user_email, instagram_id, token):
+    # Primeiro apaga conexão anterior deste usuário (se existir)
+    db.execute("DELETE FROM instagram_connections WHERE user_email = ?", (user_email,))
+    
+    # Salva nova conexão vinculada ao usuário
+    db.execute("INSERT INTO instagram_connections (user_email, instagram_id, access_token) VALUES (?, ?, ?)", 
+               (user_email, instagram_id, token))
+
+3. ROTAS - Passar user_email ao salvar:
+
+Na rota de callback do Instagram (/auth/instagram/callback):
+
+Código atual (ERRADO):
+@app.route('/auth/instagram/callback')
+def instagram_callback():
+    instagram_id = get_instagram_id_from_oauth()
+    token = get_access_token()
+    save_instagram_connection(instagram_id, token)  # ← Não passa user_email
+    return redirect('/dashboard')
+
+Código corrigido (CERTO):
+@app.route('/auth/instagram/callback')
+def instagram_callback():
+    # Pegar usuário logado
+    user_email = session.get('user_email')
+    
+    if not user_email:
+        return "Erro: Usuário não está logado", 401
+    
+    instagram_id = get_instagram_id_from_oauth()
+    token = get_access_token()
+    
+    # Salvar vinculado ao user_email
+    save_instagram_connection(user_email, instagram_id, token)
+    
+    return redirect('/dashboard')
+
+4. LEITURA - Buscar conexão do usuário atual:
+
+Código atual (ERRADO):
+def get_instagram_connection():
+    return db.query("SELECT * FROM instagram_connections LIMIT 1")
+
+Código corrigido (CERTO):
+def get_instagram_connection(user_email):
+    return db.query("SELECT * FROM instagram_connections WHERE user_email = ?", (user_email,))
+
+5. DASHBOARD - Mostrar conexão do usuário logado:
+
+Código atual (ERRADO):
+@app.route('/settings')
+def settings():
+    connection = get_instagram_connection()  # ← Pega qualquer conexão
+
+Código corrigido (CERTO):
+@app.route('/settings')
+def settings():
+    user_email = session.get('user_email')
+    connection = get_instagram_connection(user_email)  # ← Pega SÓ deste usuário
+
+TAREFAS:
+1. Altere a tabela instagram_connections adicionando user_email
+2. Migre dados existentes (vincular ao admin)
+3. Modifique todas as funções que salvam/leem conexão Instagram
+4. Garanta que cada usuário tenha sua própria conexão isolada
+5. Teste com 2 usuários diferentes
+
+ARQUIVOS PARA MODIFICAR:
+- database.py ou schema.sql (estrutura do banco)
+- routes.py ou main.py (rotas de autenticação Instagram)
+- models.py (funções de salvar/ler conexão)
+
+MOSTRE-ME o código modificado de cada arquivo.
