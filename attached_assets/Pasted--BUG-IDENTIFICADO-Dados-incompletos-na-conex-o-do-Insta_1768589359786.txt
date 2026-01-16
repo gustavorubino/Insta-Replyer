@@ -1,0 +1,187 @@
+🚨 BUG IDENTIFICADO: Dados incompletos na conexão do Instagram
+
+EVIDÊNCIA VISUAL:
+
+ADMIN (funciona):
+- Nome: GUSTAVO SILVA RUBINO ✅
+- Instagram: @gustavorubino ✅
+
+USUÁRIO RODOLFO (bugado):
+- Nome: donettirodolfo (parece username, não nome completo) ❌
+- Instagram: @ID: 26421104450824756 (mostra ID, não username!) ❌
+
+DIAGNÓSTICO NECESSÁRIO:
+
+═══════════════════════════════════════════════════════
+1. VERIFICAR DADOS SALVOS NO BANCO
+═══════════════════════════════════════════════════════
+
+Execute e mostre resultado COMPLETO:
+
+SELECT 
+    u.id,
+    u.email,
+    u.username,
+    u.first_name,
+    u.last_name,
+    u.profile_image_url,
+    ic.instagram_account_id,
+    ic.instagram_username,
+    ic.instagram_name,
+    ic.page_id,
+    ic.page_name
+FROM users u
+LEFT JOIN instagram_connections ic ON u.id = ic.user_id
+WHERE u.email IN ('guguinha.rubino@gmail.com', 'donettirodolfo@gmail.com');
+
+PRECISO VER:
+- instagram_username está NULL para Rodolfo?
+- instagram_name está NULL?
+- first_name/last_name estão preenchidos?
+
+═══════════════════════════════════════════════════════
+2. VERIFICAR CÓDIGO DO OAUTH CALLBACK
+═══════════════════════════════════════════════════════
+
+Mostre o código que busca os dados do Instagram após OAuth.
+
+Deve estar fazendo algo assim:
+
+// Após obter o token, buscar dados do usuário Instagram
+const igUserResponse = await fetch(
+  `https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}`
+);
+
+// Depois buscar o Instagram Business Account
+const igAccountResponse = await fetch(
+  `https://graph.facebook.com/v18.0/${pageId}?fields=instagram_business_account&access_token=${pageToken}`
+);
+
+// Depois buscar dados do Instagram (USERNAME, NAME, etc)
+const igProfileResponse = await fetch(
+  `https://graph.facebook.com/v18.0/${instagramAccountId}?fields=id,username,name,profile_picture_url&access_token=${accessToken}`
+);
+
+// SALVAR TODOS OS CAMPOS:
+await db.query(`
+  UPDATE instagram_connections SET
+    instagram_account_id = $1,
+    instagram_username = $2,    -- ← CRÍTICO!
+    instagram_name = $3,
+    profile_picture_url = $4
+  WHERE user_id = $5
+`, [instagramAccountId, username, name, profilePic, userId]);
+
+VERIFIQUE:
+- O código está buscando o campo "username" da API?
+- Está salvando no campo instagram_username?
+
+═══════════════════════════════════════════════════════
+3. BUSCAR USERNAME DO RODOLFO AGORA (CORREÇÃO IMEDIATA)
+═══════════════════════════════════════════════════════
+
+O Rodolfo já tem o token válido. Podemos buscar o username agora:
+
+// Buscar token do Rodolfo
+const rodolfoToken = await db.query(`
+  SELECT access_token, instagram_account_id 
+  FROM instagram_connections ic
+  JOIN users u ON ic.user_id = u.id
+  WHERE u.email = 'donettirodolfo@gmail.com'
+`);
+
+// Buscar dados do Instagram
+const response = await fetch(
+  `https://graph.facebook.com/v18.0/${rodolfoToken.instagram_account_id}?fields=id,username,name,profile_picture_url&access_token=${rodolfoToken.access_token}`
+);
+
+const igData = await response.json();
+console.log('Dados do Instagram do Rodolfo:', igData);
+
+// Se retornar username, atualizar no banco:
+await db.query(`
+  UPDATE instagram_connections SET
+    instagram_username = $1,
+    instagram_name = $2
+  WHERE instagram_account_id = $3
+`, [igData.username, igData.name, rodolfoToken.instagram_account_id]);
+
+═══════════════════════════════════════════════════════
+4. CORRIGIR OAUTH PARA FUTUROS USUÁRIOS
+═══════════════════════════════════════════════════════
+
+No callback do OAuth, GARANTIR que busca e salva:
+- instagram_username (ex: "rodolfodonetti")
+- instagram_name (ex: "Rodolfo Donetti")
+- profile_picture_url
+
+Código correto:
+
+async function fetchInstagramProfile(instagramAccountId, accessToken) {
+  const response = await fetch(
+    `https://graph.facebook.com/v18.0/${instagramAccountId}?fields=id,username,name,profile_picture_url&access_token=${accessToken}`
+  );
+  
+  if (!response.ok) {
+    console.error('Erro ao buscar perfil Instagram:', await response.text());
+    return null;
+  }
+  
+  return await response.json();
+}
+
+// No OAuth callback, após obter o instagram_account_id:
+const igProfile = await fetchInstagramProfile(instagramAccountId, accessToken);
+
+if (igProfile) {
+  await db.query(`
+    UPDATE instagram_connections SET
+      instagram_username = $1,
+      instagram_name = $2,
+      profile_picture_url = $3
+    WHERE user_id = $4
+  `, [
+    igProfile.username,    // "rodolfodonetti"
+    igProfile.name,        // "Rodolfo Donetti"
+    igProfile.profile_picture_url,
+    userId
+  ]);
+}
+
+═══════════════════════════════════════════════════════
+5. CORRIGIR NOME DO USUÁRIO (TABELA USERS)
+═══════════════════════════════════════════════════════
+
+O nome "donettirodolfo" parece estar errado também.
+
+Verifique como o Replit Auth salva os dados do usuário.
+O nome deveria vir do Google/provedor de autenticação.
+
+SELECT id, email, username, first_name, last_name 
+FROM users 
+WHERE email = 'donettirodolfo@gmail.com';
+
+Se first_name e last_name estiverem vazios, o sistema está
+usando o username como fallback (comportamento errado para exibição).
+
+═══════════════════════════════════════════════════════
+TAREFAS:
+═══════════════════════════════════════════════════════
+
+□ 1. Mostrar dados atuais do banco (query do item 1)
+□ 2. Buscar e atualizar username do Rodolfo (item 3)
+□ 3. Corrigir OAuth callback para salvar username (item 4)
+□ 4. Verificar/corrigir nome do usuário (item 5)
+□ 5. Testar com novo usuário para confirmar que salva tudo
+
+RESULTADO ESPERADO:
+
+Rodolfo deve ver:
+- Instagram: @rodolfodonetti (não o ID numérico)
+- Nome: Rodolfo Donetti (ou nome real dele)
+
+MOSTRE-ME:
+1. Resultado das queries
+2. Código atual do OAuth callback
+3. Código corrigido
+4. Confirmação de que Rodolfo agora mostra @rodolfodonetti

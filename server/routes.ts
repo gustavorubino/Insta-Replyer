@@ -7,6 +7,7 @@ import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "./replit_integrations/auth";
 import crypto from "crypto";
 import { downloadAndStoreMedia } from "./utils/media-storage";
+import { decrypt, isEncrypted } from "./encryption";
 
 // Helper function to get media type description for AI and learning (bracketed format)
 function getMediaTypeDescription(mediaType: string | null | undefined): string {
@@ -343,6 +344,117 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching user stats:", error);
       res.status(500).json({ error: "Failed to fetch user stats" });
+    }
+  });
+
+  // Refresh Instagram profile data for a user (admin only)
+  app.post("/api/admin/users/:userId/refresh-instagram", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const targetUserId = req.params.userId;
+      const user = await authStorage.getUser(targetUserId);
+      
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!user.instagramAccessToken || !user.instagramAccountId) {
+        return res.status(400).json({ error: "User has no Instagram connection" });
+      }
+
+      // Decrypt token if needed
+      const accessToken = isEncrypted(user.instagramAccessToken) 
+        ? decrypt(user.instagramAccessToken) 
+        : user.instagramAccessToken;
+      const instagramAccountId = user.instagramAccountId;
+
+      console.log(`[Admin] Refreshing Instagram data for user ${targetUserId}, account ID: ${instagramAccountId}`);
+
+      let instagramUsername = user.instagramUsername || "";
+      let profilePictureUrl = user.instagramProfilePic || null;
+
+      // Try multiple API approaches
+      const apiAttempts = [
+        // 1. Instagram Graph API /me endpoint (works for Instagram Login tokens)
+        {
+          name: "Instagram /me",
+          url: `https://graph.instagram.com/me?fields=id,username,account_type,name,profile_picture_url&access_token=${accessToken}`
+        },
+        // 2. Facebook Graph API with account ID (works for Business accounts)
+        {
+          name: "Facebook Graph API",
+          url: `https://graph.facebook.com/v21.0/${instagramAccountId}?fields=id,username,name,profile_picture_url&access_token=${accessToken}`
+        },
+        // 3. Instagram Graph API with account ID
+        {
+          name: "Instagram Graph API with ID",
+          url: `https://graph.instagram.com/${instagramAccountId}?fields=id,username,profile_picture_url&access_token=${accessToken}`
+        }
+      ];
+
+      let apiSuccess = false;
+      for (const attempt of apiAttempts) {
+        try {
+          console.log(`[Admin] Trying ${attempt.name}...`);
+          const response = await fetch(attempt.url);
+          const data = await response.json() as any;
+          
+          if (!data.error && (data.username || data.profile_picture_url)) {
+            console.log(`[Admin] ${attempt.name} succeeded:`, JSON.stringify(data));
+            if (data.username) instagramUsername = data.username;
+            if (data.profile_picture_url) profilePictureUrl = data.profile_picture_url;
+            apiSuccess = true;
+            break;
+          } else {
+            console.log(`[Admin] ${attempt.name} failed:`, data.error?.message || "No data returned");
+          }
+        } catch (e) {
+          console.log(`[Admin] ${attempt.name} error:`, e);
+        }
+      }
+
+      if (!apiSuccess) {
+        // Mark user as needing reconnection when all APIs fail
+        await authStorage.updateUser(targetUserId, {
+          showTokenWarning: true
+        });
+        
+        return res.status(400).json({ 
+          error: "Token inválido ou expirado", 
+          details: "O usuário precisa reconectar o Instagram para atualizar os dados.",
+          showTokenWarning: true
+        });
+      }
+
+      // Update user record
+      const updates: any = {};
+      if (instagramUsername) {
+        updates.instagramUsername = instagramUsername;
+      }
+      if (profilePictureUrl) {
+        updates.instagramProfilePic = profilePictureUrl;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await authStorage.updateUser(targetUserId, updates);
+        console.log(`[Admin] Updated Instagram data for user ${targetUserId}:`, updates);
+      }
+
+      res.json({ 
+        success: true, 
+        message: "Instagram data refreshed",
+        data: {
+          username: instagramUsername,
+          profilePic: profilePictureUrl ? "updated" : "not available"
+        }
+      });
+    } catch (error) {
+      console.error("Error refreshing Instagram data:", error);
+      res.status(500).json({ error: "Failed to refresh Instagram data" });
     }
   });
 

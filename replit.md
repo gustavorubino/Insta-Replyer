@@ -101,6 +101,10 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
   - Self-demotion/deletion protection
   - Instagram accounts tab with webhook ID management
   - Alert for unmapped webhooks with recipient ID display
+  - **Manual Instagram Data Refresh**: Admin can click "Atualizar" to refresh username/profile pic from Instagram API
+    - Tries multiple API approaches: graph.instagram.com/me, graph.facebook.com/{id}, graph.instagram.com/{id}
+    - When all APIs fail (expired token), sets showTokenWarning=true and shows "Token Expirado" status
+    - UI updates immediately via query invalidation on both success and error
   - Only visible to admins in sidebar
 - **Session Management**: 
   - actualUserId stored for users with existing email accounts

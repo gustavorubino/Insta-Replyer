@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Clock,
   AlertCircle,
+  AlertTriangle,
   Edit,
 } from "lucide-react";
 import {
@@ -215,6 +216,33 @@ export default function Admin() {
         description: "Não foi possível limpar o alerta",
         variant: "destructive",
       });
+    },
+  });
+
+  const [refreshingUserId, setRefreshingUserId] = useState<string | null>(null);
+
+  const refreshInstagramMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      setRefreshingUserId(userId);
+      return apiRequest("POST", `/api/admin/users/${userId}/refresh-instagram`);
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Dados atualizados",
+        description: `Username: ${data.data?.username || 'não disponível'}`,
+      });
+    },
+    onError: (error: Error) => {
+      const errorMsg = error.message;
+      toast({
+        title: "Token inválido ou expirado",
+        description: "O usuário precisa reconectar o Instagram.",
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/users"] });
+      setRefreshingUserId(null);
     },
   });
 
@@ -623,6 +651,7 @@ export default function Admin() {
                       <TableHead>Status</TableHead>
                       <TableHead>Mensagens</TableHead>
                       <TableHead>Última Atividade</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -668,10 +697,17 @@ export default function Admin() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="default" className="gap-1" data-testid={`badge-ig-status-${userData.id}`}>
-                              <CheckCircle className="h-3 w-3" />
-                              Conectado
-                            </Badge>
+                            {userData.showTokenWarning ? (
+                              <Badge variant="destructive" className="gap-1" data-testid={`badge-ig-status-${userData.id}`}>
+                                <AlertTriangle className="h-3 w-3" />
+                                Token Expirado
+                              </Badge>
+                            ) : (
+                              <Badge variant="default" className="gap-1" data-testid={`badge-ig-status-${userData.id}`}>
+                                <CheckCircle className="h-3 w-3" />
+                                Conectado
+                              </Badge>
+                            )}
                           </TableCell>
                           <TableCell>
                             <span data-testid={`text-ig-messages-${userData.id}`}>
@@ -682,6 +718,24 @@ export default function Admin() {
                             <span className="text-sm text-muted-foreground" data-testid={`text-ig-last-activity-${userData.id}`}>
                               {formatLastActivity(stats?.lastActivity)}
                             </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => refreshInstagramMutation.mutate(userData.id)}
+                              disabled={refreshingUserId === userData.id}
+                              data-testid={`button-refresh-ig-${userData.id}`}
+                            >
+                              {refreshingUserId === userData.id ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <RefreshCw className="h-4 w-4 mr-1" />
+                                  Atualizar
+                                </>
+                              )}
+                            </Button>
                           </TableCell>
                         </TableRow>
                       );
