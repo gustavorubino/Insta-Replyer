@@ -13,6 +13,7 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - **Webhook Processing**: Comment and DM webhooks use user-specific operation modes and confidence thresholds for auto-send decisions
 - **Statistics**: Dashboard avgConfidence and all stats are filtered by userId (admins see all, users see own)
 - **User Indicator**: Sidebar displays user name, email, and role (Administrador/Usuário)
+- **Own Sent Message Filter**: Messages where senderId matches user's instagramAccountId are excluded from all queries (pending, recent, history). Users never see messages they sent in their own approval queues - only messages they received.
 
 ## Features
 
