@@ -50,6 +50,12 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
   - Signature verification using X-Hub-Signature-256 (HMAC-SHA256)
   - Subscribed fields: comments, mentions, messages
   - Multi-step user matching: by instagramAccountId, then by instagramRecipientId
+  - **Outgoing Message Filter**: Skips messages where sender matches the recipient's Instagram account (prevents own messages appearing in queue)
+  - **Sender Profile Resolution**: 
+    - Checks if sender matches a known user's Instagram account
+    - Uses sender's own token to fetch profile picture (most reliable for cross-account)
+    - Falls back to recipient's token, then API lookup
+    - Auto-updates instagramProfilePic cache when photo is fetched
   - **Secure Auto-association**: 
     - Stores `pending_webhook_{userId}` marker during OAuth with timestamp
     - Only auto-associates if webhook arrives within 15-minute window from OAuth

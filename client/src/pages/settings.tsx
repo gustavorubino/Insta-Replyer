@@ -136,6 +136,35 @@ export default function Settings() {
     },
   });
 
+  const refreshProfileMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/instagram/refresh-profile");
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      if (data.updated) {
+        toast({
+          title: "Perfil atualizado",
+          description: "Sua foto de perfil do Instagram foi atualizada.",
+        });
+      } else {
+        toast({
+          title: "Perfil verificado",
+          description: "Seu perfil do Instagram está atualizado.",
+        });
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Erro",
+        description: "Não foi possível atualizar o perfil do Instagram.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleConnectInstagram = async () => {
     setIsConnecting(true);
     try {
@@ -248,15 +277,27 @@ export default function Settings() {
                         </p>
                       </div>
                     </div>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => disconnectMutation.mutate()}
-                      disabled={disconnectMutation.isPending}
-                      data-testid="button-disconnect-instagram"
-                    >
-                      {disconnectMutation.isPending ? "Desconectando..." : "Desconectar"}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => refreshProfileMutation.mutate()}
+                        disabled={refreshProfileMutation.isPending}
+                        data-testid="button-refresh-profile"
+                        title="Atualizar foto de perfil"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${refreshProfileMutation.isPending ? 'animate-spin' : ''}`} />
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => disconnectMutation.mutate()}
+                        disabled={disconnectMutation.isPending}
+                        data-testid="button-disconnect-instagram"
+                      >
+                        {disconnectMutation.isPending ? "Desconectando..." : "Desconectar"}
+                      </Button>
+                    </div>
                   </div>
                   
                   <div className="p-4 rounded-lg border bg-blue-50 dark:bg-blue-900/20">

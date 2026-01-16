@@ -1179,6 +1179,83 @@ export async function registerRoutes(
     }
   });
 
+  // Refresh Instagram profile (update cached profile picture)
+  app.post("/api/instagram/refresh-profile", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const user = await authStorage.getUser(userId);
+
+      if (!user?.instagramAccessToken || !user?.instagramAccountId) {
+        return res.status(400).json({ error: "Instagram not connected" });
+      }
+
+      const accessToken = user.instagramAccessToken;
+      const instagramId = user.instagramAccountId;
+      let profilePictureUrl: string | null = null;
+      let username = user.instagramUsername;
+
+      // Try Facebook Graph API first (works better for business accounts)
+      try {
+        const fbProfileUrl = `https://graph.facebook.com/v21.0/${instagramId}?fields=profile_picture_url,username&access_token=${accessToken}`;
+        console.log("Fetching profile from Facebook Graph API...");
+        const fbRes = await fetch(fbProfileUrl);
+        const fbData = await fbRes.json() as any;
+        if (fbData.profile_picture_url) {
+          profilePictureUrl = fbData.profile_picture_url;
+          console.log("Got profile picture from Facebook Graph API");
+        }
+        if (fbData.username && !username) {
+          username = fbData.username;
+        }
+      } catch (e) {
+        console.log("Facebook Graph API failed:", e);
+      }
+
+      // Fallback to Instagram Graph API
+      if (!profilePictureUrl) {
+        try {
+          const igProfileUrl = `https://graph.instagram.com/me?fields=id,username,profile_picture_url&access_token=${accessToken}`;
+          console.log("Fetching profile from Instagram Graph API...");
+          const igRes = await fetch(igProfileUrl);
+          const igData = await igRes.json() as any;
+          if (igData.profile_picture_url) {
+            profilePictureUrl = igData.profile_picture_url;
+            console.log("Got profile picture from Instagram Graph API");
+          }
+          if (igData.username && !username) {
+            username = igData.username;
+          }
+        } catch (e) {
+          console.log("Instagram Graph API failed:", e);
+        }
+      }
+
+      // Update user record with new profile data
+      const updates: any = {};
+      if (profilePictureUrl) {
+        updates.instagramProfilePic = profilePictureUrl;
+      }
+      if (username && username !== user.instagramUsername) {
+        updates.instagramUsername = username;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await authStorage.updateUser(userId, updates);
+        console.log(`Updated Instagram profile for user ${userId}:`, Object.keys(updates));
+      }
+
+      res.json({ 
+        success: true, 
+        profilePictureUrl,
+        username,
+        updated: Object.keys(updates).length > 0
+      });
+    } catch (error) {
+      console.error("Error refreshing Instagram profile:", error);
+      res.status(500).json({ error: "Failed to refresh Instagram profile" });
+    }
+  });
+
   // ============ Instagram Webhooks ============
 
   // Webhook verification endpoint (GET) - Meta will call this to verify the webhook
@@ -1644,7 +1721,37 @@ export async function registerRoutes(
         return;
       }
 
-      console.log(`Processing webhook for user ${instagramUser.id} (${instagramUser.email})`);
+      // ===== BUG FIX: FILTER OUT OUTGOING MESSAGES =====
+      // Instagram webhooks send BOTH incoming and outgoing messages.
+      // We only want to process INCOMING messages (messages RECEIVED by the user).
+      // 
+      // DIRECTION VALIDATION (more robust):
+      // - INCOMING: recipientId matches user's account AND senderId is DIFFERENT
+      // - OUTGOING: senderId matches user's account (user sent the message)
+      //
+      // We check both conditions to avoid false positives
+      const senderMatchesUser = (senderId === instagramUser.instagramAccountId || senderId === instagramUser.instagramRecipientId);
+      const recipientMatchesUser = (recipientId === instagramUser.instagramAccountId || recipientId === instagramUser.instagramRecipientId);
+      
+      if (senderMatchesUser) {
+        // Sender is the user = OUTGOING message, skip it
+        console.log(`SKIPPING OUTGOING MESSAGE: Sender ${senderId} matches user's own Instagram account`);
+        console.log(`  User: ${instagramUser.email}`);
+        console.log(`  instagramAccountId: ${instagramUser.instagramAccountId}`);
+        console.log(`  instagramRecipientId: ${instagramUser.instagramRecipientId}`);
+        return;
+      }
+      
+      if (!recipientMatchesUser) {
+        // Recipient doesn't match user = something is wrong, log and skip
+        console.log(`WARNING: Recipient ${recipientId} doesn't match user's Instagram account - unexpected webhook routing`);
+        console.log(`  User: ${instagramUser.email}`);
+        console.log(`  instagramAccountId: ${instagramUser.instagramAccountId}`);
+        console.log(`  instagramRecipientId: ${instagramUser.instagramRecipientId}`);
+        // Don't return - continue processing but log the warning
+      }
+
+      console.log(`Processing INCOMING message for user ${instagramUser.id} (${instagramUser.email})`);
       console.log(`User's Instagram Account ID: ${instagramUser.instagramAccountId}`);
       console.log(`User's token length: ${instagramUser.instagramAccessToken?.length || 0}`);
 
@@ -1668,23 +1775,83 @@ export async function registerRoutes(
         senderUsername = knownInstagramUser.instagramUsername;
         // Only use cached avatar if available; otherwise will try API fetch below
         if (knownInstagramUser.instagramProfilePic || knownInstagramUser.profileImageUrl) {
-          senderAvatar = knownInstagramUser.instagramProfilePic || knownInstagramUser.profileImageUrl;
+          senderAvatar = knownInstagramUser.instagramProfilePic || knownInstagramUser.profileImageUrl || undefined;
         }
         console.log(`Using cached profile data: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}`);
         
-        // If we don't have a cached avatar but have a token, still try to fetch it
-        if (!senderAvatar && instagramUser.instagramAccessToken) {
-          try {
-            const accessToken = instagramUser.instagramAccessToken;
-            const profileUrl = `https://graph.instagram.com/${senderId}?fields=profile_pic&access_token=${accessToken}`;
-            const profileRes = await fetch(profileUrl);
-            const profileData = await profileRes.json();
-            if (profileData.profile_pic) {
-              senderAvatar = profileData.profile_pic;
-              console.log(`Fetched profile picture for known user from API`);
+        // If we don't have a cached avatar, try to fetch it using the SENDER's own token (not recipient's)
+        // This is more reliable for cross-account lookups since each user can access their own profile
+        if (!senderAvatar) {
+          // First, try using the sender's own token if available (most reliable)
+          if (knownInstagramUser.instagramAccessToken) {
+            try {
+              const senderToken = knownInstagramUser.instagramAccessToken;
+              // Use Facebook Graph API for business accounts
+              const fbProfileUrl = `https://graph.facebook.com/v21.0/${senderId}?fields=profile_picture_url&access_token=${senderToken}`;
+              console.log(`Trying sender's own token to fetch profile picture...`);
+              const profileRes = await fetch(fbProfileUrl);
+              const profileData = await profileRes.json();
+              if (profileData.profile_picture_url) {
+                senderAvatar = profileData.profile_picture_url;
+                console.log(`Got profile picture using sender's own token (Facebook API)`);
+                
+                // Update the cache for future use
+                try {
+                  await authStorage.updateUser(knownInstagramUser.id, {
+                    instagramProfilePic: profileData.profile_picture_url
+                  });
+                  console.log(`Updated instagramProfilePic cache for user ${knownInstagramUser.id}`);
+                } catch (cacheErr) {
+                  console.log(`Could not update profile pic cache:`, cacheErr);
+                }
+              } else {
+                // Try Instagram API as fallback
+                const igProfileUrl = `https://graph.instagram.com/me?fields=profile_picture_url&access_token=${senderToken}`;
+                const igRes = await fetch(igProfileUrl);
+                const igData = await igRes.json();
+                if (igData.profile_picture_url) {
+                  senderAvatar = igData.profile_picture_url;
+                  console.log(`Got profile picture using sender's own token (Instagram API)`);
+                  
+                  try {
+                    await authStorage.updateUser(knownInstagramUser.id, {
+                      instagramProfilePic: igData.profile_picture_url
+                    });
+                    console.log(`Updated instagramProfilePic cache for user ${knownInstagramUser.id}`);
+                  } catch (cacheErr) {
+                    console.log(`Could not update profile pic cache:`, cacheErr);
+                  }
+                }
+              }
+            } catch (e) {
+              console.log(`Could not fetch avatar using sender's token:`, e);
             }
-          } catch (e) {
-            console.log(`Could not fetch avatar for known user:`, e);
+          }
+          
+          // Fallback: try with recipient's token (less likely to work for cross-account)
+          if (!senderAvatar && instagramUser.instagramAccessToken) {
+            try {
+              const accessToken = instagramUser.instagramAccessToken;
+              const profileUrl = `https://graph.instagram.com/${senderId}?fields=profile_pic&access_token=${accessToken}`;
+              const profileRes = await fetch(profileUrl);
+              const profileData = await profileRes.json();
+              if (profileData.profile_pic) {
+                senderAvatar = profileData.profile_pic;
+                console.log(`Fetched profile picture using recipient's token (fallback)`);
+                
+                // Update the cache for future use
+                try {
+                  await authStorage.updateUser(knownInstagramUser.id, {
+                    instagramProfilePic: profileData.profile_pic
+                  });
+                  console.log(`Updated instagramProfilePic cache for user ${knownInstagramUser.id}`);
+                } catch (cacheErr) {
+                  console.log(`Could not update profile pic cache:`, cacheErr);
+                }
+              }
+            } catch (e) {
+              console.log(`Could not fetch avatar using recipient's token:`, e);
+            }
           }
         }
       } else if (senderId && instagramUser.instagramAccessToken) {
