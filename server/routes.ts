@@ -930,16 +930,51 @@ export async function registerRoutes(
       const longLivedData = await longLivedResponse.json() as any;
       const longLivedToken = longLivedData.access_token || shortLivedToken;
 
-      // Get Instagram user info using Instagram Graph API - fetch multiple fields
-      const igUserUrl = `https://graph.instagram.com/me?fields=id,username,account_type,name&access_token=${longLivedToken}`;
+      // Get Instagram user info using Instagram Graph API - fetch multiple fields including profile_pic
+      const igUserUrl = `https://graph.instagram.com/me?fields=id,username,account_type,name,profile_picture_url&access_token=${longLivedToken}`;
       console.log("Fetching Instagram user info...");
       const igUserResponse = await fetch(igUserUrl);
       const igUserData = await igUserResponse.json() as any;
       console.log("Instagram user data received:", JSON.stringify(igUserData));
-
+      
       // Use 'id' from the response (Instagram API returns 'id', not 'user_id')
       const instagramAccountId = String(igUserData.id || instagramUserId);
       const instagramUsername = igUserData.username || "";
+      
+      // Try to get profile picture from the response or via alternative API calls
+      let profilePictureUrl = igUserData.profile_picture_url;
+      
+      // For Instagram Business accounts, try Facebook Graph API if Instagram API didn't return profile pic
+      if (!profilePictureUrl && instagramAccountId) {
+        try {
+          // Try Facebook Graph API for business accounts
+          const fbProfileUrl = `https://graph.facebook.com/v21.0/${instagramAccountId}?fields=profile_picture_url&access_token=${longLivedToken}`;
+          console.log("Trying Facebook Graph API for profile picture...");
+          const fbProfileRes = await fetch(fbProfileUrl);
+          const fbProfileData = await fbProfileRes.json() as any;
+          if (fbProfileData.profile_picture_url) {
+            profilePictureUrl = fbProfileData.profile_picture_url;
+            console.log("Profile picture URL from Facebook Graph API: found");
+          } else {
+            console.log("Profile picture URL from Facebook Graph API: not found", fbProfileData.error?.message || "");
+          }
+        } catch (e) {
+          console.log("Could not fetch profile picture from Facebook Graph API:", e);
+        }
+      }
+      
+      // Fallback: try Instagram API with explicit profile_pic field
+      if (!profilePictureUrl) {
+        try {
+          const profileUrl = `https://graph.instagram.com/me?fields=profile_picture_url&access_token=${longLivedToken}`;
+          const profileRes = await fetch(profileUrl);
+          const profileData = await profileRes.json() as any;
+          profilePictureUrl = profileData.profile_picture_url;
+          console.log("Profile picture URL from Instagram fallback:", profilePictureUrl ? "found" : "not found");
+        } catch (e) {
+          console.log("Could not fetch profile picture from Instagram API:", e);
+        }
+      }
 
       // Also try to get the user's Instagram ID from the token exchange response
       // The instagramUserId from token exchange might be different from igUserData.id
@@ -952,6 +987,7 @@ export async function registerRoutes(
       const updates: any = {
         instagramAccountId,
         instagramUsername,
+        instagramProfilePic: profilePictureUrl || null,
         instagramAccessToken: longLivedToken,
         // Always set recipientId - prefer token user_id if different, otherwise use accountId
         // This will be auto-updated when the first webhook arrives with the real recipient ID
@@ -959,6 +995,8 @@ export async function registerRoutes(
           ? tokenUserId
           : instagramAccountId,
       };
+      
+      console.log(`Storing Instagram profile pic: ${profilePictureUrl ? "found" : "not available"}`);
 
       console.log(`Storing instagramRecipientId: ${updates.instagramRecipientId} (will be auto-updated on first webhook if different)`);
 
@@ -1607,14 +1645,62 @@ export async function registerRoutes(
       }
 
       console.log(`Processing webhook for user ${instagramUser.id} (${instagramUser.email})`);
+      console.log(`User's Instagram Account ID: ${instagramUser.instagramAccountId}`);
+      console.log(`User's token length: ${instagramUser.instagramAccessToken?.length || 0}`);
 
       // Try to fetch sender's name and username from Instagram API
       let senderName = senderId || "Instagram User";
       let senderUsername = senderId || "unknown";
       let senderAvatar: string | undefined = undefined;
       
-      if (senderId && instagramUser.instagramAccessToken) {
+      // OPTIMIZATION: Check if senderId matches any known user's Instagram account
+      // This handles cross-account lookups where API calls fail due to permissions
+      // Exclude the current instagramUser (recipient) to avoid self-matching
+      const knownInstagramUser = allUsers.find((u: any) => 
+        u.id !== instagramUser.id && // Don't match the recipient
+        (u.instagramAccountId === senderId || u.instagramRecipientId === senderId)
+      );
+      
+      // Use cached data only if we have usable username info
+      if (knownInstagramUser && knownInstagramUser.instagramUsername) {
+        console.log(`Sender ${senderId} matched known user: ${knownInstagramUser.email}`);
+        senderName = knownInstagramUser.firstName || knownInstagramUser.instagramUsername || senderId;
+        senderUsername = knownInstagramUser.instagramUsername;
+        // Only use cached avatar if available; otherwise will try API fetch below
+        if (knownInstagramUser.instagramProfilePic || knownInstagramUser.profileImageUrl) {
+          senderAvatar = knownInstagramUser.instagramProfilePic || knownInstagramUser.profileImageUrl;
+        }
+        console.log(`Using cached profile data: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}`);
+        
+        // If we don't have a cached avatar but have a token, still try to fetch it
+        if (!senderAvatar && instagramUser.instagramAccessToken) {
+          try {
+            const accessToken = instagramUser.instagramAccessToken;
+            const profileUrl = `https://graph.instagram.com/${senderId}?fields=profile_pic&access_token=${accessToken}`;
+            const profileRes = await fetch(profileUrl);
+            const profileData = await profileRes.json();
+            if (profileData.profile_pic) {
+              senderAvatar = profileData.profile_pic;
+              console.log(`Fetched profile picture for known user from API`);
+            }
+          } catch (e) {
+            console.log(`Could not fetch avatar for known user:`, e);
+          }
+        }
+      } else if (senderId && instagramUser.instagramAccessToken) {
         const accessToken = instagramUser.instagramAccessToken;
+        
+        // Verify token is not still encrypted (should have been decrypted by getAllUsers)
+        const tokenParts = accessToken.split(":");
+        if (tokenParts.length === 3 && tokenParts[0].length === 24) {
+          console.error(`ERROR: Token appears to still be encrypted (length=${accessToken.length}). Decryption may have failed.`);
+        }
+        
+        // Use the user's Instagram Account ID (from OAuth) for API calls, NOT the webhook recipientId
+        // The instagramAccountId is the authenticated account that can access the conversations API
+        const userInstagramId = instagramUser.instagramAccountId || undefined;
+        
+        console.log(`Will use instagramAccountId ${userInstagramId} for API calls (webhook recipientId was ${recipientId})`);
         
         // First, try direct IGSID lookup for profile_pic (correct field name)
         try {
@@ -1632,8 +1718,8 @@ export async function registerRoutes(
           console.log(`Direct IGSID lookup failed:`, e);
         }
         
-        // Then get username from conversations API
-        const userInfo = await fetchInstagramUserInfo(senderId, accessToken, recipientId);
+        // Then get username from conversations API using instagramAccountId
+        const userInfo = await fetchInstagramUserInfo(senderId, accessToken, userInstagramId);
         senderName = userInfo.name;
         senderUsername = userInfo.username;
         // If avatar wasn't found above, try from userInfo

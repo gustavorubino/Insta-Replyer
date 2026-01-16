@@ -38,7 +38,13 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
   - OAuth 2.0 flow via Instagram Business Login
   - Access tokens stored per-user in database (instagramAccessToken, instagramAccountId)
   - `instagramRecipientId` field stores the webhook recipient ID for reliable matching
+  - `instagramProfilePic` field stores profile picture URL during OAuth for cross-account lookups
   - Users can connect/disconnect their Instagram Business accounts
+- **Profile Data Caching**:
+  - During OAuth callback, fetches and stores username + profile_picture_url
+  - Webhook processing checks if sender matches a known user's Instagram account
+  - Uses cached profile data when API lookups fail due to cross-account permissions
+  - Handles case where User A (business account) messages User B, but B's token can't look up A's profile
 - **Webhooks (Real-time Updates)**:
   - Endpoint: `GET/POST /api/webhooks/instagram`
   - Signature verification using X-Hub-Signature-256 (HMAC-SHA256)

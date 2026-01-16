@@ -13,9 +13,13 @@ function decryptUserFields(user: User): User {
   
   if (decrypted.instagramAccessToken && isEncrypted(decrypted.instagramAccessToken)) {
     try {
+      const originalLength = decrypted.instagramAccessToken.length;
       decrypted.instagramAccessToken = decrypt(decrypted.instagramAccessToken);
+      console.log(`Decrypted instagramAccessToken for user ${user.id}: ${originalLength} chars -> ${decrypted.instagramAccessToken.length} chars`);
     } catch (e) {
-      console.error("Failed to decrypt instagramAccessToken");
+      console.error(`Failed to decrypt instagramAccessToken for user ${user.id}:`, e);
+      // Set to null to prevent using encrypted token as API key
+      decrypted.instagramAccessToken = null;
     }
   }
   
@@ -23,7 +27,8 @@ function decryptUserFields(user: User): User {
     try {
       decrypted.facebookAppSecret = decrypt(decrypted.facebookAppSecret);
     } catch (e) {
-      console.error("Failed to decrypt facebookAppSecret");
+      console.error(`Failed to decrypt facebookAppSecret for user ${user.id}:`, e);
+      decrypted.facebookAppSecret = null;
     }
   }
   

@@ -28,6 +28,7 @@ export const users = pgTable("users", {
   facebookAppSecret: varchar("facebook_app_secret"),
   instagramAccountId: varchar("instagram_account_id"),
   instagramUsername: varchar("instagram_username"),
+  instagramProfilePic: varchar("instagram_profile_pic"),
   instagramAccessToken: varchar("instagram_access_token"),
   instagramRecipientId: varchar("instagram_recipient_id"),
   // Per-user settings (previously global)

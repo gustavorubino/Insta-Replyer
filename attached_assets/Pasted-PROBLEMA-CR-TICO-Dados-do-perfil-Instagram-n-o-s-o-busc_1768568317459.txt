@@ -1,0 +1,158 @@
+PROBLEMA CRÍTICO: Dados do perfil Instagram não são buscados corretamente para usuários comuns.
+
+COMPORTAMENTO ATUAL:
+
+ADMIN (guguinha.rubino@gmail.com):
+✅ Mensagens mostram: @rodolfodonetti com foto e nome
+✅ API busca dados do Instagram corretamente
+
+USUÁRIO COMUM (donettirodolfo@gmail.com):
+❌ Mensagens mostram: "Usuário IG @17841400686505215"
+❌ Sem foto de perfil (mostra apenas "UI")
+❌ Sem username legível
+❌ Apenas ID numérico do Instagram
+
+CAUSA RAIZ:
+O sistema não está usando o access_token correto do usuário para buscar dados do Instagram Graph API.
+
+CORREÇÃO NECESSÁRIA:
+
+1. FUNÇÃO DE BUSCAR DADOS DO INSTAGRAM:
+
+Código atual (ERRADO):
+def get_instagram_profile_data(instagram_id):
+    # Provavelmente está assim:
+    token = get_admin_token()  # ← ERRADO!
+    # OU
+    token = None  # ← ERRADO!
+    
+    url = f"https://graph.instagram.com/{instagram_id}?fields=username,profile_picture_url,name&access_token={token}"
+    response = requests.get(url)
+    return response.json()
+
+Código corrigido (CERTO):
+def get_instagram_profile_data(instagram_id, user_email):
+    """
+    Busca dados do perfil usando o token do USUÁRIO CORRETO
+    """
+    # Buscar o access_token do usuário que recebeu a mensagem
+    connection = db.query("""
+        SELECT access_token 
+        FROM instagram_connections 
+        WHERE user_email = ?
+    """, (user_email,))
+    
+    if not connection or not connection[0]['access_token']:
+        return {
+            'username': f'@{instagram_id}',
+            'name': f'Usuário IG',
+            'profile_picture_url': None
+        }
+    
+    access_token = connection[0]['access_token']
+    
+    # Buscar dados do Instagram com token correto
+    url = f"https://graph.instagram.com/{instagram_id}"
+    params = {
+        'fields': 'username,name,profile_picture_url',
+        'access_token': access_token
+    }
+    
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {
+                'username': f'@{instagram_id}',
+                'name': 'Usuário IG',
+                'profile_picture_url': None
+            }
+    except Exception as e:
+        print(f"Erro ao buscar perfil: {e}")
+        return {
+            'username': f'@{instagram_id}',
+            'name': 'Usuário IG',
+            'profile_picture_url': None
+        }
+
+2. WEBHOOK HANDLER - Passar user_email ao processar mensagem:
+
+Código atual (ERRADO):
+@app.route('/webhook/instagram', methods=['POST'])
+def instagram_webhook():
+    data = request.json
+    sender_id = data['entry'][0]['messaging'][0]['sender']['id']
+    message = data['entry'][0]['messaging'][0]['message']['text']
+    
+    # Buscar dados do perfil SEM passar user_email
+    profile = get_instagram_profile_data(sender_id)  # ← ERRADO!
+    
+    save_message(sender_id, message, profile)
+
+Código corrigido (CERTO):
+@app.route('/webhook/instagram', methods=['POST'])
+def instagram_webhook():
+    data = request.json
+    recipient_id = data['entry'][0]['messaging'][0]['recipient']['id']
+    sender_id = data['entry'][0]['messaging'][0]['sender']['id']
+    message = data['entry'][0]['messaging'][0]['message']['text']
+    
+    # Descobrir qual usuário recebeu a mensagem
+    connection = db.query("""
+        SELECT user_email 
+        FROM instagram_connections 
+        WHERE instagram_id = ?
+    """, (recipient_id,))
+    
+    if not connection:
+        return jsonify({'error': 'Usuário não encontrado'}), 404
+    
+    user_email = connection[0]['user_email']
+    
+    # Buscar dados do perfil COM user_email correto
+    profile = get_instagram_profile_data(sender_id, user_email)
+    
+    save_message(user_email, sender_id, message, profile)
+
+3. SALVAR MENSAGEM COM DADOS COMPLETOS:
+
+def save_message(user_email, sender_id, message_text, profile):
+    db.execute("""
+        INSERT INTO messages 
+        (user_email, instagram_sender_id, sender_username, sender_name, sender_photo, message_text, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    """, (
+        user_email,
+        sender_id,
+        profile.get('username', f'@{sender_id}'),
+        profile.get('name', 'Usuário IG'),
+        profile.get('profile_picture_url'),
+        message_text
+    ))
+
+4. FRONTEND - Exibir dados corretos:
+
+Verificar se o frontend está usando:
+- sender_username (não sender_id)
+- sender_name (não "Usuário IG")
+- sender_photo (não placeholder genérico)
+
+TESTE FINAL:
+1. Logout do admin
+2. Login como usuário comum (donettirodolfo@gmail.com)
+3. Enviar mensagem de teste de outra conta
+4. Verificar se aparece:
+   ✅ @username correto
+   ✅ Foto de perfil
+   ✅ Nome da pessoa
+
+IMPORTANTE:
+- Cada usuário deve usar SEU PRÓPRIO access_token para buscar dados
+- Não usar token global ou do admin
+- Token do admin não tem permissão para buscar dados de conversas de outros usuários
+
+MOSTRE-ME o código corrigido das funções:
+- get_instagram_profile_data()
+- instagram_webhook()
+- save_message()
