@@ -9,6 +9,8 @@ export function startTokenRefreshJob() {
     console.log("[Token Refresh Job] Iniciando verificação de tokens...");
     
     try {
+      await checkExpiringTokens();
+      
       const now = new Date();
       const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -105,7 +107,32 @@ export async function checkExpiringTokens() {
 
     console.log(`[Token Check] ${expiringUsers.length} usuários com tokens expirando em 3 dias`);
 
+    const expiredUsers = await db
+      .select({
+        id: users.id,
+        email: users.email,
+      })
+      .from(users)
+      .where(
+        and(
+          isNotNull(users.tokenExpiresAt),
+          isNotNull(users.instagramAccessToken),
+          lt(users.tokenExpiresAt, now)
+        )
+      );
+
+    for (const user of expiredUsers) {
+      await db
+        .update(users)
+        .set({ showTokenWarning: true })
+        .where(sql`${users.id} = ${user.id}`);
+    }
+
+    if (expiredUsers.length > 0) {
+      console.log(`[Token Check] ${expiredUsers.length} usuários com tokens expirados`);
+    }
+
   } catch (error) {
-    console.error("[Token Check] Erro:", error);
+    console.error("[Token Check] Erro ao verificar tokens");
   }
 }
