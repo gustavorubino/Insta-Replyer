@@ -1299,7 +1299,12 @@ export async function registerRoutes(
       }
 
       const { object, entry } = req.body;
-      console.log("Webhook received:", JSON.stringify({ object, entryCount: entry?.length }));
+      
+      // Log completo do webhook recebido para debug
+      console.log("=== WEBHOOK INSTAGRAM RECEBIDO ===");
+      console.log("Object:", object);
+      console.log("Entry count:", entry?.length || 0);
+      console.log("Raw body (truncated):", JSON.stringify(req.body).substring(0, 1000));
 
       if (object !== "instagram") {
         console.log("Ignoring non-instagram webhook:", object);
@@ -1310,20 +1315,32 @@ export async function registerRoutes(
       for (const entryItem of entry || []) {
         const changes = entryItem.changes || [];
         const messaging = entryItem.messaging || [];
+        
+        console.log(`Entry ID: ${entryItem.id}, Changes: ${changes.length}, Messaging: ${messaging.length}`);
 
-        // Process comments (Instagram Graph API format)
+        // Process comments and mentions (Instagram Graph API format)
         for (const change of changes) {
+          console.log(`=== CHANGE RECEIVED: field="${change.field}" ===`);
+          console.log("Change value:", JSON.stringify(change.value).substring(0, 500));
+          
           if (change.field === "comments") {
+            console.log(">>> Processing COMMENT webhook");
             await processWebhookComment(change.value);
           } else if (change.field === "mentions") {
-            console.log("Mention received:", change.value);
+            console.log(">>> Processing MENTION webhook");
             await processWebhookComment(change.value);
+          } else {
+            console.log(`>>> Unknown field type: ${change.field}`);
           }
         }
 
         // Process direct messages (Messenger Platform format)
         for (const messageEvent of messaging) {
+          console.log("=== MESSAGING EVENT RECEIVED ===");
+          console.log("Messaging event:", JSON.stringify(messageEvent).substring(0, 500));
+          
           if (messageEvent.message) {
+            console.log(">>> Processing DM webhook");
             await processWebhookMessage(messageEvent);
           }
         }
@@ -1341,50 +1358,83 @@ export async function registerRoutes(
   // Helper function to process incoming comments from webhooks
   async function processWebhookComment(commentData: any) {
     try {
-      console.log("Processing webhook comment:", JSON.stringify(commentData));
+      console.log("=== PROCESSANDO COMENTÁRIO ===");
+      console.log("Dados recebidos:", JSON.stringify(commentData, null, 2));
 
       const commentId = commentData.id;
       const mediaId = commentData.media?.id;
+      const mediaOwnerId = commentData.media?.owner?.id;
       const text = commentData.text;
       const fromUser = commentData.from;
 
+      console.log(`Comment ID: ${commentId}`);
+      console.log(`Media ID: ${mediaId}`);
+      console.log(`Media Owner ID: ${mediaOwnerId}`);
+      console.log(`Text: ${text}`);
+      console.log(`From User:`, JSON.stringify(fromUser));
+
       if (!commentId || !text) {
-        console.log("Missing required comment data");
+        console.log("ERRO: Dados obrigatórios ausentes - commentId:", commentId, "text:", text);
         return;
       }
 
       // Check if comment already exists
       const existingMessage = await storage.getMessageByInstagramId(commentId);
       if (existingMessage) {
-        console.log("Comment already exists:", commentId);
+        console.log("Comentário já existe no banco:", commentId);
         return;
       }
 
-      // Find the user who owns this Instagram account by matching instagramAccountId
+      // Find the user who owns this Instagram account - MUST match exactly by mediaOwnerId
       const allUsers = await authStorage.getAllUsers?.() || [];
+      console.log(`Total de usuários no sistema: ${allUsers.length}`);
+      
+      // Log all users with Instagram connected for debugging
+      const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccountId);
+      console.log("Usuários com Instagram conectado:", usersWithInstagram.map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        instagramAccountId: u.instagramAccountId,
+        instagramUsername: u.instagramUsername
+      })));
+      
+      // SECURITY: Only match by exact mediaOwnerId to ensure correct user attribution
+      // No fallback to prevent data leakage between users
+      if (!mediaOwnerId) {
+        console.log("ERRO: mediaOwnerId não disponível no webhook. Não é possível determinar o dono do post.");
+        console.log("Este comentário será ignorado. Configure o webhook corretamente ou use sync manual.");
+        return;
+      }
+      
       const instagramUser = allUsers.find((u: any) => 
-        u.instagramAccountId && (u.instagramAccountId === commentData.media?.owner?.id || u.instagramAccountId)
+        u.instagramAccountId && u.instagramAccountId === mediaOwnerId
       );
 
       if (!instagramUser) {
-        console.log("No user with connected Instagram found for comment");
+        console.log(`ERRO: Nenhum usuário encontrado com instagramAccountId=${mediaOwnerId}`);
+        console.log("Usuários disponíveis:", usersWithInstagram.map((u: any) => u.instagramAccountId));
+        console.log("Este comentário será ignorado para evitar atribuição incorreta.");
         return;
       }
+      
+      console.log(`Usuário encontrado (match exato): ${instagramUser.email} (${instagramUser.instagramUsername})`);
 
       const username = fromUser?.username || "instagram_user";
       const displayName = fromUser?.name || fromUser?.username || "Usuário do Instagram";
 
       // Ignore comments from the account owner (these are our own replies)
       const fromUserId = fromUser?.id;
+      console.log(`Verificando se é comentário próprio: fromUserId=${fromUserId}, accountId=${instagramUser.instagramAccountId}`);
+      
       if (fromUserId && fromUserId === instagramUser.instagramAccountId) {
-        console.log("Ignoring comment from account owner (our own reply):", commentId);
+        console.log("Ignorando comentário do próprio dono da conta:", commentId);
         return;
       }
       
       // Also check by username match
       if (username && instagramUser.instagramUsername && 
           username.toLowerCase() === instagramUser.instagramUsername.toLowerCase()) {
-        console.log("Ignoring comment from account owner (username match):", commentId);
+        console.log("Ignorando comentário do próprio dono (match de username):", commentId);
         return;
       }
 

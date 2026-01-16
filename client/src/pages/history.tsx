@@ -191,7 +191,7 @@ export default function History() {
                         ) : (
                           <AtSign className="h-3 w-3 mr-1" />
                         )}
-                        {message.type === "dm" ? "DM" : "Comentario"}
+                        {message.type === "dm" ? "DM" : "Comentário"}
                       </Badge>
                       {getStatusBadge(message.status)}
                       {message.aiResponse && (
