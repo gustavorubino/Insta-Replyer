@@ -291,9 +291,15 @@ export class DatabaseStorage implements IStorage {
           : and(eq(instagramMessages.status, "auto_sent"), sql`${instagramMessages.processedAt} >= ${today}`)
       );
 
-    const [avgConfidenceResult] = await db
+    // Filter avgConfidence by user as well (join with messages)
+    const avgConfidenceQuery = db
       .select({ avg: sql<number>`coalesce(avg(${aiResponses.confidenceScore}), 0)` })
-      .from(aiResponses);
+      .from(aiResponses)
+      .innerJoin(instagramMessages, eq(aiResponses.messageId, instagramMessages.id));
+    
+    const [avgConfidenceResult] = userCondition
+      ? await avgConfidenceQuery.where(userCondition)
+      : await avgConfidenceQuery;
 
     return {
       totalMessages: Number(totalResult?.count) || 0,

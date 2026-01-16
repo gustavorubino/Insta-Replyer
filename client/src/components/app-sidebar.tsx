@@ -165,8 +165,11 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
             <User className="h-5 w-5 text-muted-foreground" />
           )}
           <div className="flex flex-col flex-1 min-w-0">
-            <span className="text-xs font-medium truncate">
-              {user?.firstName || user?.email || "Usuário"}
+            <span className="text-xs font-medium truncate" data-testid="text-user-name">
+              {user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : "Usuário"}
+            </span>
+            <span className="text-xs text-muted-foreground truncate" data-testid="text-user-email">
+              {user?.email || ""}
             </span>
             <span className="text-xs text-muted-foreground">
               {user?.isAdmin ? "Administrador" : "Usuário"}
