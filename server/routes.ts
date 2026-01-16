@@ -1483,30 +1483,38 @@ export async function registerRoutes(
   // pageId is the entry.id from the webhook, which is the Instagram account ID
   async function processWebhookComment(commentData: any, pageId: string) {
     try {
-      console.log("=== PROCESSANDO COMENTÁRIO ===");
-      console.log("Page ID (entry.id - conta Instagram):", pageId);
-      console.log("Dados recebidos:", JSON.stringify(commentData, null, 2));
+      console.log("╔══════════════════════════════════════════════════════════════╗");
+      console.log("║         WEBHOOK DE COMENTÁRIO RECEBIDO                       ║");
+      console.log("╚══════════════════════════════════════════════════════════════╝");
+      console.log("[COMMENT-WEBHOOK] Timestamp:", new Date().toISOString());
+      console.log("[COMMENT-WEBHOOK] Page ID (entry.id):", pageId);
+      console.log("[COMMENT-WEBHOOK] Dados completos:", JSON.stringify(commentData, null, 2));
 
       const commentId = commentData.id;
       const mediaId = commentData.media?.id;
       const text = commentData.text;
       const fromUser = commentData.from;
 
-      console.log(`Comment ID: ${commentId}`);
-      console.log(`Media ID: ${mediaId}`);
-      console.log(`Page ID (dono da conta): ${pageId}`);
-      console.log(`Text: ${text}`);
-      console.log(`From User:`, JSON.stringify(fromUser));
+      console.log("[COMMENT-WEBHOOK] Dados extraídos:");
+      console.log("  - Comment ID:", commentId);
+      console.log("  - Media ID:", mediaId);
+      console.log("  - Page ID (dono da conta):", pageId);
+      console.log("  - Text:", text);
+      console.log("  - From User:", JSON.stringify(fromUser));
 
       if (!commentId || !text) {
-        console.log("ERRO: Dados obrigatórios ausentes - commentId:", commentId, "text:", text);
+        console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Dados obrigatórios ausentes");
+        console.log("  - commentId presente:", !!commentId);
+        console.log("  - text presente:", !!text);
         return;
       }
 
       // Check if comment already exists
       const existingMessage = await storage.getMessageByInstagramId(commentId);
       if (existingMessage) {
-        console.log("Comentário já existe no banco:", commentId);
+        console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Comentário já existe no banco");
+        console.log("  - Comment ID:", commentId);
+        console.log("  - Mensagem existente ID:", existingMessage.id);
         return;
       }
 
@@ -1514,21 +1522,26 @@ export async function registerRoutes(
       // SECURITY: pageId (entry.id) is the Instagram account that received the webhook
       // This is the definitive way to identify the account owner
       if (!pageId) {
-        console.log("ERRO: pageId não disponível. Não é possível determinar o dono da conta.");
+        console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: pageId não disponível");
         return;
       }
       
       const allUsers = await authStorage.getAllUsers?.() || [];
-      console.log(`Total de usuários no sistema: ${allUsers.length}`);
+      console.log("[COMMENT-WEBHOOK] Buscando usuários no banco...");
+      console.log("  - Total de usuários no sistema:", allUsers.length);
       
       // Log all users with Instagram connected for debugging
       const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccountId);
-      console.log("Usuários com Instagram conectado:", usersWithInstagram.map((u: any) => ({
-        id: u.id,
-        email: u.email,
-        instagramAccountId: u.instagramAccountId,
-        instagramUsername: u.instagramUsername
-      })));
+      console.log("  - Usuários com Instagram conectado:", usersWithInstagram.length);
+      
+      console.log("[COMMENT-WEBHOOK] Lista de usuários com Instagram:");
+      usersWithInstagram.forEach((u: any, index: number) => {
+        const matches = u.instagramAccountId === pageId;
+        console.log(`  [${index + 1}] ID: ${u.id}, Email: ${u.email}`);
+        console.log(`      instagramAccountId: "${u.instagramAccountId}"`);
+        console.log(`      pageId recebido:    "${pageId}"`);
+        console.log(`      Match: ${matches ? "✅ SIM" : "❌ NÃO"}`);
+      });
       
       // Match by pageId (entry.id = Instagram account ID that received the webhook)
       const instagramUser = allUsers.find((u: any) => 
@@ -1536,32 +1549,45 @@ export async function registerRoutes(
       );
 
       if (!instagramUser) {
-        console.log(`ERRO: Nenhum usuário encontrado com instagramAccountId=${pageId}`);
-        console.log("Usuários disponíveis:", usersWithInstagram.map((u: any) => u.instagramAccountId));
-        console.log("Este comentário será ignorado para evitar atribuição incorreta.");
+        console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Nenhum usuário encontrado");
+        console.log("  - pageId procurado:", pageId);
+        console.log("  - instagramAccountIds disponíveis:", usersWithInstagram.map((u: any) => u.instagramAccountId));
+        console.log("  - AÇÃO: Verifique se o usuário conectou o Instagram corretamente");
         return;
       }
       
-      console.log(`Usuário encontrado (match por pageId): ${instagramUser.email} (${instagramUser.instagramUsername})`);
+      console.log("[COMMENT-WEBHOOK] ✅ Usuário encontrado!");
+      console.log("  - User ID:", instagramUser.id);
+      console.log("  - Email:", instagramUser.email);
+      console.log("  - Instagram Username:", instagramUser.instagramUsername);
+      console.log("  - isAdmin:", instagramUser.isAdmin);
 
       const username = fromUser?.username || "instagram_user";
       const displayName = fromUser?.name || fromUser?.username || "Usuário do Instagram";
 
       // Ignore comments from the account owner (these are our own replies)
       const fromUserId = fromUser?.id;
-      console.log(`Verificando se é comentário próprio: fromUserId=${fromUserId}, accountId=${instagramUser.instagramAccountId}`);
+      console.log("[COMMENT-WEBHOOK] Verificando se é comentário próprio...");
+      console.log("  - fromUserId (quem comentou):", fromUserId);
+      console.log("  - instagramAccountId (dono da conta):", instagramUser.instagramAccountId);
+      console.log("  - fromUsername:", username);
+      console.log("  - instagramUsername:", instagramUser.instagramUsername);
       
       if (fromUserId && fromUserId === instagramUser.instagramAccountId) {
-        console.log("Ignorando comentário do próprio dono da conta:", commentId);
+        console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Comentário do próprio dono (match por ID)");
+        console.log("  - Comment ID:", commentId);
         return;
       }
       
       // Also check by username match
       if (username && instagramUser.instagramUsername && 
           username.toLowerCase() === instagramUser.instagramUsername.toLowerCase()) {
-        console.log("Ignorando comentário do próprio dono (match de username):", commentId);
+        console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Comentário do próprio dono (match por username)");
+        console.log("  - Comment ID:", commentId);
         return;
       }
+      
+      console.log("[COMMENT-WEBHOOK] ✅ Comentário de terceiro, processando...");
 
       // Try to fetch profile picture using multiple strategies
       let senderAvatar: string | undefined;
@@ -1606,6 +1632,7 @@ export async function registerRoutes(
       console.log(`[Profile Fetch] Resultado final para @${username}: ${senderAvatar ? 'foto encontrada' : 'sem foto'}`);
 
       // Create the message
+      console.log("[COMMENT-WEBHOOK] Criando mensagem no banco...");
       const newMessage = await storage.createMessage({
         userId: instagramUser.id,
         instagramId: commentId,
@@ -1617,29 +1644,44 @@ export async function registerRoutes(
         content: text,
         postId: mediaId || null,
       });
+      console.log("[COMMENT-WEBHOOK] ✅ Mensagem criada com sucesso!");
+      console.log("  - Message ID:", newMessage.id);
+      console.log("  - User ID:", instagramUser.id);
+      console.log("  - Type:", "comment");
 
       // Generate AI response
+      console.log("[COMMENT-WEBHOOK] Gerando resposta IA...");
       const aiResult = await generateAIResponse(text, "comment", displayName);
       await storage.createAiResponse({
         messageId: newMessage.id,
         suggestedResponse: aiResult.suggestedResponse,
         confidenceScore: aiResult.confidenceScore,
       });
+      console.log("[COMMENT-WEBHOOK] ✅ Resposta IA gerada!");
+      console.log("  - Confiança:", aiResult.confidenceScore);
 
       // Check for auto-send using user-specific settings
       const userOperationMode = instagramUser.operationMode || "manual";
       const userThreshold = parseFloat(instagramUser.autoApproveThreshold || "0.9");
+      
+      console.log("[COMMENT-WEBHOOK] Verificando auto-envio...");
+      console.log("  - Modo de operação:", userOperationMode);
+      console.log("  - Threshold:", userThreshold);
+      console.log("  - Confiança IA:", aiResult.confidenceScore);
       
       const shouldAutoSend = 
         userOperationMode === "auto" || // 100% automatic mode
         (userOperationMode === "semi_auto" && 
          aiResult.confidenceScore >= userThreshold);
       
+      console.log("  - Deve auto-enviar:", shouldAutoSend);
+      
       if (shouldAutoSend && instagramUser.instagramAccessToken) {
         // Get the AI response to update it
         const aiResponse = await storage.getAiResponse(newMessage.id);
         if (aiResponse) {
           // Actually send the comment reply via Instagram API
+          console.log("[COMMENT-WEBHOOK] Enviando resposta automática...");
           const sendResult = await replyToInstagramComment(
             commentId,
             aiResult.suggestedResponse,
@@ -1653,15 +1695,19 @@ export async function registerRoutes(
               wasApproved: true,
               approvedAt: new Date(),
             });
-            console.log(`Auto-sent comment reply to ${username}`);
+            console.log(`[COMMENT-WEBHOOK] ✅ Resposta automática enviada para ${username}`);
           } else {
-            console.error(`Failed to auto-send comment reply: ${sendResult.error}`);
+            console.error(`[COMMENT-WEBHOOK] ❌ Falha ao enviar resposta automática: ${sendResult.error}`);
             // Keep as pending if send failed
           }
         }
       }
 
-      console.log("Webhook comment processed successfully:", commentId);
+      console.log("╔══════════════════════════════════════════════════════════════╗");
+      console.log("║    COMENTÁRIO PROCESSADO COM SUCESSO                         ║");
+      console.log("╚══════════════════════════════════════════════════════════════╝");
+      console.log("[COMMENT-WEBHOOK] Comment ID:", commentId);
+      console.log("[COMMENT-WEBHOOK] Atribuído ao usuário:", instagramUser.email);
     } catch (error) {
       console.error("Error processing webhook comment:", error);
     }
