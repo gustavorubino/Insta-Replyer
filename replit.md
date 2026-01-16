@@ -4,8 +4,15 @@
 Sistema automatizado de respostas para DMs e comentários do Instagram usando Inteligência Artificial, com fluxo de aprovação humana, autenticação dual e aprendizado contínuo.
 
 ## Current State
-- **Status**: MVP Completo com Autenticação Dual
+- **Status**: MVP Completo com Isolamento Multi-Usuário
 - **Last Updated**: Janeiro 2026
+
+### Multi-User Data Isolation
+- **Per-User Settings**: Each user has independent operationMode, autoApproveThreshold, aiTone, and aiContext stored in their user record
+- **Settings API**: GET/PATCH /api/settings reads/writes to user-specific fields, not global settings
+- **Webhook Processing**: Comment and DM webhooks use user-specific operation modes and confidence thresholds for auto-send decisions
+- **Statistics**: Dashboard avgConfidence and all stats are filtered by userId (admins see all, users see own)
+- **User Indicator**: Sidebar displays user name, email, and role (Administrador/Usuário)
 
 ## Features
 
