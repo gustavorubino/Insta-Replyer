@@ -1,0 +1,63 @@
+PROBLEMA CRÍTICO DE MULTI-USUÁRIO NO SAAS:
+
+O sistema de autenticação está funcionando (usuários conseguem fazer login com Google OAuth), porém NÃO está isolando os dados por usuário. 
+
+COMPORTAMENTO ATUAL (ERRADO):
+- Usuário A faz login → Vê dados globais/compartilhados
+- Usuário B faz login → Vê os MESMOS dados do Usuário A
+- Não existe isolamento de dados por usuário autenticado
+
+COMPORTAMENTO ESPERADO (CORRETO):
+- Cada usuário deve ter:
+  ✓ Sua própria conexão com Instagram (ID único)
+  ✓ Sua própria fila de aprovação
+  ✓ Seu próprio histórico
+  ✓ Suas próprias configurações de IA
+  ✓ Dashboard com APENAS seus dados
+
+TAREFAS PARA CORRIGIR:
+
+1. BANCO DE DADOS:
+   - Adicionar campo "user_id" em TODAS as tabelas
+   - Criar relacionamento: user_id → email do usuário autenticado
+   - Migrar dados existentes (se houver)
+
+2. BACKEND (API/Routes):
+   - Modificar TODAS as queries para filtrar por user_id
+   - Exemplo: 
+     ANTES: SELECT * FROM messages
+     DEPOIS: SELECT * FROM messages WHERE user_id = @current_user_id
+   
+   - Garantir que ao salvar dados, sempre incluir user_id:
+     INSERT INTO settings (user_id, instagram_id, ...) VALUES (@user_id, ...)
+
+3. AUTENTICAÇÃO:
+   - Após login bem-sucedido, salvar user_id na sessão
+   - Criar middleware que injeta user_id em todas requisições
+   - Exemplo (Python/Flask):
+     @app.before_request
+     def inject_user_id():
+         g.user_id = session.get('user_id')
+
+4. FRONTEND:
+   - Garantir que dashboard mostre apenas dados do usuário logado
+   - Adicionar indicador visual: "Logado como: {email}"
+
+5. TESTES:
+   - Criar 2 contas teste
+   - Verificar isolamento de dados
+   - Confirmar que Usuário A não vê dados do Usuário B
+
+ARQUIVOS QUE PROVAVELMENTE PRECISAM SER MODIFICADOS:
+- database.py / models.py (adicionar user_id)
+- auth.py / routes.py (middleware de autenticação)
+- api.py / main.py (filtrar queries por user_id)
+- schema.sql / migrations (adicionar colunas user_id)
+
+MOSTRE-ME:
+1. Estrutura atual do banco de dados
+2. Como a autenticação está implementada
+3. Código das queries principais
+4. Depois implemente as correções
+
+PRIORIDADE MÁXIMA: Isolamento de dados por usuário.

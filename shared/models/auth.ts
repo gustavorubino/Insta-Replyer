@@ -23,12 +23,18 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   isAdmin: boolean("is_admin").default(false).notNull(),
+  // Instagram connection
   facebookAppId: varchar("facebook_app_id"),
   facebookAppSecret: varchar("facebook_app_secret"),
   instagramAccountId: varchar("instagram_account_id"),
   instagramUsername: varchar("instagram_username"),
   instagramAccessToken: varchar("instagram_access_token"),
   instagramRecipientId: varchar("instagram_recipient_id"),
+  // Per-user settings (previously global)
+  operationMode: varchar("operation_mode").default("manual"),
+  autoApproveThreshold: varchar("auto_approve_threshold").default("0.9"),
+  aiTone: varchar("ai_tone"),
+  aiContext: varchar("ai_context"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
