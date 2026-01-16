@@ -1404,6 +1404,14 @@ export async function registerRoutes(
   // Note: Signature verification is done using the parsed body stringified,
   // which works when the JSON is compact (no extra whitespace)
   app.post("/api/webhooks/instagram", async (req, res) => {
+    // LOG IMEDIATO - captura TODO POST que chegar
+    console.log("╔════════════════════════════════════════════════════════════════════╗");
+    console.log("║  🚨 POST /api/webhooks/instagram RECEBIDO 🚨                       ║");
+    console.log("╚════════════════════════════════════════════════════════════════════╝");
+    console.log("[WEBHOOK-RAW] Timestamp:", new Date().toISOString());
+    console.log("[WEBHOOK-RAW] Headers:", JSON.stringify(req.headers, null, 2));
+    console.log("[WEBHOOK-RAW] Body:", JSON.stringify(req.body, null, 2));
+    
     try {
       // Verify webhook signature from Meta
       const signature = req.headers["x-hub-signature-256"] as string | undefined;
