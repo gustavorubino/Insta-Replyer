@@ -8,6 +8,7 @@ import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "./r
 import crypto from "crypto";
 import { downloadAndStoreMedia } from "./utils/media-storage";
 import { decrypt, isEncrypted } from "./encryption";
+import { refreshInstagramToken } from "./utils/token-refresh";
 
 // Helper function to get media type description for AI and learning (bracketed format)
 function getMediaTypeDescription(mediaType: string | null | undefined): string {
@@ -455,6 +456,70 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error refreshing Instagram data:", error);
       res.status(500).json({ error: "Failed to refresh Instagram data" });
+    }
+  });
+
+  // Force refresh Instagram TOKEN for a user (admin only) - for testing token renewal
+  app.post("/api/admin/refresh-token/:userId", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const targetUserId = req.params.userId;
+      const user = await authStorage.getUser(targetUserId);
+      
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      if (!user.instagramAccessToken) {
+        return res.status(400).json({ error: "Usuário não tem Instagram conectado" });
+      }
+
+      console.log(`[Admin] Forçando renovação de token para ${user.email}...`);
+
+      const result = await refreshInstagramToken(user.instagramAccessToken);
+
+      if (result.success && result.newToken && result.expiresAt) {
+        await authStorage.updateUser(targetUserId, {
+          instagramAccessToken: result.newToken,
+          tokenExpiresAt: result.expiresAt,
+          tokenRefreshedAt: new Date(),
+          refreshAttempts: "0",
+          lastRefreshError: null,
+          showTokenWarning: false,
+        });
+
+        console.log(`[Admin] ✅ Token renovado para ${user.email}, expira em ${result.expiresAt.toISOString()}`);
+
+        res.json({ 
+          success: true, 
+          message: "Token renovado com sucesso",
+          expiresAt: result.expiresAt.toISOString(),
+          daysUntilExpiry: Math.round((result.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+        });
+      } else {
+        // Update failure count
+        const currentAttempts = parseInt(user.refreshAttempts || "0");
+        await authStorage.updateUser(targetUserId, {
+          refreshAttempts: String(currentAttempts + 1),
+          lastRefreshError: result.error || "Erro desconhecido",
+          showTokenWarning: true,
+        });
+
+        console.log(`[Admin] ❌ Falha ao renovar token de ${user.email}: ${result.error}`);
+
+        res.status(400).json({ 
+          success: false, 
+          error: result.error || "Falha ao renovar token",
+          message: "O usuário precisa reconectar o Instagram manualmente"
+        });
+      }
+    } catch (error) {
+      console.error("Error forcing token refresh:", error);
+      res.status(500).json({ error: "Erro ao forçar renovação de token" });
     }
   });
 
