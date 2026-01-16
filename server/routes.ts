@@ -240,6 +240,107 @@ export async function registerRoutes(
     }
   }, 60 * 60 * 1000); // Every hour
 
+  // Terms of Service page
+  app.get("/terms", (req, res) => {
+    res.send(`
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Termos de Serviço - Insta Replyer</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; line-height: 1.7; color: #333; background: #fafafa; }
+    .container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    h1 { color: #1a1a1a; font-size: 2rem; margin-bottom: 8px; }
+    h2 { color: #333; font-size: 1.25rem; margin-top: 32px; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    p, li { color: #555; }
+    ul { padding-left: 24px; }
+    li { margin-bottom: 8px; }
+    .update-date { color: #888; font-size: 0.9rem; margin-bottom: 24px; }
+    .back-link { display: inline-block; margin-top: 24px; color: #0066cc; text-decoration: none; }
+    .back-link:hover { text-decoration: underline; }
+    a { color: #0066cc; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Termos de Serviço</h1>
+    <p class="update-date">Última atualização: 16 de janeiro de 2026</p>
+    
+    <p>Bem-vindo ao <strong>Insta Replyer</strong>. Ao utilizar nossos serviços, você concorda com os termos descritos abaixo. Por favor, leia atentamente antes de continuar.</p>
+    
+    <h2>1. Aceitação dos Termos</h2>
+    <p>Ao acessar ou usar o Insta Replyer, você confirma que leu, entendeu e concorda em estar vinculado a estes Termos de Serviço. Se você não concordar com qualquer parte destes termos, não poderá acessar o serviço.</p>
+    
+    <h2>2. Descrição do Serviço</h2>
+    <p>O Insta Replyer é uma plataforma de automação que utiliza Inteligência Artificial para:</p>
+    <ul>
+      <li>Processar e responder comentários do Instagram</li>
+      <li>Gerenciar mensagens diretas (DMs) do Instagram</li>
+      <li>Sugerir respostas automatizadas com revisão humana opcional</li>
+      <li>Aprender com correções para melhorar a qualidade das respostas</li>
+    </ul>
+    
+    <h2>3. Requisitos de Conta</h2>
+    <p>Para utilizar o Insta Replyer, você deve:</p>
+    <ul>
+      <li>Ter uma conta Instagram Business ou Creator válida</li>
+      <li>Autorizar a conexão via OAuth com permissões adequadas</li>
+      <li>Manter suas credenciais de acesso seguras</li>
+      <li>Ter idade mínima de 18 anos ou maioridade legal em sua jurisdição</li>
+    </ul>
+    
+    <h2>4. Uso Aceitável</h2>
+    <p>Você concorda em não utilizar o serviço para:</p>
+    <ul>
+      <li>Enviar spam ou mensagens não solicitadas</li>
+      <li>Violar os Termos de Uso do Instagram ou Meta</li>
+      <li>Publicar conteúdo ilegal, difamatório ou ofensivo</li>
+      <li>Tentar acessar contas de outros usuários</li>
+      <li>Realizar engenharia reversa ou explorar vulnerabilidades</li>
+    </ul>
+    
+    <h2>5. Propriedade Intelectual</h2>
+    <p>O Insta Replyer e todo seu conteúdo, recursos e funcionalidades são de propriedade exclusiva da empresa e protegidos por leis de direitos autorais. Você mantém todos os direitos sobre o conteúdo que você cria ou publica através do serviço.</p>
+    
+    <h2>6. Limitação de Responsabilidade</h2>
+    <p>O Insta Replyer é fornecido "como está", sem garantias de qualquer tipo. Não nos responsabilizamos por:</p>
+    <ul>
+      <li>Interrupções temporárias do serviço</li>
+      <li>Ações tomadas pelo Instagram/Meta em sua conta</li>
+      <li>Perdas resultantes do uso de respostas automáticas</li>
+      <li>Falhas de terceiros ou integrações externas</li>
+    </ul>
+    
+    <h2>7. Tokens e Conexões</h2>
+    <p>Os tokens de acesso ao Instagram expiram periodicamente. É sua responsabilidade:</p>
+    <ul>
+      <li>Manter sua conexão ativa reconectando quando necessário</li>
+      <li>Verificar alertas de expiração de token</li>
+      <li>Garantir que as permissões necessárias estejam ativas</li>
+    </ul>
+    
+    <h2>8. Rescisão</h2>
+    <p>Podemos suspender ou encerrar seu acesso ao serviço a qualquer momento, com ou sem motivo, com ou sem aviso prévio. Você pode encerrar sua conta a qualquer momento desconectando seu Instagram e excluindo sua conta.</p>
+    
+    <h2>9. Alterações nos Termos</h2>
+    <p>Reservamo-nos o direito de modificar estes termos a qualquer momento. Alterações significativas serão comunicadas através do aplicativo ou por e-mail. O uso continuado do serviço após alterações constitui aceitação dos novos termos.</p>
+    
+    <h2>10. Legislação Aplicável</h2>
+    <p>Estes termos serão regidos e interpretados de acordo com as leis do Brasil, sem considerar conflitos de disposições legais.</p>
+    
+    <h2>11. Contato</h2>
+    <p>Para dúvidas sobre estes Termos de Serviço, entre em contato conosco através do suporte disponível na plataforma.</p>
+    
+    <a href="/" class="back-link">← Voltar para o aplicativo</a>
+  </div>
+</body>
+</html>
+    `);
+  });
+
   // Privacy Policy page (required by Meta/Facebook)
   app.get("/privacy", (req, res) => {
     res.send(`
@@ -248,16 +349,112 @@ export async function registerRoutes(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Política de Privacidade - Social Media Response Pro</title>
+  <title>Política de Privacidade - Insta Replyer</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; }
-    h1 { color: #333; }
-    p { color: #555; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; line-height: 1.7; color: #333; background: #fafafa; }
+    .container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    h1 { color: #1a1a1a; font-size: 2rem; margin-bottom: 8px; }
+    h2 { color: #333; font-size: 1.25rem; margin-top: 32px; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    p, li { color: #555; }
+    ul { padding-left: 24px; }
+    li { margin-bottom: 8px; }
+    .update-date { color: #888; font-size: 0.9rem; margin-bottom: 24px; }
+    .back-link { display: inline-block; margin-top: 24px; color: #0066cc; text-decoration: none; }
+    .back-link:hover { text-decoration: underline; }
+    a { color: #0066cc; }
   </style>
 </head>
 <body>
-  <h1>Política de Privacidade</h1>
-  <p>Esta é a política de privacidade do Social Media Response Pro. Coletamos apenas os dados necessários para processar comentários e mensagens do Instagram. Não compartilhamos seus dados com terceiros.</p>
+  <div class="container">
+    <h1>Política de Privacidade</h1>
+    <p class="update-date">Última atualização: 16 de janeiro de 2026</p>
+    
+    <p>A <strong>Insta Replyer</strong> está comprometida em proteger sua privacidade. Esta política descreve como coletamos, usamos e protegemos suas informações pessoais.</p>
+    
+    <h2>1. Informações que Coletamos</h2>
+    <p>Coletamos os seguintes tipos de informações:</p>
+    <ul>
+      <li><strong>Dados de conta:</strong> Nome, e-mail, foto de perfil (quando você faz login)</li>
+      <li><strong>Dados do Instagram:</strong> ID da conta, nome de usuário, foto de perfil, mensagens e comentários recebidos</li>
+      <li><strong>Tokens de acesso:</strong> Credenciais criptografadas para acessar a API do Instagram em seu nome</li>
+      <li><strong>Dados de uso:</strong> Interações com o aplicativo, preferências de configuração</li>
+    </ul>
+    
+    <h2>2. Como Usamos Suas Informações</h2>
+    <p>Utilizamos suas informações para:</p>
+    <ul>
+      <li>Processar e exibir mensagens e comentários do Instagram</li>
+      <li>Gerar sugestões de resposta usando Inteligência Artificial</li>
+      <li>Enviar respostas aprovadas através da API do Instagram</li>
+      <li>Melhorar a qualidade das respostas automáticas com base em suas correções</li>
+      <li>Manter e melhorar nossos serviços</li>
+    </ul>
+    
+    <h2>3. Inteligência Artificial</h2>
+    <p>Utilizamos serviços de IA (OpenAI) para gerar sugestões de resposta. O conteúdo das mensagens é processado para gerar respostas, mas:</p>
+    <ul>
+      <li>Não treinamos modelos de IA com suas mensagens</li>
+      <li>As mensagens são processadas apenas para gerar respostas imediatas</li>
+      <li>Você pode revisar e editar todas as respostas antes do envio</li>
+    </ul>
+    
+    <h2>4. Compartilhamento de Dados</h2>
+    <p>Não vendemos, alugamos ou compartilhamos suas informações pessoais com terceiros, exceto:</p>
+    <ul>
+      <li><strong>Provedores de serviço:</strong> Serviços essenciais como hospedagem e processamento de IA</li>
+      <li><strong>Requisitos legais:</strong> Quando exigido por lei ou ordem judicial</li>
+      <li><strong>Meta/Instagram:</strong> Através das APIs oficiais para enviar respostas</li>
+    </ul>
+    
+    <h2>5. Segurança dos Dados</h2>
+    <p>Implementamos medidas de segurança robustas:</p>
+    <ul>
+      <li>Tokens de acesso criptografados com AES-256-GCM</li>
+      <li>Conexões HTTPS em todas as comunicações</li>
+      <li>Verificação de assinatura em webhooks do Instagram</li>
+      <li>Senhas armazenadas com hash bcrypt</li>
+    </ul>
+    
+    <h2>6. Retenção de Dados</h2>
+    <p>Mantemos seus dados enquanto sua conta estiver ativa. Você pode:</p>
+    <ul>
+      <li>Desconectar seu Instagram a qualquer momento</li>
+      <li>Solicitar a exclusão de sua conta e dados associados</li>
+      <li>Exportar seus dados mediante solicitação</li>
+    </ul>
+    
+    <h2>7. Cookies e Tecnologias Similares</h2>
+    <p>Utilizamos cookies de sessão para:</p>
+    <ul>
+      <li>Manter você autenticado</li>
+      <li>Lembrar suas preferências (como tema claro/escuro)</li>
+      <li>Garantir a segurança da sua sessão</li>
+    </ul>
+    
+    <h2>8. Seus Direitos</h2>
+    <p>De acordo com a LGPD (Lei Geral de Proteção de Dados), você tem direito a:</p>
+    <ul>
+      <li>Acessar seus dados pessoais</li>
+      <li>Corrigir dados incompletos ou desatualizados</li>
+      <li>Solicitar a exclusão de seus dados</li>
+      <li>Revogar consentimento a qualquer momento</li>
+      <li>Obter informações sobre compartilhamento de dados</li>
+    </ul>
+    
+    <h2>9. Menores de Idade</h2>
+    <p>O Insta Replyer não é destinado a menores de 18 anos. Não coletamos intencionalmente informações de menores. Se tomarmos conhecimento de que coletamos dados de um menor, excluiremos essas informações.</p>
+    
+    <h2>10. Alterações nesta Política</h2>
+    <p>Podemos atualizar esta política periodicamente. Notificaremos sobre alterações significativas através do aplicativo ou por e-mail. Recomendamos revisar esta página regularmente.</p>
+    
+    <h2>11. Contato</h2>
+    <p>Para exercer seus direitos ou esclarecer dúvidas sobre privacidade, entre em contato conosco através do suporte disponível na plataforma.</p>
+    
+    <p style="margin-top: 32px;"><a href="/terms">Ver Termos de Serviço</a></p>
+    
+    <a href="/" class="back-link">← Voltar para o aplicativo</a>
+  </div>
 </body>
 </html>
     `);
