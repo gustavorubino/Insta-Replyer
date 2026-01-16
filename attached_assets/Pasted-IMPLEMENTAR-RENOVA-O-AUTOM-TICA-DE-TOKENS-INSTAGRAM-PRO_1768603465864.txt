@@ -1,0 +1,136 @@
+IMPLEMENTAR RENOVAÇÃO AUTOMÁTICA DE TOKENS INSTAGRAM
+
+**PROBLEMA:** Tokens Instagram expiram em 60 dias e usuários não podem ficar reconectando.
+
+**SOLUÇÃO:** Sistema de renovação automática transparente.
+
+## IMPLEMENTAÇÃO:
+
+### 1. Criar Job de Renovação Automática
+
+**Arquivo:** `server/jobs/refresh-instagram-tokens.ts`
+
+```typescript
+import { db } from '../db';
+import { users } from '@shared/schema';
+import { eq, and, lt, isNotNull } from 'drizzle-orm';
+
+export async function refreshInstagramTokens() {
+  console.log('🔄 Iniciando renovação automática de tokens Instagram...');
+  
+  // Buscar usuários com token que expira em menos de 7 dias
+  const expirationDate = new Date();
+  expirationDate.setDate(expirationDate.getDate() + 7);
+  
+  const usersToRefresh = await db
+    .select()
+    .from(users)
+    .where(
+      and(
+        isNotNull(users.instagramAccessToken),
+        lt(users.instagramTokenExpiry, expirationDate)
+      )
+    );
+  
+  console.log(`📊 Encontrados ${usersToRefresh.length} tokens para renovar`);
+  
+  for (const user of usersToRefresh) {
+    try {
+      // Descriptografar token
+      const currentToken = decrypt(user.instagramAccessToken);
+      
+      // Renovar via Instagram Graph API
+      const response = await fetch(
+        `https://graph.instagram.com/refresh_access_token?` +
+        `grant_type=ig_refresh_token&access_token=${currentToken}`
+      );
+      
+      const data = await response.json();
+      
+      if (data.access_token) {
+        // Salvar novo token (criptografado)
+        const newExpiry = new Date();
+        newExpiry.setDate(newExpiry.getDate() + 60); // 60 dias
+        
+        await db
+          .update(users)
+          .set({
+            instagramAccessToken: encrypt(data.access_token),
+            instagramTokenExpiry: newExpiry,
+            showTokenWarning: false
+          })
+          .where(eq(users.id, user.id));
+        
+        console.log(`✅ Token renovado: ${user.email} - Válido até ${newExpiry.toISOString()}`);
+      } else {
+        console.error(`❌ Erro ao renovar token de ${user.email}:`, data);
+        
+        // Marcar para exibir aviso
+        await db
+          .update(users)
+          .set({ showTokenWarning: true })
+          .where(eq(users.id, user.id));
+      }
+    } catch (error) {
+      console.error(`❌ Erro ao processar ${user.email}:`, error);
+    }
+  }
+  
+  console.log('✅ Renovação automática concluída!');
+}
+```
+
+### 2. Adicionar campo de data de expiração no schema
+
+**Arquivo:** `shared/schema.ts` (adicionar ao users table)
+
+```typescript
+instagramTokenExpiry: timestamp("instagram_token_expiry"),
+```
+
+### 3. Criar Cron Job para executar diariamente
+
+**Arquivo:** `server/index.ts` (adicionar)
+
+```typescript
+import { refreshInstagramTokens } from './jobs/refresh-instagram-tokens';
+
+// Executar a cada 24 horas (às 3h da manhã)
+setInterval(async () => {
+  const now = new Date();
+  if (now.getHours() === 3 && now.getMinutes() === 0) {
+    await refreshInstagramTokens();
+  }
+}, 60000); // Verificar a cada minuto
+
+// Executar ao iniciar o servidor (para renovar tokens já expirados)
+refreshInstagramTokens().catch(console.error);
+```
+
+### 4. Salvar data de expiração ao conectar Instagram
+
+**Arquivo:** `server/replit_integrations/auth` (no callback OAuth)
+
+```typescript
+// Ao salvar o token, calcular expiração
+const tokenExpiry = new Date();
+tokenExpiry.setDate(tokenExpiry.getDate() + 60); // 60 dias
+
+await updateUser(userId, {
+  instagramAccessToken: encrypt(accessToken),
+  instagramTokenExpiry: tokenExpiry,
+  instagramAccountId: igData.id,
+  instagramUsername: igData.username,
+  showTokenWarning: false
+});
+```
+
+## VANTAGENS:
+
+✅ **Transparente:** Usuário nunca precisa reconectar
+✅ **Automático:** Renova 7 dias antes de expirar
+✅ **Seguro:** Token sempre criptografado
+✅ **Resiliente:** Se falhar, avisa o usuário
+✅ **SaaS Ready:** Funciona igual Facebook, Google, etc.
+
+Execute essas implementações agora.
