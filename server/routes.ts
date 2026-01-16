@@ -356,13 +356,15 @@ export async function registerRoutes(
       });
 
       // Check if auto mode (100% auto) or semi-auto mode with high confidence
-      const operationMode = await storage.getSetting("operationMode");
-      const confidenceThreshold = await storage.getSetting("confidenceThreshold");
+      // Use user-specific settings from their record
+      const messageUser = await authStorage.getUser(userId);
+      const userOperationMode = messageUser?.operationMode || "manual";
+      const userThreshold = parseFloat(messageUser?.autoApproveThreshold || "0.9");
       
       const shouldAutoSend = 
-        operationMode?.value === "auto" || // 100% automatic mode
-        (operationMode?.value === "semi_auto" && 
-         aiResult.confidenceScore >= (parseFloat(confidenceThreshold?.value || "80") / 100));
+        userOperationMode === "auto" || // 100% automatic mode
+        (userOperationMode === "semi_auto" && 
+         aiResult.confidenceScore >= userThreshold);
       
       if (shouldAutoSend) {
         // Auto-approve and send
@@ -1184,14 +1186,14 @@ export async function registerRoutes(
         confidenceScore: aiResult.confidenceScore,
       });
 
-      // Check for auto-send (auto mode = 100%, semi_auto = based on confidence)
-      const operationMode = await storage.getSetting("operationMode");
-      const confidenceThreshold = await storage.getSetting("confidenceThreshold");
+      // Check for auto-send using user-specific settings
+      const userOperationMode = instagramUser.operationMode || "manual";
+      const userThreshold = parseFloat(instagramUser.autoApproveThreshold || "0.9");
       
       const shouldAutoSend = 
-        operationMode?.value === "auto" || // 100% automatic mode
-        (operationMode?.value === "semi_auto" && 
-         aiResult.confidenceScore >= (parseFloat(confidenceThreshold?.value || "80") / 100));
+        userOperationMode === "auto" || // 100% automatic mode
+        (userOperationMode === "semi_auto" && 
+         aiResult.confidenceScore >= userThreshold);
       
       if (shouldAutoSend && instagramUser.instagramAccessToken) {
         // Get the AI response to update it
@@ -1533,16 +1535,14 @@ export async function registerRoutes(
         confidenceScore: aiResult.confidenceScore,
       });
 
-      // Check for auto-send (auto mode = 100%, semi_auto = based on confidence)
-      const operationMode = await storage.getSetting("operationMode");
-      const confidenceThreshold = await storage.getSetting("confidenceThreshold");
-      
-      const thresholdValue = parseFloat(confidenceThreshold?.value || "80") / 100;
+      // Check for auto-send using user-specific settings
+      const userOperationMode = instagramUser.operationMode || "manual";
+      const userThreshold = parseFloat(instagramUser.autoApproveThreshold || "0.9");
       
       const shouldAutoSend = 
-        operationMode?.value === "auto" || // 100% automatic mode
-        (operationMode?.value === "semi_auto" && 
-         aiResult.confidenceScore >= thresholdValue);
+        userOperationMode === "auto" || // 100% automatic mode
+        (userOperationMode === "semi_auto" && 
+         aiResult.confidenceScore >= userThreshold);
       
       if (shouldAutoSend && senderId) {
         // Get the AI response to update it
