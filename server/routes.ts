@@ -1325,10 +1325,10 @@ export async function registerRoutes(
           
           if (change.field === "comments") {
             console.log(">>> Processing COMMENT webhook");
-            await processWebhookComment(change.value);
+            await processWebhookComment(change.value, entryItem.id);
           } else if (change.field === "mentions") {
             console.log(">>> Processing MENTION webhook");
-            await processWebhookComment(change.value);
+            await processWebhookComment(change.value, entryItem.id);
           } else {
             console.log(`>>> Unknown field type: ${change.field}`);
           }
@@ -1356,20 +1356,21 @@ export async function registerRoutes(
   });
 
   // Helper function to process incoming comments from webhooks
-  async function processWebhookComment(commentData: any) {
+  // pageId is the entry.id from the webhook, which is the Instagram account ID
+  async function processWebhookComment(commentData: any, pageId: string) {
     try {
       console.log("=== PROCESSANDO COMENTÁRIO ===");
+      console.log("Page ID (entry.id - conta Instagram):", pageId);
       console.log("Dados recebidos:", JSON.stringify(commentData, null, 2));
 
       const commentId = commentData.id;
       const mediaId = commentData.media?.id;
-      const mediaOwnerId = commentData.media?.owner?.id;
       const text = commentData.text;
       const fromUser = commentData.from;
 
       console.log(`Comment ID: ${commentId}`);
       console.log(`Media ID: ${mediaId}`);
-      console.log(`Media Owner ID: ${mediaOwnerId}`);
+      console.log(`Page ID (dono da conta): ${pageId}`);
       console.log(`Text: ${text}`);
       console.log(`From User:`, JSON.stringify(fromUser));
 
@@ -1385,7 +1386,14 @@ export async function registerRoutes(
         return;
       }
 
-      // Find the user who owns this Instagram account - MUST match exactly by mediaOwnerId
+      // Find the user who owns this Instagram account
+      // SECURITY: pageId (entry.id) is the Instagram account that received the webhook
+      // This is the definitive way to identify the account owner
+      if (!pageId) {
+        console.log("ERRO: pageId não disponível. Não é possível determinar o dono da conta.");
+        return;
+      }
+      
       const allUsers = await authStorage.getAllUsers?.() || [];
       console.log(`Total de usuários no sistema: ${allUsers.length}`);
       
@@ -1398,26 +1406,19 @@ export async function registerRoutes(
         instagramUsername: u.instagramUsername
       })));
       
-      // SECURITY: Only match by exact mediaOwnerId to ensure correct user attribution
-      // No fallback to prevent data leakage between users
-      if (!mediaOwnerId) {
-        console.log("ERRO: mediaOwnerId não disponível no webhook. Não é possível determinar o dono do post.");
-        console.log("Este comentário será ignorado. Configure o webhook corretamente ou use sync manual.");
-        return;
-      }
-      
+      // Match by pageId (entry.id = Instagram account ID that received the webhook)
       const instagramUser = allUsers.find((u: any) => 
-        u.instagramAccountId && u.instagramAccountId === mediaOwnerId
+        u.instagramAccountId && u.instagramAccountId === pageId
       );
 
       if (!instagramUser) {
-        console.log(`ERRO: Nenhum usuário encontrado com instagramAccountId=${mediaOwnerId}`);
+        console.log(`ERRO: Nenhum usuário encontrado com instagramAccountId=${pageId}`);
         console.log("Usuários disponíveis:", usersWithInstagram.map((u: any) => u.instagramAccountId));
         console.log("Este comentário será ignorado para evitar atribuição incorreta.");
         return;
       }
       
-      console.log(`Usuário encontrado (match exato): ${instagramUser.email} (${instagramUser.instagramUsername})`);
+      console.log(`Usuário encontrado (match por pageId): ${instagramUser.email} (${instagramUser.instagramUsername})`);
 
       const username = fromUser?.username || "instagram_user";
       const displayName = fromUser?.name || fromUser?.username || "Usuário do Instagram";
