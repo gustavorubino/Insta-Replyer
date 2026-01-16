@@ -1,0 +1,237 @@
+BUG CRÍTICO PERSISTENTE: Mensagens enviadas pelo admin aparecem na própria fila dele.
+
+TESTE REALIZADO:
+
+TESTE 1 (Funciona):
+  Rodolfo envia → Admin
+  ✅ Aparece APENAS na fila do Admin
+
+TESTE 2 (Não funciona):
+  Admin envia → Rodolfo
+  ❌ Aparece na fila do Admin (ERRADO!)
+  ✅ Aparece na fila do Rodolfo (correto)
+
+CAUSA:
+O webhook está salvando mensagens OUTGOING (enviadas) quando o remetente é admin.
+
+LÓGICA CORRETA:
+
+REGRA FUNDAMENTAL:
+  Webhook deve salvar mensagem APENAS para quem RECEBEU, 
+  NUNCA para quem ENVIOU!
+
+Exemplo visual:
+  
+  Gustavo ENVIA "Olá" → Rodolfo
+        ↓
+  Webhook detecta:
+    sender_id = Gustavo
+    recipient_id = Rodolfo
+        ↓
+  Sistema verifica: "Quem RECEBEU?"
+    Resposta: Rodolfo
+        ↓
+  Salva APENAS para Rodolfo ✅
+  NÃO salva para Gustavo ❌
+
+CORREÇÃO DO WEBHOOK:
+
+Código atual (ERRADO):
+@app.route('/webhook/instagram', methods=['POST'])
+def instagram_webhook():
+    data = request.json
+    
+    for entry in data['entry']:
+        for messaging in entry['messaging']:
+            sender_id = messaging['sender']['id']
+            recipient_id = messaging['recipient']['id']
+            message_text = messaging.get('message', {}).get('text', '')
+            
+            # Busca usuário pelo sender_id ❌
+            sender_user = get_user_by_instagram_id(sender_id)
+            
+            # Se for admin, salva na fila dele ❌
+            if sender_user:
+                save_message(sender_user['email'], sender_id, message_text)
+            
+            # Também salva para recipient ✅
+            recipient_user = get_user_by_instagram_id(recipient_id)
+            if recipient_user:
+                save_message(recipient_user['email'], sender_id, message_text)
+
+Código corrigido (CERTO):
+@app.route('/webhook/instagram', methods=['POST'])
+def instagram_webhook():
+    data = request.json
+    
+    for entry in data['entry']:
+        for messaging in entry['messaging']:
+            sender_id = messaging['sender']['id']
+            recipient_id = messaging['recipient']['id']
+            message_text = messaging.get('message', {}).get('text', '')
+            
+            # PASSO 1: Identificar quem RECEBEU
+            recipient_user = db.query("""
+                SELECT user_email, access_token
+                FROM instagram_connections
+                WHERE instagram_id = ?
+            """, (recipient_id,))
+            
+            # Se recipient_id NÃO está no sistema, ignorar webhook
+            # (É mensagem OUTGOING, não INCOMING!)
+            if not recipient_user:
+                print(f"Webhook ignorado: Mensagem OUTGOING de {sender_id}")
+                continue
+            
+            # PASSO 2: É mensagem INCOMING! Processar
+            recipient_email = recipient_user[0]['user_email']
+            access_token = recipient_user[0]['access_token']
+            
+            # PASSO 3: Buscar dados do REMETENTE
+            sender_profile = get_sender_profile(sender_id, recipient_email, access_token)
+            
+            # PASSO 4: Salvar APENAS para quem RECEBEU
+            save_message(
+                user_email=recipient_email,  # ← Quem RECEBEU
+                sender_id=sender_id,          # ← Quem ENVIOU
+                message_text=message_text,
+                sender_profile=sender_profile
+            )
+            
+            print(f"Mensagem salva: De {sender_id} Para {recipient_email}")
+    
+    return jsonify({'status': 'ok'}), 200
+
+FUNÇÃO get_sender_profile (com prioridade cache):
+
+def get_sender_profile(sender_id, recipient_email, access_token):
+    """
+    Busca dados do remetente
+    Prioridade: Cache > API > Placeholder
+    """
+    
+    # 1. Verificar se remetente é usuário do sistema (cache)
+    sender_cache = db.query("""
+        SELECT instagram_username, instagram_name, instagram_photo
+        FROM instagram_connections
+        WHERE instagram_id = ?
+    """, (sender_id,))
+    
+    if sender_cache and sender_cache[0]['instagram_photo']:
+        return {
+            'username': sender_cache[0]['instagram_username'],
+            'name': sender_cache[0]['instagram_name'],
+            'profile_picture_url': sender_cache[0]['instagram_photo']
+        }
+    
+    # 2. Buscar via API Instagram
+    try:
+        response = requests.get(
+            f"https://graph.instagram.com/{sender_id}",
+            params={
+                'fields': 'username,name,profile_picture_url',
+                'access_token': access_token
+            },
+            timeout=5
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        print(f"Erro ao buscar perfil via API: {e}")
+    
+    # 3. Placeholder
+    return {
+        'username': f'user_{sender_id[:8]}',
+        'name': 'Usuário',
+        'profile_picture_url': None
+    }
+
+VERIFICAÇÃO ADICIONAL - Garantir que não salva duplicado:
+
+def save_message(user_email, sender_id, message_text, sender_profile):
+    """
+    Salva mensagem com verificação anti-duplicação
+    """
+    
+    # Verificar se já existe (evitar duplicação)
+    existing = db.query("""
+        SELECT id FROM messages
+        WHERE user_email = ?
+        AND instagram_sender_id = ?
+        AND message_text = ?
+        AND created_at > datetime('now', '-1 minute')
+    """, (user_email, sender_id, message_text))
+    
+    if existing:
+        print(f"Mensagem duplicada detectada, não salvando novamente")
+        return
+    
+    # Salvar mensagem
+    db.execute("""
+        INSERT INTO messages 
+        (user_email, instagram_sender_id, sender_username, sender_name, sender_photo, message_text, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now'))
+    """, (
+        user_email,
+        sender_id,
+        sender_profile.get('username', ''),
+        sender_profile.get('name', 'Usuário'),
+        sender_profile.get('profile_picture_url', ''),
+        message_text
+    ))
+    
+    print(f"✅ Mensagem salva para {user_email}")
+
+LOGS PARA DEBUG:
+
+Adicione logs temporários no webhook:
+
+print("=" * 50)
+print(f"Webhook recebido")
+print(f"Sender ID: {sender_id}")
+print(f"Recipient ID: {recipient_id}")
+print(f"Message: {message_text}")
+
+recipient_user = get_user_by_instagram_id(recipient_id)
+if recipient_user:
+    print(f"✅ INCOMING: Salvar para {recipient_user['email']}")
+else:
+    print(f"❌ OUTGOING: Ignorar (não salvar)")
+print("=" * 50)
+
+TESTE FINAL:
+
+1. Admin envia "teste 50" para Rodolfo
+   
+   Logs devem mostrar:
+   Sender ID: [ID do Admin]
+   Recipient ID: [ID do Rodolfo]
+   ✅ INCOMING: Salvar para donettirodolfo@gmail.com
+   
+   Resultado:
+   ✅ Aparece na fila do Rodolfo
+   ✅ NÃO aparece na fila do Admin
+
+2. Rodolfo envia "teste 51" para Admin
+   
+   Logs devem mostrar:
+   Sender ID: [ID do Rodolfo]
+   Recipient ID: [ID do Admin]
+   ✅ INCOMING: Salvar para guguinha.rubino@gmail.com
+   
+   Resultado:
+   ✅ Aparece na fila do Admin
+   ✅ NÃO aparece na fila do Rodolfo
+
+IMPORTANTE:
+- Webhook deve ter APENAS uma verificação: recipient_id está no sistema?
+- Se SIM → Salvar para recipient_user (quem recebeu)
+- Se NÃO → Ignorar (é mensagem outgoing)
+- NUNCA salvar para o sender (remetente)
+
+MOSTRE-ME:
+1. Código atual completo do webhook
+2. Implemente a correção acima
+3. Adicione logs para debug
+4. Teste e mostre os logs
