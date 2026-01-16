@@ -1,0 +1,126 @@
+FUNCIONALIDADE FALTANDO: Sistema não recebe comentários em posts do Instagram.
+
+SITUAÇÃO ATUAL:
+✅ DMs (mensagens diretas) funcionam
+❌ Comentários em posts NÃO chegam
+
+FUNCIONALIDADE NECESSÁRIA:
+
+O sistema deve receber e responder:
+1. DMs (Direct Messages) ✅ Já funciona
+2. Comentários em posts ❌ Precisa implementar
+3. Comentários em reels ❌ Precisa implementar
+
+CORREÇÃO NECESSÁRIA:
+
+1. WEBHOOK - Adicionar subscription para comentários:
+
+Ao conectar Instagram (OAuth callback), registrar webhook para:
+- messages (DMs) ✅ Já tem
+- comments (comentários) ← ADICIONAR
+- mentions (menções) ← ADICIONAR
+
+Código no OAuth callback:
+
+webhook_subscriptions = [
+    "messages",      # DMs
+    "comments",      # Comentários em posts/reels
+    "mentions"       # Menções em stories
+]
+
+2. WEBHOOK HANDLER - Processar comentários:
+
+Adicionar lógica para processar comentários:
+
+@app.route('/webhook/instagram', methods=['POST'])
+def instagram_webhook():
+    data = request.json
+    
+    for entry in data['entry']:
+        # Processar DMs (já funciona)
+        if 'messaging' in entry:
+            process_direct_messages(entry['messaging'])
+        
+        # Processar COMENTÁRIOS (novo)
+        if 'changes' in entry:
+            for change in entry['changes']:
+                if change['field'] == 'comments':
+                    process_comment(change['value'])
+
+3. FUNÇÃO process_comment:
+
+def process_comment(comment_data):
+    """
+    Processa comentários em posts/reels
+    """
+    comment_id = comment_data['id']
+    post_id = comment_data['media']['id']
+    user_id = comment_data['from']['id']
+    username = comment_data['from']['username']
+    text = comment_data['text']
+    
+    # Descobrir qual usuário do sistema recebeu o comentário
+    # (dono do post)
+    post_owner = get_post_owner(post_id)
+    
+    if not post_owner:
+        return
+    
+    # Buscar perfil do comentarista
+    profile = get_sender_profile(user_id, post_owner['user_email'])
+    
+    # Salvar comentário na fila de aprovação
+    save_message(
+        user_email=post_owner['user_email'],
+        sender_id=user_id,
+        message_text=text,
+        sender_profile=profile,
+        message_type='comment',  # ← Novo campo
+        post_id=post_id,
+        comment_id=comment_id
+    )
+
+4. BANCO DE DADOS - Adicionar campo message_type:
+
+ALTER TABLE messages ADD COLUMN message_type TEXT DEFAULT 'dm';
+ALTER TABLE messages ADD COLUMN post_id TEXT;
+ALTER TABLE messages ADD COLUMN comment_id TEXT;
+
+Valores possíveis:
+- 'dm' = Mensagem direta
+- 'comment' = Comentário em post/reel
+- 'mention' = Menção em story
+
+5. FRONTEND - Mostrar tipo da mensagem:
+
+Na fila de aprovação, indicar:
+- 💬 DM
+- 💭 Comentário em post
+- 📢 Menção
+
+6. RESPONDER COMENTÁRIO - API diferente:
+
+Para responder DM:
+POST https://graph.instagram.com/v18.0/me/messages
+
+Para responder COMENTÁRIO:
+POST https://graph.instagram.com/v18.0/{comment-id}/replies
+Body: {
+  "message": "Resposta aqui"
+}
+
+IMPORTANTE:
+- Comentários são PÚBLICOS (todos veem)
+- DMs são PRIVADOS
+- Interface deve deixar claro qual é qual
+- Usuário deve aprovar antes de publicar comentário público
+
+TESTE FINAL:
+1. Conectar conta Instagram
+2. Fazer post de teste
+3. Comentar no post (de outra conta)
+4. Verificar se comentário aparece na fila de aprovação
+5. Aprovar resposta
+6. Verificar se resposta aparece no Instagram
+
+MOSTRE-ME o código implementado para processar comentários.
