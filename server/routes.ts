@@ -1439,6 +1439,27 @@ export async function registerRoutes(
         return;
       }
 
+      // Try to fetch profile picture using Business Discovery API
+      let senderAvatar: string | undefined;
+      if (username && instagramUser.instagramAccessToken) {
+        try {
+          console.log(`Buscando foto de perfil para @${username} via Business Discovery API...`);
+          const accessToken = instagramUser.instagramAccessToken;
+          const discoveryUrl = `https://graph.instagram.com/v21.0/${instagramUser.instagramAccountId}?fields=business_discovery.username(${username}){profile_picture_url,name,username}&access_token=${encodeURIComponent(accessToken)}`;
+          const discoveryRes = await fetch(discoveryUrl);
+          const discoveryData = await discoveryRes.json();
+          
+          if (discoveryRes.ok && discoveryData?.business_discovery?.profile_picture_url) {
+            senderAvatar = discoveryData.business_discovery.profile_picture_url;
+            console.log(`Business Discovery SUCCESS - got profile picture for @${username}`);
+          } else if (discoveryData?.error) {
+            console.log(`Business Discovery failed for @${username}:`, discoveryData.error.message);
+          }
+        } catch (e) {
+          console.log(`Business Discovery error for @${username}:`, e);
+        }
+      }
+
       // Create the message
       const newMessage = await storage.createMessage({
         userId: instagramUser.id,
@@ -1446,6 +1467,8 @@ export async function registerRoutes(
         type: "comment",
         senderName: displayName,
         senderUsername: username,
+        senderAvatar: senderAvatar,
+        senderId: fromUserId || null,
         content: text,
         postId: mediaId || null,
       });
