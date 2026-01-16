@@ -65,6 +65,7 @@ interface UserData {
   instagramAccountId?: string;
   instagramUsername?: string;
   instagramRecipientId?: string;
+  showTokenWarning?: boolean;
 }
 
 interface UserStats {
