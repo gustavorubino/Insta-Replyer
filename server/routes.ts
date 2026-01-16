@@ -563,25 +563,28 @@ export async function registerRoutes(
     }
   });
 
-  // Get settings
+  // Get settings (per-user)
   app.get("/api/settings", isAuthenticated, async (req, res) => {
     try {
       const { userId } = await getUserContext(req);
-      const allSettings = await storage.getSettings();
       
-      // Check Instagram connection from user data (more reliable)
+      // Get user-specific settings from user record
       const user = await authStorage.getUser(userId);
-      const isInstagramConnected = !!(user?.instagramAccountId && user?.instagramAccessToken);
-      const instagramUsername = user?.instagramUsername || "";
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      const isInstagramConnected = !!(user.instagramAccountId && user.instagramAccessToken);
       
       res.json({
         instagramConnected: isInstagramConnected,
-        instagramUsername: instagramUsername,
-        instagramAccountId: user?.instagramAccountId || "",
-        operationMode: allSettings.operationMode || "manual",
-        confidenceThreshold: parseInt(allSettings.confidenceThreshold || "80"),
-        systemPrompt: allSettings.systemPrompt || "",
-        autoReplyEnabled: allSettings.autoReplyEnabled === "true",
+        instagramUsername: user.instagramUsername || "",
+        instagramAccountId: user.instagramAccountId || "",
+        operationMode: user.operationMode || "manual",
+        confidenceThreshold: Math.round(parseFloat(user.autoApproveThreshold || "0.9") * 100),
+        systemPrompt: user.aiContext || "",
+        aiTone: user.aiTone || "",
+        autoReplyEnabled: user.operationMode === "auto" || user.operationMode === "semi_auto",
       });
     } catch (error) {
       console.error("Error fetching settings:", error);
@@ -589,28 +592,30 @@ export async function registerRoutes(
     }
   });
 
-  // Update settings
+  // Update settings (per-user)
   app.patch("/api/settings", isAuthenticated, async (req, res) => {
     try {
+      const { userId } = await getUserContext(req);
       const updates = req.body;
+      
+      const userUpdates: Record<string, string | null> = {};
 
-      if (updates.instagramConnected !== undefined) {
-        await storage.setSetting("instagramConnected", String(updates.instagramConnected));
-      }
-      if (updates.instagramUsername !== undefined) {
-        await storage.setSetting("instagramUsername", updates.instagramUsername);
-      }
       if (updates.operationMode !== undefined) {
-        await storage.setSetting("operationMode", updates.operationMode);
+        userUpdates.operationMode = updates.operationMode;
       }
       if (updates.confidenceThreshold !== undefined) {
-        await storage.setSetting("confidenceThreshold", String(updates.confidenceThreshold));
+        userUpdates.autoApproveThreshold = String(updates.confidenceThreshold / 100);
       }
       if (updates.systemPrompt !== undefined) {
-        await storage.setSetting("systemPrompt", updates.systemPrompt);
+        userUpdates.aiContext = updates.systemPrompt;
       }
-      if (updates.autoReplyEnabled !== undefined) {
-        await storage.setSetting("autoReplyEnabled", String(updates.autoReplyEnabled));
+      if (updates.aiTone !== undefined) {
+        userUpdates.aiTone = updates.aiTone;
+      }
+
+      // Update user record with new settings
+      if (Object.keys(userUpdates).length > 0) {
+        await authStorage.updateUser(userId, userUpdates);
       }
 
       res.json({ success: true });
