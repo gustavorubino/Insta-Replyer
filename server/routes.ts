@@ -1442,28 +1442,23 @@ export async function registerRoutes(
       // Try to fetch profile picture using multiple strategies
       let senderAvatar: string | undefined;
       
-      // Strategy 1: Use fromUser.id to fetch profile directly (works for business accounts)
-      if (fromUserId && instagramUser.instagramAccessToken) {
+      // Strategy 1: Look up cached avatar from previous messages by the same username
+      // This is the most reliable method since we may already have the avatar from a DM
+      if (username && username !== "instagram_user") {
         try {
-          console.log(`[Profile Fetch] Tentando buscar foto via ID ${fromUserId}...`);
-          const accessToken = instagramUser.instagramAccessToken;
-          
-          // Try Instagram Graph API direct lookup
-          const profileUrl = `https://graph.instagram.com/v21.0/${fromUserId}?fields=profile_picture_url,username,name&access_token=${encodeURIComponent(accessToken)}`;
-          const profileRes = await fetch(profileUrl);
-          const profileData = await profileRes.json();
-          console.log(`[Profile Fetch] Resposta da API (ID direto):`, JSON.stringify(profileData));
-          
-          if (profileRes.ok && profileData?.profile_picture_url) {
-            senderAvatar = profileData.profile_picture_url;
-            console.log(`[Profile Fetch] SUCCESS via ID direto - got profile picture for ID ${fromUserId}`);
+          console.log(`[Profile Fetch] Buscando avatar em cache para @${username}...`);
+          const cachedMessages = await storage.getMessagesByUsername(username);
+          const messageWithAvatar = cachedMessages.find(m => m.senderAvatar);
+          if (messageWithAvatar?.senderAvatar) {
+            senderAvatar = messageWithAvatar.senderAvatar;
+            console.log(`[Profile Fetch] SUCCESS - encontrado avatar em cache para @${username}`);
           }
         } catch (e) {
-          console.log(`[Profile Fetch] Erro ao buscar por ID ${fromUserId}:`, e);
+          console.log(`[Profile Fetch] Erro ao buscar cache para @${username}:`, e);
         }
       }
       
-      // Strategy 2: Use Business Discovery API by username (works for public accounts)
+      // Strategy 2: Use Business Discovery API by username (works for public business/creator accounts)
       if (!senderAvatar && username && username !== "instagram_user" && instagramUser.instagramAccessToken) {
         try {
           console.log(`[Profile Fetch] Tentando Business Discovery para @${username}...`);
@@ -1471,13 +1466,12 @@ export async function registerRoutes(
           const discoveryUrl = `https://graph.instagram.com/v21.0/${instagramUser.instagramAccountId}?fields=business_discovery.username(${username}){profile_picture_url,name,username}&access_token=${encodeURIComponent(accessToken)}`;
           const discoveryRes = await fetch(discoveryUrl);
           const discoveryData = await discoveryRes.json();
-          console.log(`[Profile Fetch] Resposta Business Discovery:`, JSON.stringify(discoveryData));
           
           if (discoveryRes.ok && discoveryData?.business_discovery?.profile_picture_url) {
             senderAvatar = discoveryData.business_discovery.profile_picture_url;
             console.log(`[Profile Fetch] SUCCESS via Business Discovery para @${username}`);
           } else if (discoveryData?.error) {
-            console.log(`[Profile Fetch] Business Discovery falhou para @${username}:`, discoveryData.error.message);
+            console.log(`[Profile Fetch] Business Discovery falhou para @${username}: ${discoveryData.error.message}`);
           }
         } catch (e) {
           console.log(`[Profile Fetch] Erro Business Discovery para @${username}:`, e);
