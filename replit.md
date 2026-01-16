@@ -12,7 +12,7 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - **Settings API**: GET/PATCH /api/settings reads/writes to user-specific fields, not global settings
 - **Webhook Processing**: Comment and DM webhooks use user-specific operation modes and confidence thresholds for auto-send decisions
 - **Statistics**: Dashboard avgConfidence and all stats are filtered by userId (admins see all, users see own)
-- **User Indicator**: Sidebar displays user name (or email username if name unavailable), email, and role (Administrador/Usuário)
+- **User Indicator**: Sidebar displays user name, email, and role (Administrador/Usuário)
 
 ## Features
 

@@ -166,9 +166,7 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
           )}
           <div className="flex flex-col flex-1 min-w-0">
             <span className="text-xs font-medium truncate" data-testid="text-user-name">
-              {user?.firstName 
-                ? `${user.firstName} ${user.lastName || ''}`.trim() 
-                : (user?.email ? user.email.split('@')[0] : "Usuário")}
+              {user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : "Usuário"}
             </span>
             <span className="text-xs text-muted-foreground truncate" data-testid="text-user-email">
               {user?.email || ""}
