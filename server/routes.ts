@@ -184,16 +184,17 @@ async function replyToInstagramComment(
 }
 
 // Helper to extract user info from request
-async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean }> {
+async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean; instagramAccountId?: string }> {
   const user = req.user as any;
   // Use actualUserId for OIDC users with existing email accounts, fallback to claims.sub or id
   const userId = user.actualUserId || user.claims?.sub || user.id;
   
-  // Fetch user from database to get isAdmin status
+  // Fetch user from database to get isAdmin status and Instagram account ID
   const dbUser = await authStorage.getUser(userId);
   return {
     userId,
     isAdmin: dbUser?.isAdmin || false,
+    instagramAccountId: dbUser?.instagramAccountId || undefined,
   };
 }
 
@@ -275,8 +276,8 @@ export async function registerRoutes(
   // Get all messages
   app.get("/api/messages", isAuthenticated, async (req, res) => {
     try {
-      const { userId, isAdmin } = await getUserContext(req);
-      const messages = await storage.getMessages(userId, isAdmin);
+      const { userId, isAdmin, instagramAccountId } = await getUserContext(req);
+      const messages = await storage.getMessages(userId, isAdmin, instagramAccountId);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -287,8 +288,8 @@ export async function registerRoutes(
   // Get pending messages
   app.get("/api/messages/pending", isAuthenticated, async (req, res) => {
     try {
-      const { userId, isAdmin } = await getUserContext(req);
-      const messages = await storage.getPendingMessages(userId, isAdmin);
+      const { userId, isAdmin, instagramAccountId } = await getUserContext(req);
+      const messages = await storage.getPendingMessages(userId, isAdmin, instagramAccountId);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching pending messages:", error);
@@ -299,9 +300,9 @@ export async function registerRoutes(
   // Get recent messages
   app.get("/api/messages/recent", isAuthenticated, async (req, res) => {
     try {
-      const { userId, isAdmin } = await getUserContext(req);
+      const { userId, isAdmin, instagramAccountId } = await getUserContext(req);
       const limit = parseInt(req.query.limit as string) || 10;
-      const messages = await storage.getRecentMessages(limit, userId, isAdmin);
+      const messages = await storage.getRecentMessages(limit, userId, isAdmin, instagramAccountId);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching recent messages:", error);

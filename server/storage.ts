@@ -16,15 +16,15 @@ import {
   type MessageWithResponse,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, ne } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   createUser(user: UpsertUser): Promise<User>;
 
-  getMessages(userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]>;
-  getPendingMessages(userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]>;
-  getRecentMessages(limit?: number, userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]>;
+  getMessages(userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]>;
+  getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]>;
+  getRecentMessages(limit?: number, userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]>;
   getMessage(id: number): Promise<MessageWithResponse | undefined>;
   getMessageByInstagramId(instagramId: string): Promise<InstagramMessage | undefined>;
   createMessage(message: InsertInstagramMessage): Promise<InstagramMessage>;
@@ -81,15 +81,30 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async getMessages(userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]> {
+  async getMessages(userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]> {
+    // Build condition: if admin, show all except own sent messages
+    // if user, show only their messages
+    let condition;
+    if (isAdmin || !userId) {
+      // Admin sees all messages, but exclude messages where sender is the admin's Instagram account
+      condition = excludeSenderId 
+        ? ne(instagramMessages.senderId, excludeSenderId)
+        : undefined;
+    } else {
+      // Regular user sees only their messages, excluding their own sent messages
+      condition = excludeSenderId
+        ? and(eq(instagramMessages.userId, userId), ne(instagramMessages.senderId, excludeSenderId))
+        : eq(instagramMessages.userId, userId);
+    }
+
     const query = db
       .select()
       .from(instagramMessages)
       .leftJoin(aiResponses, eq(instagramMessages.id, aiResponses.messageId));
 
-    const messages = isAdmin || !userId
-      ? await query.orderBy(desc(instagramMessages.createdAt))
-      : await query.where(eq(instagramMessages.userId, userId)).orderBy(desc(instagramMessages.createdAt));
+    const messages = condition
+      ? await query.where(condition).orderBy(desc(instagramMessages.createdAt))
+      : await query.orderBy(desc(instagramMessages.createdAt));
 
     return messages.map((row) => ({
       ...row.instagram_messages,
@@ -97,11 +112,22 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getPendingMessages(userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]> {
+  async getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]> {
     const baseCondition = eq(instagramMessages.status, "pending");
-    const condition = isAdmin || !userId
-      ? baseCondition
-      : and(baseCondition, eq(instagramMessages.userId, userId));
+    
+    // Build condition based on role and exclude own sent messages
+    let condition;
+    if (isAdmin || !userId) {
+      // Admin sees all pending messages, but exclude messages where sender is the admin's Instagram account
+      condition = excludeSenderId 
+        ? and(baseCondition, ne(instagramMessages.senderId, excludeSenderId))
+        : baseCondition;
+    } else {
+      // Regular user sees only their pending messages, excluding their own sent messages
+      condition = excludeSenderId
+        ? and(baseCondition, eq(instagramMessages.userId, userId), ne(instagramMessages.senderId, excludeSenderId))
+        : and(baseCondition, eq(instagramMessages.userId, userId));
+    }
 
     const messages = await db
       .select()
@@ -116,15 +142,29 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getRecentMessages(limit: number = 10, userId?: string, isAdmin?: boolean): Promise<MessageWithResponse[]> {
+  async getRecentMessages(limit: number = 10, userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]> {
+    // Build condition based on role and exclude own sent messages
+    let condition;
+    if (isAdmin || !userId) {
+      // Admin sees all messages, but exclude messages where sender is the admin's Instagram account
+      condition = excludeSenderId 
+        ? ne(instagramMessages.senderId, excludeSenderId)
+        : undefined;
+    } else {
+      // Regular user sees only their messages, excluding their own sent messages
+      condition = excludeSenderId
+        ? and(eq(instagramMessages.userId, userId), ne(instagramMessages.senderId, excludeSenderId))
+        : eq(instagramMessages.userId, userId);
+    }
+
     const query = db
       .select()
       .from(instagramMessages)
       .leftJoin(aiResponses, eq(instagramMessages.id, aiResponses.messageId));
 
-    const messages = isAdmin || !userId
-      ? await query.orderBy(desc(instagramMessages.createdAt)).limit(limit)
-      : await query.where(eq(instagramMessages.userId, userId)).orderBy(desc(instagramMessages.createdAt)).limit(limit);
+    const messages = condition
+      ? await query.where(condition).orderBy(desc(instagramMessages.createdAt)).limit(limit)
+      : await query.orderBy(desc(instagramMessages.createdAt)).limit(limit);
 
     return messages.map((row) => ({
       ...row.instagram_messages,
