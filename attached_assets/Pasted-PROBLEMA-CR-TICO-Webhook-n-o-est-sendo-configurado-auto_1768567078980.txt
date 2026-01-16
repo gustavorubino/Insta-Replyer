@@ -1,0 +1,118 @@
+PROBLEMA CRÍTICO: Webhook não está sendo configurado automaticamente.
+
+SITUAÇÃO ATUAL (ERRADO):
+1. Usuário conecta Instagram via OAuth
+2. Sistema salva access_token
+3. Sistema DETECTA que chegou webhook novo (ID: 1630498907976656)
+4. Mas pede configuração MANUAL do webhook ❌
+5. Isso é péssima experiência do usuário!
+
+COMPORTAMENTO ESPERADO (CORRETO):
+1. Usuário conecta Instagram via OAuth
+2. Sistema recebe access_token + instagram_id
+3. Sistema AUTOMATICAMENTE:
+   a) Registra webhook na API do Instagram
+   b) Salva webhook_id junto com a conexão
+   c) Vincula tudo ao user_email
+4. Usuário vê "Conectado" e pronto! ✅
+
+CORREÇÃO NECESSÁRIA:
+
+1. Na rota de callback OAuth do Instagram (/auth/instagram/callback):
+
+CÓDIGO ATUAL (incompleto):
+def instagram_callback():
+    code = request.args.get('code')
+    # Troca code por access_token
+    access_token = exchange_code_for_token(code)
+    instagram_id = get_instagram_user_id(access_token)
+    
+    # Salva conexão
+    save_instagram_connection(user_email, instagram_id, access_token)
+    
+    return redirect('/dashboard')
+
+CÓDIGO CORRIGIDO (completo):
+def instagram_callback():
+    code = request.args.get('code')
+    user_email = session.get('user_email')
+    
+    # Troca code por access_token
+    access_token = exchange_code_for_token(code)
+    instagram_id = get_instagram_user_id(access_token)
+    
+    # ADICIONAR: Configurar webhook AUTOMATICAMENTE
+    webhook_id = setup_instagram_webhook(instagram_id, access_token)
+    
+    # Salvar conexão COM webhook_id
+    save_instagram_connection(user_email, instagram_id, access_token, webhook_id)
+    
+    return redirect('/dashboard')
+
+2. Criar função setup_instagram_webhook():
+
+def setup_instagram_webhook(instagram_id, access_token):
+    """
+    Configura webhook automaticamente na API do Instagram
+    """
+    import requests
+    
+    # URL do webhook no seu sistema
+    webhook_url = f"https://{os.getenv('REPL_SLUG')}.{os.getenv('REPL_OWNER')}.repl.co/webhook/instagram"
+    
+    # Registrar webhook na API do Instagram
+    response = requests.post(
+        f"https://graph.instagram.com/v18.0/{instagram_id}/subscriptions",
+        data={
+            "object": "instagram",
+            "callback_url": webhook_url,
+            "fields": "messages,messaging_postbacks",
+            "verify_token": os.getenv('INSTAGRAM_WEBHOOK_VERIFY_TOKEN'),
+            "access_token": access_token
+        }
+    )
+    
+    if response.status_code == 200:
+        webhook_data = response.json()
+        return webhook_data.get('id')  # Retorna webhook_id
+    else:
+        raise Exception(f"Erro ao configurar webhook: {response.text}")
+
+3. Alterar tabela para incluir webhook_id:
+
+ALTER TABLE instagram_connections ADD COLUMN webhook_id TEXT;
+
+4. Modificar save_instagram_connection para salvar webhook_id:
+
+def save_instagram_connection(user_email, instagram_id, access_token, webhook_id):
+    db.execute("""
+        INSERT INTO instagram_connections 
+        (user_email, instagram_id, access_token, webhook_id, created_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(user_email) DO UPDATE SET
+            instagram_id = excluded.instagram_id,
+            access_token = excluded.access_token,
+            webhook_id = excluded.webhook_id,
+            updated_at = datetime('now')
+    """, (user_email, instagram_id, access_token, webhook_id))
+
+5. Remover a tela de configuração manual de webhook:
+   - Usuário NÃO deve precisar configurar nada manualmente
+   - O alerta "Webhook não mapeado" deve desaparecer
+   - Tudo deve funcionar automaticamente após OAuth
+
+TESTE FINAL:
+1. Usuário faz login
+2. Clica "Conectar Instagram"
+3. Autoriza no Instagram
+4. Sistema redireciona para Dashboard
+5. Mostra "Conectado" com ícone verde ✅
+6. Webhook já está funcionando
+7. Mensagens chegam automaticamente
+
+IMPORTANTE:
+- Nada de configuração manual!
+- Tudo automático durante OAuth!
+- Experiência fluida como Slack, Discord, etc.
+
+MOSTRE-ME o código completo implementado.

@@ -44,8 +44,14 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
   - Signature verification using X-Hub-Signature-256 (HMAC-SHA256)
   - Subscribed fields: comments, mentions, messages
   - Multi-step user matching: by instagramAccountId, then by instagramRecipientId
-  - Unmapped webhooks are logged and stored for admin visibility
-  - NO unsafe fallback - rejects unmatched webhooks safely
+  - **Secure Auto-association**: 
+    - Stores `pending_webhook_{userId}` marker during OAuth with timestamp
+    - Only auto-associates if webhook arrives within 15-minute window from OAuth
+    - One-time marker deleted after successful association
+    - Multiple eligible users require admin intervention (no auto-association)
+    - Periodic cleanup of expired markers (startup + every hour)
+  - Clears unmapped webhook alert after successful auto-association
+  - Falls back to admin notification only when no eligible users found or window expired
 - **API Endpoints**:
   - `GET /api/instagram/auth` - Initiates OAuth flow
   - `GET /api/instagram/callback` - OAuth callback handler

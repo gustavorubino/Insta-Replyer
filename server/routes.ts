@@ -206,26 +206,34 @@ export async function registerRoutes(
   await setupAuth(app);
   registerAuthRoutes(app);
 
-  // Cleanup expired OAuth states on startup and periodically (every hour)
+  // Cleanup expired OAuth states and pending webhooks on startup and periodically (every hour)
   (async () => {
     try {
-      const cleaned = await storage.cleanupExpiredOAuthStates();
-      if (cleaned > 0) {
-        console.log(`Cleaned up ${cleaned} expired OAuth state(s)`);
+      const cleanedOAuth = await storage.cleanupExpiredOAuthStates();
+      if (cleanedOAuth > 0) {
+        console.log(`Cleaned up ${cleanedOAuth} expired OAuth state(s)`);
+      }
+      const cleanedWebhooks = await storage.cleanupExpiredPendingWebhooks();
+      if (cleanedWebhooks > 0) {
+        console.log(`Cleaned up ${cleanedWebhooks} expired pending webhook marker(s)`);
       }
     } catch (e) {
-      console.error("OAuth state cleanup error:", e);
+      console.error("Cleanup error:", e);
     }
   })();
   
   setInterval(async () => {
     try {
-      const cleaned = await storage.cleanupExpiredOAuthStates();
-      if (cleaned > 0) {
-        console.log(`Cleaned up ${cleaned} expired OAuth state(s)`);
+      const cleanedOAuth = await storage.cleanupExpiredOAuthStates();
+      if (cleanedOAuth > 0) {
+        console.log(`Cleaned up ${cleanedOAuth} expired OAuth state(s)`);
+      }
+      const cleanedWebhooks = await storage.cleanupExpiredPendingWebhooks();
+      if (cleanedWebhooks > 0) {
+        console.log(`Cleaned up ${cleanedWebhooks} expired pending webhook marker(s)`);
       }
     } catch (e) {
-      console.error("OAuth state cleanup error:", e);
+      console.error("Cleanup error:", e);
     }
   }, 60 * 60 * 1000); // Every hour
 
@@ -940,19 +948,25 @@ export async function registerRoutes(
       console.log(`OAuth IDs - Token user_id: ${tokenUserId}, API id: ${instagramAccountId}, username: ${instagramUsername}`);
 
       // Store both IDs - the API id as instagramAccountId and token user_id as potential recipient ID
+      // ALWAYS set instagramRecipientId - this will be auto-updated when first webhook arrives
       const updates: any = {
         instagramAccountId,
         instagramUsername,
         instagramAccessToken: longLivedToken,
+        // Always set recipientId - prefer token user_id if different, otherwise use accountId
+        // This will be auto-updated when the first webhook arrives with the real recipient ID
+        instagramRecipientId: (tokenUserId && tokenUserId !== instagramAccountId && tokenUserId !== 'undefined')
+          ? tokenUserId
+          : instagramAccountId,
       };
 
-      // If the token user_id is different from API id, store it as a potential recipient ID
-      if (tokenUserId && tokenUserId !== instagramAccountId && tokenUserId !== 'undefined') {
-        updates.instagramRecipientId = tokenUserId;
-        console.log(`Storing token user_id ${tokenUserId} as instagramRecipientId (differs from API id ${instagramAccountId})`);
-      }
+      console.log(`Storing instagramRecipientId: ${updates.instagramRecipientId} (will be auto-updated on first webhook if different)`);
 
       await authStorage.updateUser(userId, updates);
+      
+      // Store a pending webhook association marker with timestamp
+      // This enables secure auto-association within a 15-minute window
+      await storage.setSetting(`pending_webhook_${userId}`, new Date().toISOString());
 
       // Update global settings
       await storage.setSetting("instagramConnected", "true");
@@ -1481,28 +1495,114 @@ export async function registerRoutes(
         }
       }
 
-      // If still not found, log error and return - NO UNSAFE FALLBACK
+      // If still not found, try SECURE AUTO-ASSOCIATION with recently connected users
+      // Only auto-associate if the user connected within the last 15 minutes (has pending_webhook marker)
       if (!instagramUser) {
-        console.log("=== NO USER MATCH FOR WEBHOOK ===");
+        console.log("=== NO USER MATCH FOR WEBHOOK - ATTEMPTING SECURE AUTO-ASSOCIATION ===");
         console.log(`Webhook recipient ID: ${recipientId}`);
-        console.log("Available Instagram accounts:", 
-          allUsers.filter((u: any) => u.instagramAccountId || u.instagramRecipientId).map((u: any) => ({
-            userId: u.id,
-            email: u.email,
-            instagramAccountId: u.instagramAccountId,
-            instagramRecipientId: u.instagramRecipientId
-          }))
-        );
         
-        // Store the last unmapped webhook recipient ID for admin reference
-        try {
-          await storage.setSetting("lastUnmappedWebhookRecipientId", recipientId);
-          await storage.setSetting("lastUnmappedWebhookTimestamp", new Date().toISOString());
-        } catch (err) {
-          console.error("Failed to store unmapped webhook info:", err);
+        const ASSOCIATION_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+        const now = Date.now();
+        
+        // Look for users who have connected Instagram recently (have a pending webhook marker within time window)
+        const eligibleUsers: any[] = [];
+        
+        for (const u of allUsers) {
+          // User must have an Instagram connection (has accessToken)
+          if (!u.instagramAccessToken) continue;
+          
+          // User should not have a recipientId yet, OR their recipientId equals accountId (not yet mapped)
+          if (u.instagramRecipientId && u.instagramRecipientId !== u.instagramAccountId) continue;
+          
+          // Check if user has a pending webhook marker within the time window
+          try {
+            const pendingSetting = await storage.getSetting(`pending_webhook_${u.id}`);
+            if (pendingSetting?.value) {
+              const pendingTime = new Date(pendingSetting.value).getTime();
+              const elapsedMs = now - pendingTime;
+              
+              if (elapsedMs <= ASSOCIATION_WINDOW_MS) {
+                console.log(`User ${u.id} (${u.email}) has pending webhook marker from ${Math.round(elapsedMs / 1000)}s ago`);
+                eligibleUsers.push({ user: u, pendingTime });
+              } else {
+                console.log(`User ${u.id} pending webhook marker expired (${Math.round(elapsedMs / 60000)}min ago)`);
+                // Clean up expired marker
+                await storage.deleteSetting(`pending_webhook_${u.id}`);
+              }
+            }
+          } catch (err) {
+            console.log(`Could not check pending webhook for user ${u.id}:`, err);
+          }
         }
         
-        console.log("ACTION REQUIRED: Configure instagramRecipientId in Admin > Contas Instagram for the relevant user");
+        console.log(`Found ${eligibleUsers.length} users with valid pending webhook markers`);
+        
+        if (eligibleUsers.length === 1) {
+          // Only one eligible user with recent OAuth - safe to auto-associate
+          const targetUser = eligibleUsers[0].user;
+          instagramUser = targetUser;
+          console.log(`SECURE AUTO-ASSOCIATING webhook ID ${recipientId} with user ${targetUser.id} (${targetUser.email})`);
+          
+          try {
+            await authStorage.updateUser(targetUser.id, {
+              instagramRecipientId: recipientId
+            });
+            console.log(`Successfully auto-associated instagramRecipientId=${recipientId} for user ${targetUser.id}`);
+            
+            // Clear the pending webhook marker (one-time use)
+            await storage.deleteSetting(`pending_webhook_${targetUser.id}`);
+            
+            // Clear any previous unmapped webhook alert
+            await storage.deleteSetting("lastUnmappedWebhookRecipientId");
+            await storage.deleteSetting("lastUnmappedWebhookTimestamp");
+          } catch (err) {
+            console.error("Failed to auto-associate instagramRecipientId:", err);
+          }
+        } else if (eligibleUsers.length > 1) {
+          // Multiple users with pending markers - cannot auto-associate safely
+          console.log("Multiple users with pending webhook markers - requires admin intervention:");
+          eligibleUsers.forEach(({ user }) => {
+            console.log(`  - User ${user.id} (${user.email}): instagramAccountId=${user.instagramAccountId}`);
+          });
+          
+          // Store unmapped webhook for admin reference
+          try {
+            await storage.setSetting("lastUnmappedWebhookRecipientId", recipientId);
+            await storage.setSetting("lastUnmappedWebhookTimestamp", new Date().toISOString());
+          } catch (err) {
+            console.error("Failed to store unmapped webhook info:", err);
+          }
+          
+          console.log("ACTION REQUIRED: Configure instagramRecipientId in Admin > Contas Instagram for the relevant user");
+          return;
+        } else {
+          // No eligible users
+          console.log("No users eligible for auto-association");
+          console.log("Available Instagram accounts:", 
+            allUsers.filter((u: any) => u.instagramAccountId || u.instagramRecipientId).map((u: any) => ({
+              userId: u.id,
+              email: u.email,
+              instagramAccountId: u.instagramAccountId,
+              instagramRecipientId: u.instagramRecipientId
+            }))
+          );
+          
+          // Store unmapped webhook for admin reference
+          try {
+            await storage.setSetting("lastUnmappedWebhookRecipientId", recipientId);
+            await storage.setSetting("lastUnmappedWebhookTimestamp", new Date().toISOString());
+          } catch (err) {
+            console.error("Failed to store unmapped webhook info:", err);
+          }
+          
+          console.log("ACTION REQUIRED: Configure instagramRecipientId in Admin > Contas Instagram for the relevant user");
+          return;
+        }
+      }
+
+      // Final safety check - if we still don't have a user, return
+      if (!instagramUser) {
+        console.error("UNEXPECTED: instagramUser still undefined after all matching attempts");
         return;
       }
 

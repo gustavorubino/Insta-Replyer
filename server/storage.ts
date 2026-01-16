@@ -42,6 +42,7 @@ export interface IStorage {
   setSetting(key: string, value: string): Promise<void>;
   deleteSetting(key: string): Promise<void>;
   cleanupExpiredOAuthStates(): Promise<number>;
+  cleanupExpiredPendingWebhooks(): Promise<number>;
 
   clearAllMessages(): Promise<{ aiResponses: number; messages: number }>;
 
@@ -246,6 +247,28 @@ export class DatabaseStorage implements IStorage {
         const expiresAt = parseInt(expiresAtStr);
         
         if (isNaN(expiresAt) || now >= expiresAt) {
+          await db.delete(settings).where(eq(settings.key, setting.key));
+          cleanedCount++;
+        }
+      }
+    }
+    
+    return cleanedCount;
+  }
+
+  async cleanupExpiredPendingWebhooks(): Promise<number> {
+    const allSettings = await db.select().from(settings);
+    const now = Date.now();
+    const PENDING_WEBHOOK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
+    let cleanedCount = 0;
+    
+    for (const setting of allSettings) {
+      if (setting.key.startsWith("pending_webhook_")) {
+        // Value is an ISO timestamp
+        const pendingTime = new Date(setting.value).getTime();
+        const elapsedMs = now - pendingTime;
+        
+        if (isNaN(pendingTime) || elapsedMs > PENDING_WEBHOOK_EXPIRY_MS) {
           await db.delete(settings).where(eq(settings.key, setting.key));
           cleanedCount++;
         }
