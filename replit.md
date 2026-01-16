@@ -182,6 +182,11 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - Language: Portuguese (Brazil)
 - Design: Modern dashboard style inspired by Linear, Notion, Vercel
 
+### Development Guidelines
+- **Default behavior**: All changes, updates, and new features must be applied to ALL users (admin and regular users) equally. This is a system-wide update.
+- **Exception**: Only apply changes to a specific user type (admin-only or user-only) when explicitly requested in the prompt.
+- **Rationale**: System improvements and updates benefit all users uniformly unless otherwise specified.
+
 ## Notes
 - Instagram API integration via Meta Graph API (DMs and comment replies)
 - Real Instagram integration requires Facebook Developer App approval
