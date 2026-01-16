@@ -1,0 +1,198 @@
+BUGS CRÍTICOS: Webhook processando mensagens incorretamente.
+
+BUG 1 - Foto do remetente não aparece quando remetente é usuário do sistema
+BUG 2 - Mensagens ENVIADAS aparecem na fila como se fossem RECEBIDAS
+
+SITUAÇÃO ATUAL:
+
+Usuário A (Gustavo) envia mensagem para Usuário B (Rodolfo):
+❌ Fila do Gustavo mostra a própria mensagem (ERRADO!)
+❌ Fila do Rodolfo mostra mensagem sem foto do Gustavo
+
+CAUSA RAIZ:
+
+1. Webhook não está diferenciando mensagens INCOMING vs OUTGOING
+2. Sistema não está usando cache de foto do remetente quando ele é usuário do sistema
+
+CORREÇÃO NECESSÁRIA:
+
+1. WEBHOOK - Filtrar apenas mensagens RECEBIDAS (incoming):
+
+Código atual (ERRADO):
+@app.route('/webhook/instagram', methods=['POST'])
+def instagram_webhook():
+    data = request.json
+    
+    for entry in data['entry']:
+        for messaging in entry['messaging']:
+            # Processa TODAS as mensagens (incoming E outgoing)
+            sender_id = messaging['sender']['id']
+            recipient_id = messaging['recipient']['id']
+            message = messaging.get('message', {}).get('text', '')
+            
+            # Salva tudo indiscriminadamente ❌
+            process_message(sender_id, recipient_id, message)
+
+Código corrigido (CERTO):
+@app.route('/webhook/instagram', methods=['POST'])
+def instagram_webhook():
+    data = request.json
+    
+    for entry in data['entry']:
+        for messaging in entry['messaging']:
+            # FILTRAR: Só processar mensagens INCOMING
+            # Incoming = Quem RECEBEU é uma conta conectada ao sistema
+            
+            recipient_id = messaging['recipient']['id']  # Quem RECEBEU
+            sender_id = messaging['sender']['id']         # Quem ENVIOU
+            
+            # Verificar se recipient_id é uma conta no sistema
+            recipient = db.query("""
+                SELECT user_email 
+                FROM instagram_connections 
+                WHERE instagram_id = ?
+            """, (recipient_id,))
+            
+            if not recipient:
+                # Mensagem OUTGOING (enviada pelo sistema)
+                # NÃO processar! ❌
+                continue
+            
+            # É incoming! Processar normalmente ✅
+            user_email = recipient[0]['user_email']
+            message = messaging.get('message', {}).get('text', '')
+            
+            # Buscar dados do REMETENTE
+            sender_profile = get_sender_profile(sender_id, user_email)
+            
+            save_message(user_email, sender_id, message, sender_profile)
+
+2. BUSCAR PERFIL DO REMETENTE - Usar cache se for usuário do sistema:
+
+def get_sender_profile(sender_id, recipient_email):
+    """
+    Busca dados do perfil do remetente
+    Prioridade: Cache (se for usuário) > API > Placeholder
+    """
+    
+    # 1. VERIFICAR SE REMETENTE É USUÁRIO DO SISTEMA
+    sender_user = db.query("""
+        SELECT user_email, instagram_username, instagram_name, instagram_photo
+        FROM instagram_connections
+        WHERE instagram_id = ?
+    """, (sender_id,))
+    
+    if sender_user and sender_user[0]['instagram_photo']:
+        # É usuário do sistema! Usar cache ✅
+        return {
+            'username': sender_user[0]['instagram_username'],
+            'name': sender_user[0]['instagram_name'],
+            'profile_picture_url': sender_user[0]['instagram_photo']
+        }
+    
+    # 2. NÃO É USUÁRIO - Buscar via API
+    recipient_connection = db.query("""
+        SELECT access_token
+        FROM instagram_connections
+        WHERE user_email = ?
+    """, (recipient_email,))
+    
+    if recipient_connection and recipient_connection[0]['access_token']:
+        access_token = recipient_connection[0]['access_token']
+        
+        try:
+            response = requests.get(
+                f"https://graph.instagram.com/{sender_id}",
+                params={
+                    'fields': 'username,name,profile_picture_url',
+                    'access_token': access_token
+                }
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+        except Exception as e:
+            print(f"Erro ao buscar perfil: {e}")
+    
+    # 3. FALLBACK - Placeholder
+    return {
+        'username': f'user_{sender_id[:8]}',
+        'name': 'Usuário',
+        'profile_picture_url': None
+    }
+
+3. SALVAR MENSAGEM - Garantir que dados do perfil sejam salvos:
+
+def save_message(user_email, sender_id, message_text, sender_profile):
+    """
+    Salva mensagem com dados completos do perfil
+    """
+    db.execute("""
+        INSERT INTO messages 
+        (user_email, instagram_sender_id, sender_username, sender_name, sender_photo, message_text, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    """, (
+        user_email,
+        sender_id,
+        sender_profile.get('username', ''),
+        sender_profile.get('name', 'Usuário'),
+        sender_profile.get('profile_picture_url', ''),
+        message_text
+    ))
+
+4. SCHEMA DO BANCO - Garantir que tem os campos:
+
+ALTER TABLE instagram_connections ADD COLUMN instagram_username TEXT;
+ALTER TABLE instagram_connections ADD COLUMN instagram_name TEXT;
+ALTER TABLE instagram_connections ADD COLUMN instagram_photo TEXT;
+
+5. OAUTH CALLBACK - Salvar dados do perfil no cache:
+
+@app.route('/auth/instagram/callback')
+def instagram_callback():
+    code = request.args.get('code')
+    user_email = session.get('user_email')
+    
+    # Trocar code por token
+    access_token = exchange_code_for_token(code)
+    
+    # Buscar dados do perfil
+    profile = requests.get(
+        'https://graph.instagram.com/me',
+        params={
+            'fields': 'id,username,name,profile_picture_url',
+            'access_token': access_token
+        }
+    ).json()
+    
+    # Salvar com cache de perfil
+    db.execute("""
+        INSERT OR REPLACE INTO instagram_connections
+        (user_email, instagram_id, instagram_username, instagram_name, instagram_photo, access_token)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        user_email,
+        profile['id'],
+        profile.get('username', ''),
+        profile.get('name', ''),
+        profile.get('profile_picture_url', ''),
+        access_token
+    ))
+
+TESTE FINAL:
+
+1. Gustavo envia mensagem para Rodolfo
+   ✅ Não deve aparecer na fila do Gustavo
+   ✅ Deve aparecer na fila do Rodolfo
+   ✅ Com foto do Gustavo
+   
+2. Rodolfo envia mensagem para Gustavo
+   ✅ Não deve aparecer na fila do Rodolfo
+   ✅ Deve aparecer na fila do Gustavo
+   ✅ Com foto do Rodolfo
+
+3. Cliente externo envia para Gustavo
+   ✅ Deve aparecer na fila do Gustavo
+   ✅ Com foto (se API permitir)
+
+MOSTRE-ME o código completo implementado.
