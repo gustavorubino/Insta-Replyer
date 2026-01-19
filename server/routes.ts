@@ -209,6 +209,22 @@ export async function registerRoutes(
   await setupAuth(app);
   registerAuthRoutes(app);
 
+  // TEMPORARY: Debug endpoint to check admin status (remove after debugging)
+  app.get("/api/debug/admin-check/:email", async (req, res) => {
+    const email = req.params.email;
+    const user = await authStorage.getUserByEmail(email);
+    if (!user) {
+      return res.json({ found: false, email });
+    }
+    res.json({
+      found: true,
+      email: user.email,
+      id: user.id,
+      isAdmin: user.isAdmin,
+      firstName: user.firstName,
+    });
+  });
+
   // Cleanup expired OAuth states and pending webhooks on startup and periodically (every hour)
   (async () => {
     try {
