@@ -115,6 +115,8 @@ export function registerAuthRoutes(app: Express): void {
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
+      // Debug log: verify isAdmin value from database
+      console.log(`[DEBUG /api/auth/user] userId=${userId}, email=${user.email}, isAdmin=${user.isAdmin}`);
       // Remove sensitive fields before sending to client
       res.json(sanitizeUser(user));
     } catch (error) {
