@@ -14,7 +14,9 @@ async function fetchUser(): Promise<User | null> {
     throw new Error(`${response.status}: ${response.statusText}`);
   }
 
-  return response.json();
+  const user = await response.json();
+  console.log('[DEBUG useAuth] User data received:', JSON.stringify({ id: user?.id, email: user?.email, isAdmin: user?.isAdmin }));
+  return user;
 }
 
 async function logout(): Promise<void> {
