@@ -101,6 +101,26 @@ export const isAuthenticated: RequestHandler = async (req: any, res, next) => {
 
 // Register auth-specific routes
 export function registerAuthRoutes(app: Express): void {
+  // TEMPORARY DEBUG ENDPOINT - Remove after debugging
+  app.get("/api/debug/admin-status/:email", async (req, res) => {
+    try {
+      const user = await authStorage.getUserByEmail(req.params.email);
+      if (!user) {
+        return res.json({ found: false, email: req.params.email });
+      }
+      res.json({ 
+        found: true, 
+        id: user.id,
+        email: user.email,
+        isAdmin: user.isAdmin,
+        isAdminType: typeof user.isAdmin,
+        dbUrl: process.env.DATABASE_URL?.substring(0, 30) + "..."
+      });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+  
   // Get current authenticated user
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     // Disable HTTP caching to ensure fresh user data on every request
@@ -110,13 +130,20 @@ export function registerAuthRoutes(app: Express): void {
     
     try {
       // Support both auth types - use actualUserId for OIDC users with existing email accounts
-      const userId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
+      const actualUserId = req.user.actualUserId;
+      const claimsSub = req.user.claims?.sub;
+      const sessionId = req.user.id;
+      const userId = actualUserId || claimsSub || sessionId;
+      
+      // Debug: log all possible IDs
+      console.log(`[DEBUG /api/auth/user] Session IDs: actualUserId=${actualUserId}, claims.sub=${claimsSub}, sessionId=${sessionId}, FINAL userId=${userId}`);
+      
       const user = await authStorage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
       // Debug log: verify isAdmin value from database
-      console.log(`[DEBUG /api/auth/user] userId=${userId}, email=${user.email}, isAdmin=${user.isAdmin}`);
+      console.log(`[DEBUG /api/auth/user] DB Result: email=${user.email}, isAdmin=${user.isAdmin}, typeof isAdmin=${typeof user.isAdmin}`);
       // Remove sensitive fields before sending to client
       res.json(sanitizeUser(user));
     } catch (error) {
