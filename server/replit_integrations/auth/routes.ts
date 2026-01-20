@@ -121,8 +121,8 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
   
-  // TEMPORARY FIX ENDPOINT - Set admin status for a user
-  app.post("/api/debug/set-admin/:email", async (req, res) => {
+  // TEMPORARY FIX ENDPOINT - Set admin status for a user (GET for browser access)
+  app.get("/api/debug/set-admin/:email", async (req, res) => {
     try {
       const user = await authStorage.getUserByEmail(req.params.email);
       if (!user) {
