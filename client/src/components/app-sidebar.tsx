@@ -199,7 +199,7 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
               {user?.email || ""}
             </span>
             <span className="text-xs text-muted-foreground">
-              {user?.isAdmin ? "Administrador" : "Usuário"} [debug:{String(user?.isAdmin)}]
+              {user?.isAdmin ? "Administrador" : "Usuário"}
             </span>
           </div>
         </div>

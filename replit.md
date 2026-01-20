@@ -207,3 +207,4 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - AI uses pRetry for robust error handling with rate limit retries
 - 401 errors on /api/auth/user when not logged in are expected behavior
 - Tokens encrypted with AES-256-GCM; backward compatible with unencrypted legacy tokens
+- **IMPORTANT: Production and Development use SEPARATE databases** - User IDs and admin status are independent. Admin panel changes in dev don't affect production and vice versa.
