@@ -121,6 +121,27 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
   
+  // TEMPORARY FIX ENDPOINT - Set admin status for a user
+  app.post("/api/debug/set-admin/:email", async (req, res) => {
+    try {
+      const user = await authStorage.getUserByEmail(req.params.email);
+      if (!user) {
+        return res.json({ success: false, error: "User not found" });
+      }
+      // Update user to be admin
+      await authStorage.updateUserById(user.id, { isAdmin: true });
+      const updatedUser = await authStorage.getUserByEmail(req.params.email);
+      res.json({ 
+        success: true, 
+        id: updatedUser?.id,
+        email: updatedUser?.email,
+        isAdmin: updatedUser?.isAdmin
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, error: String(error) });
+    }
+  });
+  
   // Get current authenticated user
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     // Disable HTTP caching to ensure fresh user data on every request
