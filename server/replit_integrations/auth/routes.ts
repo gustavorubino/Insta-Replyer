@@ -103,20 +103,20 @@ export const isAuthenticated: RequestHandler = async (req: any, res, next) => {
 export function registerAuthRoutes(app: Express): void {
   // Get current authenticated user
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
+    // Disable HTTP caching to ensure fresh user data on every request
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    
     try {
       // Support both auth types - use actualUserId for OIDC users with existing email accounts
       const userId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
-      console.log(`[API /api/auth/user] Fetching user: ${userId}`);
       const user = await authStorage.getUser(userId);
       if (!user) {
-        console.log(`[API /api/auth/user] User not found: ${userId}`);
         return res.status(404).json({ message: "User not found" });
       }
-      console.log(`[API /api/auth/user] User found: id=${user.id}, email=${user.email}, isAdmin=${user.isAdmin}`);
       // Remove sensitive fields before sending to client
-      const sanitized = sanitizeUser(user);
-      console.log(`[API /api/auth/user] Response isAdmin: ${sanitized.isAdmin}`);
-      res.json(sanitized);
+      res.json(sanitizeUser(user));
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
