@@ -1183,7 +1183,10 @@ export async function registerRoutes(
 
       const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=${stateData}`;
 
-      console.log(`Instagram OAuth initiated for user (nonce generated)`);
+      // Debug: Log OAuth parameters
+      console.log(`[Instagram OAuth] client_id: ${INSTAGRAM_APP_ID}`);
+      console.log(`[Instagram OAuth] redirect_uri: ${redirectUri}`);
+      console.log(`[Instagram OAuth] Full URL: ${authUrl}`);
       res.json({ authUrl });
     } catch (error) {
       console.error("Error starting Instagram OAuth:", error);
