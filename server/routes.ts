@@ -1137,6 +1137,21 @@ export async function registerRoutes(
     }
   });
 
+  // Debug endpoint to check OAuth parameters (temporary)
+  app.get("/api/instagram/debug-oauth", isAuthenticated, async (req, res) => {
+    const protocol = req.headers["x-forwarded-proto"] || "https";
+    const host = req.headers["x-forwarded-host"] || req.headers.host;
+    const redirectUri = `${protocol}://${host}/api/instagram/callback`;
+    
+    res.json({
+      client_id: INSTAGRAM_APP_ID,
+      redirect_uri: redirectUri,
+      host: host,
+      protocol: protocol,
+      expected_redirect_uri: "https://insta-replyer--guguinharubino.replit.app/api/instagram/callback"
+    });
+  });
+
   // Start Instagram OAuth flow
   app.get("/api/instagram/auth", isAuthenticated, async (req, res) => {
     try {
