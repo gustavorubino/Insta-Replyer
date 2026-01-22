@@ -3,8 +3,10 @@ import OpenAI from "openai";
 import { chatStorage } from "./storage";
 import { getOpenAIConfig } from "../../utils/openai-config";
 
+const OpenAIClient =
+  (OpenAI as unknown as { default?: typeof OpenAI }).default ?? OpenAI;
 const openAIConfig = getOpenAIConfig();
-const openai = new OpenAI({
+const openai = new OpenAIClient({
   apiKey: openAIConfig.apiKey,
   baseURL: openAIConfig.baseURL,
 });

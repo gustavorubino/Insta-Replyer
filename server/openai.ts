@@ -34,8 +34,10 @@ export class OpenAIError extends Error {
 // Create OpenAI client on-demand to ensure config is read at call time, not at module load
 function getOpenAIClient() {
   const config = getOpenAIConfig();
+  const OpenAIClient =
+    (OpenAI as unknown as { default?: typeof OpenAI }).default ?? OpenAI;
   return {
-    client: new OpenAI({
+    client: new OpenAIClient({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
     }),

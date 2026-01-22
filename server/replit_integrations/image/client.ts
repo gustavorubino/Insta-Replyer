@@ -4,9 +4,11 @@ import { Buffer } from "node:buffer";
 import { getOpenAIConfig } from "../../utils/openai-config";
 
 // Create OpenAI client on-demand to ensure env vars are read at runtime
-function getOpenAIClient(): OpenAI {
+export function getOpenAIClient(): OpenAI {
   const config = getOpenAIConfig();
-  return new OpenAI({
+  const OpenAIClient =
+    (OpenAI as unknown as { default?: typeof OpenAI }).default ?? OpenAI;
+  return new OpenAIClient({
     apiKey: config.apiKey,
     baseURL: config.baseURL,
   });
