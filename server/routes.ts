@@ -1477,8 +1477,12 @@ export async function registerRoutes(
 
       console.log(`OAuth IDs - Token user_id: ${tokenUserId}, API id: ${instagramAccountId}, username: ${instagramUsername}`);
 
-      // Store both IDs - the API id as instagramAccountId and token user_id as potential recipient ID
-      // ALWAYS set instagramRecipientId - this will be auto-updated when first webhook arrives
+      // Store Instagram data
+      // IMPORTANT: Do NOT set instagramRecipientId here because:
+      // - The ID from OAuth (igUserData.id or tokenData.user_id) is often DIFFERENT from the webhook recipient ID
+      // - The webhook recipient ID is the Instagram Business Account ID (IGBA ID) used by Facebook
+      // - Setting the wrong ID causes webhook matching to fail
+      // - Leaving it null/undefined enables auto-association on first webhook
       const updates: any = {
         instagramAccountId,
         instagramUsername,
@@ -1490,16 +1494,15 @@ export async function registerRoutes(
         refreshAttempts: "0",
         lastRefreshError: null,
         showTokenWarning: false,
-        // Always set recipientId - prefer token user_id if different, otherwise use accountId
-        // This will be auto-updated when the first webhook arrives with the real recipient ID
-        instagramRecipientId: (tokenUserId && tokenUserId !== instagramAccountId && tokenUserId !== 'undefined')
-          ? tokenUserId
-          : instagramAccountId,
+        // DO NOT set instagramRecipientId - let it be auto-associated by first webhook
+        // This ensures we use the correct ID that Facebook actually sends in webhooks
+        instagramRecipientId: null,
       };
       
       console.log(`Storing Instagram profile pic: ${profilePictureUrl ? "found" : "not available"}`);
 
-      console.log(`Storing instagramRecipientId: ${updates.instagramRecipientId} (will be auto-updated on first webhook if different)`);
+      console.log(`instagramRecipientId set to NULL - will be auto-associated on first webhook`);
+      console.log(`OAuth IDs for reference - tokenUserId: ${tokenUserId}, instagramAccountId: ${instagramAccountId}`);
 
       await authStorage.updateUser(userId, updates);
       
