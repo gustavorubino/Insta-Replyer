@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { generateAIResponse, regenerateResponse } from "./openai";
+import { getOpenAIConfig } from "./utils/openai-config";
 import { createMessageApiSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "./replit_integrations/auth";
@@ -1787,11 +1788,14 @@ export async function registerRoutes(
 
   // AI Test Endpoint para diagnóstico
   app.get("/api/test-ai", async (req, res) => {
-    const aiConfig = {
-      hasApiKey: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-      hasBaseUrl: !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-      baseUrl: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || "(not set)",
-      apiKeyLength: process.env.AI_INTEGRATIONS_OPENAI_API_KEY?.length || 0,
+    const aiConfig = getOpenAIConfig();
+    const safeConfig = {
+      hasApiKey: !!aiConfig.apiKey,
+      hasBaseUrl: !!aiConfig.baseURL,
+      baseUrl: aiConfig.baseURL || "(not set)",
+      apiKeyLength: aiConfig.apiKey?.length || 0,
+      apiKeySource: aiConfig.apiKeySource || "(not set)",
+      baseUrlSource: aiConfig.baseURLSource || "(not set)",
     };
     
     let testResult: { success: boolean; response?: string; error?: string } = { success: false };
@@ -1810,7 +1814,7 @@ export async function registerRoutes(
     }
     
     res.json({
-      config: aiConfig,
+      config: safeConfig,
       testResult,
       timestamp: new Date().toISOString(),
     });

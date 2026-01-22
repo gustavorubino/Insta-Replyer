@@ -1,10 +1,12 @@
 import OpenAI from "openai";
 import pRetry from "p-retry";
 import { storage } from "./storage";
+import { getOpenAIConfig } from "./utils/openai-config";
 
+const openAIConfig = getOpenAIConfig();
 const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: openAIConfig.apiKey,
+  baseURL: openAIConfig.baseURL,
 });
 
 interface GenerateResponseResult {
@@ -24,12 +26,16 @@ function isRateLimitError(error: unknown): boolean {
 
 async function callOpenAI(messages: OpenAI.Chat.ChatCompletionMessageParam[]): Promise<string> {
   // Log API configuration for debugging
-  const hasApiKey = !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-  const hasBaseUrl = !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-  console.log(`[OpenAI] Config check - API Key: ${hasApiKey ? 'configured' : 'MISSING'}, Base URL: ${hasBaseUrl ? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL : 'MISSING'}`);
+  const hasApiKey = !!openAIConfig.apiKey;
+  const hasBaseUrl = !!openAIConfig.baseURL;
+  console.log(
+    `[OpenAI] Config check - API Key: ${hasApiKey ? "configured" : "MISSING"} (${openAIConfig.apiKeySource || "none"}), Base URL: ${
+      hasBaseUrl ? openAIConfig.baseURL : "MISSING"
+    } (${openAIConfig.baseURLSource || "none"})`
+  );
   
   if (!hasApiKey) {
-    throw new Error("AI_INTEGRATIONS_OPENAI_API_KEY não está configurada. Verifique as configurações do Replit AI.");
+    throw new Error("Nenhuma chave OpenAI configurada. Configure AI_INTEGRATIONS_OPENAI_API_KEY ou OPENAI_API_KEY.");
   }
   
   return pRetry(
