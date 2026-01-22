@@ -18,17 +18,32 @@ function getBaseUrl(req: Request): string {
     return process.env.APP_BASE_URL;
   }
   
-  // Get protocol - take first value if multiple (e.g., "https, http" -> "https")
-  const protoHeader = req.headers["x-forwarded-proto"];
-  const protocol = typeof protoHeader === "string" 
-    ? protoHeader.split(",")[0].trim() 
-    : "https";
+  // PRODUCTION DOMAIN - hardcoded for reliability with Instagram OAuth
+  // Instagram requires exact match of redirect_uri, so we must be precise
+  const PRODUCTION_DOMAIN = "insta-replyer--guguinharubino.replit.app";
   
   // Get host - take first value if multiple (e.g., "domain.app, proxy.dev" -> "domain.app")
   const hostHeader = req.headers["x-forwarded-host"] || req.headers.host;
   const host = typeof hostHeader === "string"
     ? hostHeader.split(",")[0].trim()
-    : hostHeader;
+    : String(hostHeader || "");
+  
+  // If the request is coming to the production domain, use it
+  // Also check if we're in a Replit deployment (not dev preview)
+  if (host.includes(PRODUCTION_DOMAIN) || host.endsWith(".replit.app")) {
+    // For any .replit.app domain, extract the correct one
+    if (host.includes(PRODUCTION_DOMAIN)) {
+      return `https://${PRODUCTION_DOMAIN}`;
+    }
+    // If it's another .replit.app, use what we got
+    return `https://${host}`;
+  }
+  
+  // For development/preview, use the detected values
+  const protoHeader = req.headers["x-forwarded-proto"];
+  const protocol = typeof protoHeader === "string" 
+    ? protoHeader.split(",")[0].trim() 
+    : "https";
   
   return `${protocol}://${host}`;
 }
