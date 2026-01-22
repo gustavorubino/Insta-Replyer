@@ -12,6 +12,7 @@ import { StatsCard } from "@/components/stats-card";
 import { ActivityItem } from "@/components/activity-item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { useLanguage } from "@/i18n";
 import type { MessageWithResponse } from "@shared/schema";
 
 interface DashboardStats {
@@ -24,6 +25,8 @@ interface DashboardStats {
 }
 
 export default function Dashboard() {
+  const { t } = useLanguage();
+  
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/stats"],
     refetchInterval: 5000, // Auto-refresh every 5 seconds
@@ -39,9 +42,9 @@ export default function Dashboard() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <h1 className="text-2xl font-semibold">{t.dashboard.title}</h1>
         <p className="text-muted-foreground">
-          Visão geral das suas respostas automáticas
+          {t.dashboard.subtitle}
         </p>
       </div>
 
@@ -64,28 +67,28 @@ export default function Dashboard() {
         ) : (
           <>
             <StatsCard
-              title="Mensagens Pendentes"
+              title={t.dashboard.pendingApproval}
               value={stats?.pendingMessages || 0}
-              description="Aguardando aprovação"
+              description={t.queue.empty.split(".")[0]}
               icon={Clock}
             />
             <StatsCard
-              title="Aprovadas Hoje"
+              title={t.history.approved}
               value={stats?.approvedToday || 0}
-              description="Respostas enviadas"
+              description={t.queue.send}
               icon={CheckCircle}
               trend={{ value: 12, isPositive: true }}
             />
             <StatsCard
-              title="Auto-Enviadas"
+              title={t.dashboard.autoReplied}
               value={stats?.autoSentToday || 0}
-              description="Pela IA automaticamente"
+              description={t.history.autoSent}
               icon={Bot}
             />
             <StatsCard
-              title="Confiança Média"
+              title={t.dashboard.avgConfidence}
               value={`${Math.round((stats?.avgConfidence || 0) * 100)}%`}
-              description="Das respostas da IA"
+              description={t.queue.confidence}
               icon={TrendingUp}
             />
           </>
@@ -96,7 +99,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg font-medium">
-              Atividade Recente
+              {t.dashboard.recentActivity}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -136,7 +139,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <p className="text-sm text-muted-foreground text-center py-8">
-                Nenhuma atividade recente
+                {t.dashboard.noActivity}
               </p>
             )}
           </CardContent>
@@ -145,19 +148,19 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg font-medium">
-              Resumo do Sistema
+              {t.dashboard.title}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm">Total de Mensagens</span>
+              <span className="text-sm">{t.dashboard.totalMessages}</span>
               <span className="text-sm font-medium">
                 {stats?.totalMessages || 0}
               </span>
             </div>
             <Separator />
             <div className="flex items-center justify-between">
-              <span className="text-sm">Taxa de Aprovação</span>
+              <span className="text-sm">{t.history.approved}</span>
               <span className="text-sm font-medium text-green-600">
                 {stats && stats.approvedToday + stats.rejectedToday > 0
                   ? Math.round(
@@ -171,16 +174,16 @@ export default function Dashboard() {
             </div>
             <Separator />
             <div className="flex items-center justify-between">
-              <span className="text-sm">Modo de Operação</span>
-              <span className="text-sm font-medium text-amber-600">Manual</span>
+              <span className="text-sm">{t.settings.tabs.mode}</span>
+              <span className="text-sm font-medium text-amber-600">{t.settings.mode.manual.split(" ")[0]}</span>
             </div>
             <Separator />
             <div className="flex items-center justify-between">
-              <span className="text-sm">Status da Conexão</span>
+              <span className="text-sm">{t.settings.tabs.connection}</span>
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-green-500"></span>
                 <span className="text-sm font-medium text-green-600">
-                  Conectado
+                  {t.settings.connection.connected}
                 </span>
               </div>
             </div>

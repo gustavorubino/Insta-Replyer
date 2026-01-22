@@ -6,6 +6,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageToggle } from "@/components/language-toggle";
+import { LanguageProvider } from "@/i18n";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -55,7 +57,10 @@ function AppLayout() {
         <SidebarInset className="flex flex-col flex-1 overflow-hidden">
           <header className="flex h-14 items-center justify-between gap-4 border-b px-4 bg-background">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <LanguageToggle />
+              <ThemeToggle />
+            </div>
           </header>
           <main className="flex-1 overflow-auto bg-background">
             <Router />
@@ -100,12 +105,14 @@ function AuthenticatedApp() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="light" storageKey="instagram-ai-theme">
-        <TooltipProvider>
-          <AuthenticatedApp />
-          <Toaster />
-        </TooltipProvider>
-      </ThemeProvider>
+      <LanguageProvider defaultLanguage="pt-BR">
+        <ThemeProvider defaultTheme="light" storageKey="instagram-ai-theme">
+          <TooltipProvider>
+            <AuthenticatedApp />
+            <Toaster />
+          </TooltipProvider>
+        </ThemeProvider>
+      </LanguageProvider>
     </QueryClientProvider>
   );
 }

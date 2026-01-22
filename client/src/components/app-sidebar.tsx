@@ -29,37 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-
-const menuItems = [
-  {
-    title: "Dashboard",
-    url: "/",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Fila de Aprovação",
-    url: "/queue",
-    icon: Inbox,
-  },
-  {
-    title: "Histórico",
-    url: "/history",
-    icon: History,
-  },
-  {
-    title: "Configurações",
-    url: "/settings",
-    icon: Settings,
-  },
-];
-
-const adminMenuItems = [
-  {
-    title: "Administração",
-    url: "/admin",
-    icon: Users,
-  },
-];
+import { useLanguage } from "@/i18n";
 
 interface AppSidebarProps {
   pendingCount?: number;
@@ -68,6 +38,38 @@ interface AppSidebarProps {
 export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
   const [location, navigate] = useLocation();
   const { user } = useAuth();
+  const { t } = useLanguage();
+
+  const menuItems = [
+    {
+      title: t.nav.dashboard,
+      url: "/",
+      icon: LayoutDashboard,
+    },
+    {
+      title: t.nav.queue,
+      url: "/queue",
+      icon: Inbox,
+    },
+    {
+      title: t.nav.history,
+      url: "/history",
+      icon: History,
+    },
+    {
+      title: t.nav.settings,
+      url: "/settings",
+      icon: Settings,
+    },
+  ];
+
+  const adminMenuItems = [
+    {
+      title: t.nav.admin,
+      url: "/admin",
+      icon: Users,
+    },
+  ];
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
@@ -91,9 +93,9 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
             <SiInstagram className="h-5 w-5 text-white" />
           </div>
           <div className="flex flex-col">
-            <span className="text-sm font-semibold">Instagram AI</span>
+            <span className="text-sm font-semibold">{t.sidebar.title}</span>
             <span className="text-xs text-muted-foreground">
-              Respostas Inteligentes
+              {t.sidebar.subtitle}
             </span>
           </div>
         </div>
@@ -105,17 +107,17 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
             <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium text-destructive">
-                Conexão expirando
+                {t.sidebar.tokenWarning}
               </span>
               <span className="text-xs text-muted-foreground">
-                Sua conexão com o Instagram precisa ser renovada.
+                {t.sidebar.tokenWarningDesc}
               </span>
               <Link 
                 href="/settings" 
                 className="text-xs text-foreground underline"
                 data-testid="link-token-warning-settings"
               >
-                Reconectar agora
+                {t.sidebar.reconnectNow}
               </Link>
             </div>
           </div>
@@ -124,19 +126,19 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
       
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Menu</SidebarGroupLabel>
+          <SidebarGroupLabel>{t.nav.menu}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {menuItems.map((item) => {
                 const isActive = location === item.url;
                 return (
-                  <SidebarMenuItem key={item.title}>
+                  <SidebarMenuItem key={item.url}>
                     <SidebarMenuButton
                       asChild
                       data-active={isActive}
                       className="data-[active=true]:bg-sidebar-accent"
                     >
-                      <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/ /g, "-")}`}>
+                      <Link href={item.url} data-testid={`link-${item.url.replace("/", "") || "dashboard"}`}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
                         {item.url === "/queue" && pendingCount > 0 && (
@@ -163,13 +165,13 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
                 {adminMenuItems.map((item) => {
                   const isActive = location === item.url;
                   return (
-                    <SidebarMenuItem key={item.title}>
+                    <SidebarMenuItem key={item.url}>
                       <SidebarMenuButton
                         asChild
                         data-active={isActive}
                         className="data-[active=true]:bg-sidebar-accent"
                       >
-                        <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/ /g, "-")}`}>
+                        <Link href={item.url} data-testid={`link-${item.url.replace("/", "")}`}>
                           <item.icon className="h-4 w-4" />
                           <span>{item.title}</span>
                         </Link>
@@ -193,13 +195,13 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
             <span className="text-xs font-medium truncate" data-testid="text-user-name">
               {user?.firstName 
                 ? `${user.firstName} ${user.lastName || ''}`.trim() 
-                : user?.email?.split('@')[0] || "Usuário"}
+                : user?.email?.split('@')[0] || t.sidebar.user}
             </span>
             <span className="text-xs text-muted-foreground truncate" data-testid="text-user-email">
               {user?.email || ""}
             </span>
             <span className="text-xs text-muted-foreground">
-              {user?.isAdmin ? "Administrador" : "Usuário"}
+              {user?.isAdmin ? t.sidebar.administrator : t.sidebar.user}
             </span>
           </div>
         </div>
@@ -212,7 +214,7 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
           data-testid="button-logout"
         >
           <LogOut className="h-4 w-4 mr-2" />
-          Sair
+          {t.nav.logout}
         </Button>
       </SidebarFooter>
     </Sidebar>
