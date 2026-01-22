@@ -995,6 +995,16 @@ export async function registerRoutes(
         previousResponse
       );
 
+      // Check if AI generation failed
+      if (aiResult.error || aiResult.errorCode) {
+        console.error(`[Regenerate] AI Error: ${aiResult.errorCode} - ${aiResult.error}`);
+        return res.status(500).json({
+          error: aiResult.error || "Erro ao gerar resposta da IA",
+          errorCode: aiResult.errorCode,
+          aiConfigured: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY || !!process.env.OPENAI_API_KEY,
+        });
+      }
+
       let aiResponse = await storage.getAiResponse(id);
       if (aiResponse) {
         await storage.updateAiResponse(aiResponse.id, {
@@ -1794,18 +1804,33 @@ export async function registerRoutes(
       hasBaseUrl: !!aiConfig.baseURL,
       baseUrl: aiConfig.baseURL || "(not set)",
       apiKeyLength: aiConfig.apiKey?.length || 0,
-      apiKeySource: aiConfig.apiKeySource || "(not set)",
-      baseUrlSource: aiConfig.baseURLSource || "(not set)",
+      apiKeySource: aiConfig.apiKeySource || "(none)",
+      baseUrlSource: aiConfig.baseURLSource || "(none)",
     };
     
-    let testResult: { success: boolean; response?: string; error?: string } = { success: false };
+    let testResult: { 
+      success: boolean; 
+      response?: string; 
+      error?: string;
+      errorCode?: string;
+    } = { success: false };
     
     try {
-      const result = await generateAIResponse("teste", "dm", "TestUser");
-      testResult = {
-        success: result.confidenceScore > 0.1,
-        response: result.suggestedResponse.substring(0, 100),
-      };
+      const result = await generateAIResponse("Olá, tudo bem?", "dm", "TestUser");
+      
+      // Check for structured error
+      if (result.error || result.errorCode) {
+        testResult = {
+          success: false,
+          error: result.error,
+          errorCode: result.errorCode,
+        };
+      } else {
+        testResult = {
+          success: result.confidenceScore > 0.1 && result.suggestedResponse.length > 0,
+          response: result.suggestedResponse.substring(0, 100),
+        };
+      }
     } catch (e) {
       testResult = {
         success: false,
@@ -1813,10 +1838,16 @@ export async function registerRoutes(
       };
     }
     
-    res.json({
+    // Return appropriate status code
+    const statusCode = testResult.success ? 200 : (safeConfig.hasApiKey ? 502 : 503);
+    
+    res.status(statusCode).json({
       config: safeConfig,
       testResult,
       timestamp: new Date().toISOString(),
+      hint: !safeConfig.hasApiKey 
+        ? "Configure OPENAI_API_KEY ou AI_INTEGRATIONS_OPENAI_API_KEY nos Secrets do Deployment"
+        : undefined,
     });
   });
 

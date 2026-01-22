@@ -11,6 +11,7 @@ import {
   Sparkles,
   RotateCcw,
   Smile,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Dialog,
@@ -24,6 +25,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ConfidenceBadge } from "@/components/confidence-badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Popover,
   PopoverContent,
@@ -64,6 +66,7 @@ export function ApprovalModal({
   const [editedResponse, setEditedResponse] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [emojiPopoverOpen, setEmojiPopoverOpen] = useState(false);
+  const [hasAIError, setHasAIError] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const insertEmoji = (emoji: string) => {
@@ -85,8 +88,21 @@ export function ApprovalModal({
 
   useEffect(() => {
     if (message?.aiResponse) {
-      setEditedResponse(message.aiResponse.suggestedResponse);
-      setIsEditing(false);
+      // Check if the response is an error placeholder
+      const response = message.aiResponse.suggestedResponse || "";
+      const isErrorResponse = 
+        response === "" ||
+        response.startsWith("Desculpe, ocorreu um erro") ||
+        response.startsWith("Erro ao") ||
+        (message.aiResponse.confidenceScore === 0.1 && response.includes("erro"));
+      
+      setHasAIError(isErrorResponse);
+      setEditedResponse(isErrorResponse ? "" : response);
+      setIsEditing(isErrorResponse); // Auto-enable editing if error
+    } else {
+      setHasAIError(true); // No AI response at all
+      setEditedResponse("");
+      setIsEditing(true);
     }
   }, [message]);
 
@@ -250,12 +266,20 @@ export function ApprovalModal({
               )}
             </div>
             <div className="flex-1 flex flex-col gap-2 overflow-hidden">
+              {hasAIError && (
+                <Alert variant="destructive" className="py-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-sm">
+                    A IA não conseguiu gerar uma sugestão. Escreva uma resposta manualmente ou clique em "Regenerar" para tentar novamente.
+                  </AlertDescription>
+                </Alert>
+              )}
               <div className="flex-1 relative overflow-hidden">
                 <Textarea
                   ref={textareaRef}
                   value={editedResponse}
                   onChange={(e) => setEditedResponse(e.target.value)}
-                  placeholder="Resposta sugerida pela IA..."
+                  placeholder={hasAIError ? "Escreva sua resposta aqui..." : "Resposta sugerida pela IA..."}
                   className="h-full min-h-[200px] resize-none"
                   disabled={!isEditing && !isLoading}
                   data-testid="textarea-response"

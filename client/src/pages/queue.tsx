@@ -104,7 +104,16 @@ export default function Queue() {
   const regenerateMutation = useMutation({
     mutationFn: async (messageId: number) => {
       const res = await apiRequest("POST", `/api/messages/${messageId}/regenerate`);
-      return res.json();
+      const data = await res.json();
+      
+      // Check if server returned error in body
+      if (!res.ok) {
+        throw {
+          status: res.status,
+          ...data,
+        };
+      }
+      return data;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/messages/pending"] });
@@ -119,10 +128,27 @@ export default function Queue() {
         description: "Uma nova sugestão foi gerada pela IA.",
       });
     },
-    onError: () => {
+    onError: (error: any) => {
+      let title = "Erro ao regenerar";
+      let description = "Não foi possível regenerar a resposta.";
+      
+      // Handle specific error codes
+      if (error?.errorCode === "MISSING_API_KEY") {
+        title = "IA não configurada";
+        description = "A chave da API OpenAI não está configurada no servidor. Contate o administrador.";
+      } else if (error?.errorCode === "RATE_LIMIT") {
+        title = "Limite de requisições";
+        description = "Muitas requisições. Aguarde alguns segundos e tente novamente.";
+      } else if (error?.errorCode === "API_ERROR") {
+        title = "Erro na API de IA";
+        description = error?.error || "A API de inteligência artificial retornou um erro.";
+      } else if (error?.error) {
+        description = error.error;
+      }
+      
       toast({
-        title: "Erro",
-        description: "Não foi possível regenerar a resposta.",
+        title,
+        description,
         variant: "destructive",
       });
     },

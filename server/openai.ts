@@ -12,6 +12,8 @@ const openai = new OpenAI({
 interface GenerateResponseResult {
   suggestedResponse: string;
   confidenceScore: number;
+  error?: string;
+  errorCode?: "MISSING_API_KEY" | "API_ERROR" | "RATE_LIMIT" | "PARSE_ERROR";
 }
 
 function isRateLimitError(error: unknown): boolean {
@@ -24,36 +26,61 @@ function isRateLimitError(error: unknown): boolean {
   );
 }
 
+// Custom error class for structured error handling
+export class OpenAIError extends Error {
+  code: "MISSING_API_KEY" | "API_ERROR" | "RATE_LIMIT" | "PARSE_ERROR";
+  
+  constructor(message: string, code: OpenAIError["code"]) {
+    super(message);
+    this.name = "OpenAIError";
+    this.code = code;
+  }
+}
+
 async function callOpenAI(messages: OpenAI.Chat.ChatCompletionMessageParam[]): Promise<string> {
-  // Log API configuration for debugging
+  // Log API configuration for debugging (safe - no secrets)
   const hasApiKey = !!openAIConfig.apiKey;
   const hasBaseUrl = !!openAIConfig.baseURL;
   console.log(
-    `[OpenAI] Config check - API Key: ${hasApiKey ? "configured" : "MISSING"} (${openAIConfig.apiKeySource || "none"}), Base URL: ${
-      hasBaseUrl ? openAIConfig.baseURL : "MISSING"
-    } (${openAIConfig.baseURLSource || "none"})`
+    `[OpenAI] Config: API Key=${hasApiKey ? "YES" : "NO"} (source: ${openAIConfig.apiKeySource || "none"}), ` +
+    `Base URL=${hasBaseUrl ? "YES" : "NO"} (source: ${openAIConfig.baseURLSource || "none"})`
   );
   
   if (!hasApiKey) {
-    throw new Error("Nenhuma chave OpenAI configurada. Configure AI_INTEGRATIONS_OPENAI_API_KEY ou OPENAI_API_KEY.");
+    console.error("[OpenAI] CRITICAL: No API key configured. Check Secrets in Deployment settings.");
+    throw new OpenAIError(
+      "Missing env: OPENAI_API_KEY ou AI_INTEGRATIONS_OPENAI_API_KEY",
+      "MISSING_API_KEY"
+    );
   }
   
   return pRetry(
     async () => {
-      console.log("[OpenAI] Making API call with model: gpt-4.1");
-      const response = await openai.chat.completions.create({
-        model: "gpt-4.1",
-        messages,
-        response_format: { type: "json_object" },
-        max_completion_tokens: 1024,
-      });
+      console.log("[OpenAI] Calling API with model: gpt-4.1");
+      const startTime = Date.now();
+      
+      try {
+        const response = await openai.chat.completions.create({
+          model: "gpt-4.1",
+          messages,
+          response_format: { type: "json_object" },
+          max_completion_tokens: 1024,
+        });
 
-      const content = response.choices[0]?.message?.content;
-      console.log(`[OpenAI] Response received, content length: ${content?.length || 0}`);
-      if (!content) {
-        throw new Error("No response content from OpenAI");
+        const latency = Date.now() - startTime;
+        const content = response.choices[0]?.message?.content;
+        console.log(`[OpenAI] Response OK (${latency}ms), content length: ${content?.length || 0}`);
+        
+        if (!content) {
+          throw new OpenAIError("No response content from OpenAI", "API_ERROR");
+        }
+        return content;
+      } catch (err: any) {
+        const latency = Date.now() - startTime;
+        const status = err?.status || err?.response?.status || "unknown";
+        console.error(`[OpenAI] API Error (${latency}ms): status=${status}, message=${err?.message || err}`);
+        throw err;
       }
-      return content;
     },
     {
       retries: 3,
@@ -61,11 +88,11 @@ async function callOpenAI(messages: OpenAI.Chat.ChatCompletionMessageParam[]): P
       maxTimeout: 10000,
       factor: 2,
       onFailedAttempt: (error) => {
-        console.log(`[OpenAI] API attempt ${error.attemptNumber} failed. Retries left: ${error.retriesLeft}`);
-        console.log(`[OpenAI] Error details:`, error.message || error);
+        console.log(`[OpenAI] Attempt ${error.attemptNumber} failed. Retries left: ${error.retriesLeft}`);
         if (!isRateLimitError(error)) {
           throw new pRetry.AbortError(error instanceof Error ? error : new Error(String(error)));
         }
+        console.log("[OpenAI] Rate limit detected, will retry...");
       },
     }
   );
@@ -111,7 +138,18 @@ A confiança deve ser um número entre 0 e 1, onde:
       { role: "user", content: prompt },
     ]);
 
-    const parsed = JSON.parse(content);
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (parseErr) {
+      console.error("[OpenAI] Failed to parse JSON response:", content?.substring(0, 200));
+      return {
+        suggestedResponse: "Erro ao processar resposta da IA.",
+        confidenceScore: 0.1,
+        error: "A IA retornou uma resposta inválida.",
+        errorCode: "PARSE_ERROR" as const,
+      };
+    }
     
     return {
       suggestedResponse: parsed.response || "Desculpe, não consegui gerar uma resposta.",
@@ -121,12 +159,32 @@ A confiança deve ser um número entre 0 e 1, onde:
     console.error("[OpenAI] Error generating AI response:");
     console.error("[OpenAI] Error type:", error?.constructor?.name);
     console.error("[OpenAI] Error message:", error instanceof Error ? error.message : String(error));
-    if (error instanceof Error && 'cause' in error) {
-      console.error("[OpenAI] Error cause:", error.cause);
+    
+    // Return structured error
+    if (error instanceof OpenAIError) {
+      return {
+        suggestedResponse: "",
+        confidenceScore: 0,
+        error: error.message,
+        errorCode: error.code,
+      };
     }
+    
+    // Check for rate limit
+    if (isRateLimitError(error)) {
+      return {
+        suggestedResponse: "",
+        confidenceScore: 0,
+        error: "API com muitas requisições. Tente novamente em alguns segundos.",
+        errorCode: "RATE_LIMIT" as const,
+      };
+    }
+    
     return {
-      suggestedResponse: "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, escreva uma resposta manualmente.",
-      confidenceScore: 0.1,
+      suggestedResponse: "",
+      confidenceScore: 0,
+      error: error instanceof Error ? error.message : "Erro desconhecido ao gerar resposta.",
+      errorCode: "API_ERROR" as const,
     };
   }
 }
@@ -199,17 +257,49 @@ Responda em formato JSON com a seguinte estrutura:
       { role: "user", content: prompt },
     ]);
 
-    const parsed = JSON.parse(content);
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (parseErr) {
+      console.error("[OpenAI] Failed to parse regenerate JSON response");
+      return {
+        suggestedResponse: "",
+        confidenceScore: 0,
+        error: "A IA retornou uma resposta inválida.",
+        errorCode: "PARSE_ERROR" as const,
+      };
+    }
     
     return {
       suggestedResponse: parsed.response || "Desculpe, não consegui gerar uma resposta.",
       confidenceScore: Math.min(1, Math.max(0, parsed.confidence || 0.5)),
     };
   } catch (error) {
-    console.error("Error regenerating AI response:", error);
+    console.error("[OpenAI] Error regenerating AI response:", error instanceof Error ? error.message : error);
+    
+    if (error instanceof OpenAIError) {
+      return {
+        suggestedResponse: "",
+        confidenceScore: 0,
+        error: error.message,
+        errorCode: error.code,
+      };
+    }
+    
+    if (isRateLimitError(error)) {
+      return {
+        suggestedResponse: "",
+        confidenceScore: 0,
+        error: "API com muitas requisições. Tente novamente.",
+        errorCode: "RATE_LIMIT" as const,
+      };
+    }
+    
     return {
-      suggestedResponse: "Desculpe, ocorreu um erro ao gerar a resposta.",
-      confidenceScore: 0.1,
+      suggestedResponse: "",
+      confidenceScore: 0,
+      error: error instanceof Error ? error.message : "Erro ao regenerar resposta.",
+      errorCode: "API_ERROR" as const,
     };
   }
 }
