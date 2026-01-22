@@ -4,9 +4,8 @@ import { rm, readFile } from "fs/promises";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
-// NOTE: "openai" was removed from this list because it's a pure ESM module
-// and bundling it into CJS format breaks the default export.
-// It will be loaded as an external dependency at runtime.
+// NOTE: We use direct HTTP calls to OpenAI API instead of the SDK
+// to avoid ESM/CJS compatibility issues in production builds
 const allowlist = [
   "@google/generative-ai",
   "axios",
@@ -23,7 +22,6 @@ const allowlist = [
   "multer",
   "nanoid",
   "nodemailer",
-  // "openai", // REMOVED - ESM module incompatible with CJS bundle
   "passport",
   "passport-local",
   "pg",
@@ -61,14 +59,6 @@ async function buildAll() {
     minify: true,
     external: externals,
     logLevel: "info",
-    // Keep dynamic imports as-is for ESM modules like "openai"
-    // This allows Node.js to properly import ESM modules at runtime
-    banner: {
-      js: `
-// ESM import helper for CJS
-const __importDynamic = new Function('specifier', 'return import(specifier)');
-`
-    },
   });
 }
 

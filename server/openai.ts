@@ -1,13 +1,25 @@
-import pRetry from "p-retry";
 import { storage } from "./storage";
 import { getOpenAIConfig } from "./utils/openai-config";
 
-// OpenAI types - loaded dynamically to avoid CJS/ESM issues
-type OpenAIClient = any;
+// Types for OpenAI API
 type ChatCompletionMessageParam = {
   role: "system" | "user" | "assistant";
   content: string;
 };
+
+interface OpenAIResponse {
+  id: string;
+  choices: {
+    message: {
+      content: string;
+    };
+  }[];
+  error?: {
+    message: string;
+    type: string;
+    code: string;
+  };
+}
 
 interface GenerateResponseResult {
   suggestedResponse: string;
@@ -37,56 +49,21 @@ export class OpenAIError extends Error {
   }
 }
 
-// Cache for the OpenAI class to avoid repeated dynamic imports
-let OpenAIClass: any = null;
-
-// Load OpenAI dynamically - works in both ESM and CJS environments
-async function loadOpenAI(): Promise<any> {
-  if (OpenAIClass) return OpenAIClass;
-  
-  try {
-    // Dynamic import for ESM module
-    const module = await import("openai");
-    // Handle both default export and named export patterns
-    OpenAIClass = module.default || module.OpenAI || module;
-    console.log("[OpenAI] Module loaded successfully, type:", typeof OpenAIClass);
-    return OpenAIClass;
-  } catch (err) {
-    console.error("[OpenAI] Failed to load module:", err);
-    throw err;
-  }
-}
-
-// Create OpenAI client on-demand to ensure config is read at call time, not at module load
-async function getOpenAIClient() {
-  const config = getOpenAIConfig();
-  const OpenAI = await loadOpenAI();
-  
-  return {
-    client: new OpenAI({
-      apiKey: config.apiKey,
-      baseURL: config.baseURL,
-    }),
-    config
-  };
-}
-
+// Direct HTTP call to OpenAI API - no SDK needed, works in any environment
 async function callOpenAI(
   messages: ChatCompletionMessageParam[]
 ): Promise<string> {
-  // Get fresh config and client on each call (ensures env vars are read at runtime)
-  const { client: openai, config: openAIConfig } = await getOpenAIClient();
+  const config = getOpenAIConfig();
   
   // Log API configuration for debugging (safe - no secrets)
-  const hasApiKey = !!openAIConfig.apiKey;
-  const hasBaseUrl = !!openAIConfig.baseURL;
+  const hasApiKey = !!config.apiKey;
   const isProduction = process.env.NODE_ENV === "production";
-  const apiKeyPreview = openAIConfig.apiKey ? `${openAIConfig.apiKey.substring(0, 10)}...` : "none";
+  const apiKeyPreview = config.apiKey ? `${config.apiKey.substring(0, 10)}...` : "none";
   
   console.log(
     `[OpenAI] Environment: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}, ` +
-    `API Key=${hasApiKey ? "YES" : "NO"} (${apiKeyPreview}, source: ${openAIConfig.apiKeySource || "none"}), ` +
-    `Base URL=${hasBaseUrl ? openAIConfig.baseURL : "default"} (source: ${openAIConfig.baseURLSource || "none"})`
+    `API Key=${hasApiKey ? "YES" : "NO"} (${apiKeyPreview}, source: ${config.apiKeySource || "none"}), ` +
+    `Base URL=${config.baseURL || "https://api.openai.com/v1"} (source: ${config.baseURLSource || "default"})`
   );
   
   if (!hasApiKey) {
@@ -96,60 +73,77 @@ async function callOpenAI(
       "MISSING_API_KEY"
     );
   }
-  
-  return pRetry(
-    async () => {
-      console.log("[OpenAI] Calling API with model: gpt-4o");
-      const startTime = Date.now();
-      
-      try {
-        const response = await openai.chat.completions.create({
-          model: "gpt-4o",
-          messages,
-          response_format: { type: "json_object" },
-          max_completion_tokens: 1024,
-        });
 
-        const latency = Date.now() - startTime;
-        const content = response.choices[0]?.message?.content;
-        console.log(`[OpenAI] Response OK (${latency}ms), content length: ${content?.length || 0}`);
+  const baseURL = config.baseURL || "https://api.openai.com/v1";
+  const url = `${baseURL}/chat/completions`;
+  
+  const requestBody = {
+    model: "gpt-4o",
+    messages,
+    response_format: { type: "json_object" },
+    max_tokens: 1024,
+  };
+
+  console.log("[OpenAI] Calling API with model: gpt-4o via direct HTTP");
+  const startTime = Date.now();
+
+  // Retry logic
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const latency = Date.now() - startTime;
+      const data = await response.json() as OpenAIResponse;
+
+      if (!response.ok) {
+        const errorMessage = data.error?.message || `HTTP ${response.status}`;
+        const errorType = data.error?.type || "unknown";
+        console.error(`[OpenAI] API Error (${latency}ms): status=${response.status}, type=${errorType}, message=${errorMessage}`);
         
-        if (!content) {
-          throw new OpenAIError("No response content from OpenAI", "API_ERROR");
+        if (response.status === 429) {
+          // Rate limit - wait and retry
+          console.log(`[OpenAI] Rate limit hit, attempt ${attempt}/3, waiting...`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          lastError = new Error(errorMessage);
+          continue;
         }
-        return content;
-      } catch (err: any) {
-        const latency = Date.now() - startTime;
-        const status = err?.status || err?.response?.status || "unknown";
-        const errorType = err?.type || err?.error?.type || "unknown";
-        const errorCode = err?.code || err?.error?.code || "unknown";
-        console.error(`[OpenAI] API Error (${latency}ms):`);
-        console.error(`[OpenAI]   Status: ${status}`);
-        console.error(`[OpenAI]   Type: ${errorType}`);
-        console.error(`[OpenAI]   Code: ${errorCode}`);
-        console.error(`[OpenAI]   Message: ${err?.message || err}`);
-        if (err?.error) {
-          console.error(`[OpenAI]   Error body:`, JSON.stringify(err.error, null, 2));
-        }
+        
+        throw new OpenAIError(errorMessage, "API_ERROR");
+      }
+
+      const content = data.choices?.[0]?.message?.content;
+      console.log(`[OpenAI] Response OK (${latency}ms), content length: ${content?.length || 0}`);
+      
+      if (!content) {
+        throw new OpenAIError("No response content from OpenAI", "API_ERROR");
+      }
+      
+      return content;
+    } catch (err: any) {
+      const latency = Date.now() - startTime;
+      
+      if (err instanceof OpenAIError) {
         throw err;
       }
-    },
-    {
-      retries: 3,
-      minTimeout: 1000,
-      maxTimeout: 10000,
-      factor: 2,
-      onFailedAttempt: (error) => {
-        console.log(`[OpenAI] Attempt ${error.attemptNumber} failed. Retries left: ${error.retriesLeft}`);
-        console.log(`[OpenAI] Error details:`, error.message || error);
-        if (!isRateLimitError(error)) {
-          // Don't retry non-rate-limit errors - abort immediately
-          throw new pRetry.AbortError(error instanceof Error ? error : new Error(String(error)));
-        }
-        console.log("[OpenAI] Rate limit detected, will retry...");
-      },
+      
+      console.error(`[OpenAI] Request failed (${latency}ms), attempt ${attempt}/3:`, err.message || err);
+      lastError = err;
+      
+      if (attempt < 3) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
     }
-  );
+  }
+
+  throw lastError || new OpenAIError("Failed after 3 attempts", "API_ERROR");
 }
 
 export async function generateAIResponse(
