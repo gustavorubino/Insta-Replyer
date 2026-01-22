@@ -1,7 +1,13 @@
-import OpenAI from "openai";
 import pRetry from "p-retry";
 import { storage } from "./storage";
 import { getOpenAIConfig } from "./utils/openai-config";
+
+// OpenAI types - loaded dynamically to avoid CJS/ESM issues
+type OpenAIClient = any;
+type ChatCompletionMessageParam = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
 
 interface GenerateResponseResult {
   suggestedResponse: string;
@@ -31,9 +37,31 @@ export class OpenAIError extends Error {
   }
 }
 
+// Cache for the OpenAI class to avoid repeated dynamic imports
+let OpenAIClass: any = null;
+
+// Load OpenAI dynamically - works in both ESM and CJS environments
+async function loadOpenAI(): Promise<any> {
+  if (OpenAIClass) return OpenAIClass;
+  
+  try {
+    // Dynamic import for ESM module
+    const module = await import("openai");
+    // Handle both default export and named export patterns
+    OpenAIClass = module.default || module.OpenAI || module;
+    console.log("[OpenAI] Module loaded successfully, type:", typeof OpenAIClass);
+    return OpenAIClass;
+  } catch (err) {
+    console.error("[OpenAI] Failed to load module:", err);
+    throw err;
+  }
+}
+
 // Create OpenAI client on-demand to ensure config is read at call time, not at module load
-function getOpenAIClient() {
+async function getOpenAIClient() {
   const config = getOpenAIConfig();
+  const OpenAI = await loadOpenAI();
+  
   return {
     client: new OpenAI({
       apiKey: config.apiKey,
@@ -44,10 +72,10 @@ function getOpenAIClient() {
 }
 
 async function callOpenAI(
-  messages: OpenAI.Chat.ChatCompletionMessageParam[]
+  messages: ChatCompletionMessageParam[]
 ): Promise<string> {
   // Get fresh config and client on each call (ensures env vars are read at runtime)
-  const { client: openai, config: openAIConfig } = getOpenAIClient();
+  const { client: openai, config: openAIConfig } = await getOpenAIClient();
   
   // Log API configuration for debugging (safe - no secrets)
   const hasApiKey = !!openAIConfig.apiKey;
