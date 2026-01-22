@@ -3,12 +3,6 @@ import pRetry from "p-retry";
 import { storage } from "./storage";
 import { getOpenAIConfig } from "./utils/openai-config";
 
-const openAIConfig = getOpenAIConfig();
-const openai = new OpenAI({
-  apiKey: openAIConfig.apiKey,
-  baseURL: openAIConfig.baseURL,
-});
-
 interface GenerateResponseResult {
   suggestedResponse: string;
   confidenceScore: number;
@@ -37,7 +31,22 @@ export class OpenAIError extends Error {
   }
 }
 
+// Create OpenAI client on-demand to ensure config is read at call time, not at module load
+function getOpenAIClient() {
+  const config = getOpenAIConfig();
+  return {
+    client: new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
+    }),
+    config
+  };
+}
+
 async function callOpenAI(messages: OpenAI.Chat.ChatCompletionMessageParam[]): Promise<string> {
+  // Get fresh config and client on each call (ensures env vars are read at runtime)
+  const { client: openai, config: openAIConfig } = getOpenAIClient();
+  
   // Log API configuration for debugging (safe - no secrets)
   const hasApiKey = !!openAIConfig.apiKey;
   const hasBaseUrl = !!openAIConfig.baseURL;
