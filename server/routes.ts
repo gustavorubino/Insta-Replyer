@@ -9,6 +9,8 @@ import crypto from "crypto";
 import { downloadAndStoreMedia } from "./utils/media-storage";
 import { decrypt, isEncrypted } from "./encryption";
 import { refreshInstagramToken } from "./utils/token-refresh";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 // Store last 20 webhooks received for debugging (in-memory)
 interface WebhookLogEntry {
@@ -1780,6 +1782,57 @@ export async function registerRoutes(
     });
   });
 
+  // #region agent log - Health Check Endpoint
+  // Endpoint de health check completo para monitoramento SaaS
+  app.get("/api/health", async (req, res) => {
+    const startTime = Date.now();
+    const checks: Record<string, { status: string; latency?: number; error?: string }> = {};
+    
+    // Check database
+    try {
+      const dbStart = Date.now();
+      await db.execute(sql`SELECT 1`);
+      checks.database = { status: "ok", latency: Date.now() - dbStart };
+    } catch (e) {
+      checks.database = { status: "error", error: String(e) };
+    }
+    
+    // Check environment variables
+    const requiredEnvVars = [
+      'DATABASE_URL',
+      'SESSION_SECRET',
+      'INSTAGRAM_APP_ID',
+      'INSTAGRAM_APP_SECRET'
+    ];
+    const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
+    checks.environment = missingEnvVars.length === 0 
+      ? { status: "ok" }
+      : { status: "warning", error: `Missing: ${missingEnvVars.join(', ')}` };
+    
+    // Check webhook configuration
+    checks.webhook = {
+      status: WEBHOOK_VERIFY_TOKEN ? "ok" : "warning",
+      error: WEBHOOK_VERIFY_TOKEN ? undefined : "WEBHOOK_VERIFY_TOKEN not set"
+    };
+    
+    // Overall status
+    const hasErrors = Object.values(checks).some(c => c.status === "error");
+    const hasWarnings = Object.values(checks).some(c => c.status === "warning");
+    
+    // Log for debugging
+    fetch('http://localhost:7242/ingest/23a4aeac-c618-4148-b51d-d385f78f4aa3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:health',message:'Health check performed',data:{checks,hasErrors,hasWarnings},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+    
+    res.status(hasErrors ? 503 : 200).json({
+      status: hasErrors ? "unhealthy" : hasWarnings ? "degraded" : "healthy",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      totalLatency: Date.now() - startTime,
+      checks,
+      recentWebhooksCount: recentWebhooks.length
+    });
+  });
+  // #endregion
+
   // Webhook verification endpoint (GET) - Meta will call this to verify the webhook
   app.get("/api/webhooks/instagram", (req, res) => {
     const mode = req.query["hub.mode"];
@@ -2364,62 +2417,29 @@ export async function registerRoutes(
         }
       }
 
-      // If still not found, try SECURE AUTO-ASSOCIATION with recently connected users
-      // Only auto-associate if the user connected within the last 15 minutes (has pending_webhook marker)
+      // If still not found, try SMART AUTO-ASSOCIATION
       if (!instagramUser) {
-        console.log("=== NO USER MATCH FOR WEBHOOK - ATTEMPTING SECURE AUTO-ASSOCIATION ===");
+        console.log("=== NO USER MATCH FOR WEBHOOK - ATTEMPTING AUTO-ASSOCIATION ===");
         console.log(`Webhook recipient ID: ${recipientId}`);
         
-        const ASSOCIATION_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-        const now = Date.now();
+        // STRATEGY 1: If there's only ONE user with Instagram connected, auto-associate
+        const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccessToken);
+        console.log(`Users with Instagram connected: ${usersWithInstagram.length}`);
         
-        // Look for users who have connected Instagram recently (have a pending webhook marker within time window)
-        const eligibleUsers: any[] = [];
-        
-        for (const u of allUsers) {
-          // User must have an Instagram connection (has accessToken)
-          if (!u.instagramAccessToken) continue;
-          
-          // User should not have a recipientId yet, OR their recipientId equals accountId (not yet mapped)
-          if (u.instagramRecipientId && u.instagramRecipientId !== u.instagramAccountId) continue;
-          
-          // Check if user has a pending webhook marker within the time window
-          try {
-            const pendingSetting = await storage.getSetting(`pending_webhook_${u.id}`);
-            if (pendingSetting?.value) {
-              const pendingTime = new Date(pendingSetting.value).getTime();
-              const elapsedMs = now - pendingTime;
-              
-              if (elapsedMs <= ASSOCIATION_WINDOW_MS) {
-                console.log(`User ${u.id} (${u.email}) has pending webhook marker from ${Math.round(elapsedMs / 1000)}s ago`);
-                eligibleUsers.push({ user: u, pendingTime });
-              } else {
-                console.log(`User ${u.id} pending webhook marker expired (${Math.round(elapsedMs / 60000)}min ago)`);
-                // Clean up expired marker
-                await storage.deleteSetting(`pending_webhook_${u.id}`);
-              }
-            }
-          } catch (err) {
-            console.log(`Could not check pending webhook for user ${u.id}:`, err);
-          }
-        }
-        
-        console.log(`Found ${eligibleUsers.length} users with valid pending webhook markers`);
-        
-        if (eligibleUsers.length === 1) {
-          // Only one eligible user with recent OAuth - safe to auto-associate
-          const targetUser = eligibleUsers[0].user;
+        if (usersWithInstagram.length === 1) {
+          // Only one user with Instagram - definitely this user's webhook
+          const targetUser = usersWithInstagram[0];
           instagramUser = targetUser;
-          console.log(`SECURE AUTO-ASSOCIATING webhook ID ${recipientId} with user ${targetUser.id} (${targetUser.email})`);
+          console.log(`AUTO-ASSOCIATING: Only 1 user with Instagram connected: ${targetUser.email}`);
+          console.log(`  Current instagramAccountId: ${targetUser.instagramAccountId}`);
+          console.log(`  Current instagramRecipientId: ${targetUser.instagramRecipientId}`);
+          console.log(`  New webhook recipientId: ${recipientId}`);
           
           try {
             await authStorage.updateUser(targetUser.id, {
               instagramRecipientId: recipientId
             });
-            console.log(`Successfully auto-associated instagramRecipientId=${recipientId} for user ${targetUser.id}`);
-            
-            // Clear the pending webhook marker (one-time use)
-            await storage.deleteSetting(`pending_webhook_${targetUser.id}`);
+            console.log(`✅ AUTO-ASSOCIATED instagramRecipientId=${recipientId} for user ${targetUser.id}`);
             
             // Clear any previous unmapped webhook alert
             await storage.deleteSetting("lastUnmappedWebhookRecipientId");
@@ -2427,44 +2447,70 @@ export async function registerRoutes(
           } catch (err) {
             console.error("Failed to auto-associate instagramRecipientId:", err);
           }
-        } else if (eligibleUsers.length > 1) {
-          // Multiple users with pending markers - cannot auto-associate safely
-          console.log("Multiple users with pending webhook markers - requires admin intervention:");
-          eligibleUsers.forEach(({ user }) => {
-            console.log(`  - User ${user.id} (${user.email}): instagramAccountId=${user.instagramAccountId}`);
-          });
+        } else if (usersWithInstagram.length > 1) {
+          // STRATEGY 2: Multiple users - try pending webhook markers (time-based)
+          const ASSOCIATION_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+          const now = Date.now();
+          const eligibleUsers: any[] = [];
           
-          // Store unmapped webhook for admin reference
-          try {
-            await storage.setSetting("lastUnmappedWebhookRecipientId", recipientId);
-            await storage.setSetting("lastUnmappedWebhookTimestamp", new Date().toISOString());
-          } catch (err) {
-            console.error("Failed to store unmapped webhook info:", err);
+          for (const u of usersWithInstagram) {
+            // Check if user has a pending webhook marker within the time window
+            try {
+              const pendingSetting = await storage.getSetting(`pending_webhook_${u.id}`);
+              if (pendingSetting?.value) {
+                const pendingTime = new Date(pendingSetting.value).getTime();
+                const elapsedMs = now - pendingTime;
+                
+                if (elapsedMs <= ASSOCIATION_WINDOW_MS) {
+                  console.log(`User ${u.id} (${u.email}) has pending webhook marker from ${Math.round(elapsedMs / 1000)}s ago`);
+                  eligibleUsers.push({ user: u, pendingTime });
+                } else {
+                  console.log(`User ${u.id} pending webhook marker expired (${Math.round(elapsedMs / 60000)}min ago)`);
+                  await storage.deleteSetting(`pending_webhook_${u.id}`);
+                }
+              }
+            } catch (err) {
+              console.log(`Could not check pending webhook for user ${u.id}:`, err);
+            }
           }
           
-          console.log("ACTION REQUIRED: Configure instagramRecipientId in Admin > Contas Instagram for the relevant user");
-          return;
+          if (eligibleUsers.length === 1) {
+            const targetUser = eligibleUsers[0].user;
+            instagramUser = targetUser;
+            console.log(`SECURE AUTO-ASSOCIATING webhook ID ${recipientId} with user ${targetUser.id} (${targetUser.email})`);
+            
+            try {
+              await authStorage.updateUser(targetUser.id, {
+                instagramRecipientId: recipientId
+              });
+              console.log(`✅ Successfully auto-associated instagramRecipientId=${recipientId}`);
+              await storage.deleteSetting(`pending_webhook_${targetUser.id}`);
+              await storage.deleteSetting("lastUnmappedWebhookRecipientId");
+              await storage.deleteSetting("lastUnmappedWebhookTimestamp");
+            } catch (err) {
+              console.error("Failed to auto-associate instagramRecipientId:", err);
+            }
+          } else {
+            // Store unmapped webhook for admin reference
+            console.log("Multiple users - requires admin intervention");
+            try {
+              await storage.setSetting("lastUnmappedWebhookRecipientId", recipientId);
+              await storage.setSetting("lastUnmappedWebhookTimestamp", new Date().toISOString());
+            } catch (err) {
+              console.error("Failed to store unmapped webhook info:", err);
+            }
+            console.log("ACTION REQUIRED: Configure instagramRecipientId in Admin > Contas Instagram");
+            return;
+          }
         } else {
-          // No eligible users
-          console.log("No users eligible for auto-association");
-          console.log("Available Instagram accounts:", 
-            allUsers.filter((u: any) => u.instagramAccountId || u.instagramRecipientId).map((u: any) => ({
-              userId: u.id,
-              email: u.email,
-              instagramAccountId: u.instagramAccountId,
-              instagramRecipientId: u.instagramRecipientId
-            }))
-          );
-          
-          // Store unmapped webhook for admin reference
+          // No users with Instagram
+          console.log("No users with Instagram connected");
           try {
             await storage.setSetting("lastUnmappedWebhookRecipientId", recipientId);
             await storage.setSetting("lastUnmappedWebhookTimestamp", new Date().toISOString());
           } catch (err) {
             console.error("Failed to store unmapped webhook info:", err);
           }
-          
-          console.log("ACTION REQUIRED: Configure instagramRecipientId in Admin > Contas Instagram for the relevant user");
           return;
         }
       }
