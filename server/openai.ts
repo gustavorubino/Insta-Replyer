@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import type OpenAIClientType from "openai";
 import pRetry from "p-retry";
 import { storage } from "./storage";
 import { getOpenAIConfig } from "./utils/openai-config";
@@ -32,10 +32,11 @@ export class OpenAIError extends Error {
 }
 
 // Create OpenAI client on-demand to ensure config is read at call time, not at module load
-function getOpenAIClient() {
+async function getOpenAIClient() {
   const config = getOpenAIConfig();
-  const OpenAIClient =
-    (OpenAI as unknown as { default?: typeof OpenAI }).default ?? OpenAI;
+  const { default: OpenAIClient } = (await import("openai")) as {
+    default: OpenAIClientType;
+  };
   return {
     client: new OpenAIClient({
       apiKey: config.apiKey,
@@ -45,9 +46,11 @@ function getOpenAIClient() {
   };
 }
 
-async function callOpenAI(messages: OpenAI.Chat.ChatCompletionMessageParam[]): Promise<string> {
+async function callOpenAI(
+  messages: OpenAIClientType.Chat.ChatCompletionMessageParam[]
+): Promise<string> {
   // Get fresh config and client on each call (ensures env vars are read at runtime)
-  const { client: openai, config: openAIConfig } = getOpenAIClient();
+  const { client: openai, config: openAIConfig } = await getOpenAIClient();
   
   // Log API configuration for debugging (safe - no secrets)
   const hasApiKey = !!openAIConfig.apiKey;
