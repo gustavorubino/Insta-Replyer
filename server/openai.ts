@@ -23,8 +23,18 @@ function isRateLimitError(error: unknown): boolean {
 }
 
 async function callOpenAI(messages: OpenAI.Chat.ChatCompletionMessageParam[]): Promise<string> {
+  // Log API configuration for debugging
+  const hasApiKey = !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  const hasBaseUrl = !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  console.log(`[OpenAI] Config check - API Key: ${hasApiKey ? 'configured' : 'MISSING'}, Base URL: ${hasBaseUrl ? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL : 'MISSING'}`);
+  
+  if (!hasApiKey) {
+    throw new Error("AI_INTEGRATIONS_OPENAI_API_KEY não está configurada. Verifique as configurações do Replit AI.");
+  }
+  
   return pRetry(
     async () => {
+      console.log("[OpenAI] Making API call with model: gpt-4.1");
       const response = await openai.chat.completions.create({
         model: "gpt-4.1",
         messages,
@@ -33,6 +43,7 @@ async function callOpenAI(messages: OpenAI.Chat.ChatCompletionMessageParam[]): P
       });
 
       const content = response.choices[0]?.message?.content;
+      console.log(`[OpenAI] Response received, content length: ${content?.length || 0}`);
       if (!content) {
         throw new Error("No response content from OpenAI");
       }
@@ -44,7 +55,8 @@ async function callOpenAI(messages: OpenAI.Chat.ChatCompletionMessageParam[]): P
       maxTimeout: 10000,
       factor: 2,
       onFailedAttempt: (error) => {
-        console.log(`OpenAI API attempt ${error.attemptNumber} failed. Retries left: ${error.retriesLeft}`);
+        console.log(`[OpenAI] API attempt ${error.attemptNumber} failed. Retries left: ${error.retriesLeft}`);
+        console.log(`[OpenAI] Error details:`, error.message || error);
         if (!isRateLimitError(error)) {
           throw new pRetry.AbortError(error instanceof Error ? error : new Error(String(error)));
         }
@@ -100,7 +112,12 @@ A confiança deve ser um número entre 0 e 1, onde:
       confidenceScore: Math.min(1, Math.max(0, parsed.confidence || 0.5)),
     };
   } catch (error) {
-    console.error("Error generating AI response:", error);
+    console.error("[OpenAI] Error generating AI response:");
+    console.error("[OpenAI] Error type:", error?.constructor?.name);
+    console.error("[OpenAI] Error message:", error instanceof Error ? error.message : String(error));
+    if (error instanceof Error && 'cause' in error) {
+      console.error("[OpenAI] Error cause:", error.cause);
+    }
     return {
       suggestedResponse: "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, escreva uma resposta manualmente.",
       confidenceScore: 0.1,

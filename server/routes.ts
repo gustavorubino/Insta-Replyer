@@ -1785,6 +1785,37 @@ export async function registerRoutes(
     });
   });
 
+  // AI Test Endpoint para diagnóstico
+  app.get("/api/test-ai", async (req, res) => {
+    const aiConfig = {
+      hasApiKey: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+      hasBaseUrl: !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      baseUrl: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || "(not set)",
+      apiKeyLength: process.env.AI_INTEGRATIONS_OPENAI_API_KEY?.length || 0,
+    };
+    
+    let testResult: { success: boolean; response?: string; error?: string } = { success: false };
+    
+    try {
+      const result = await generateAIResponse("teste", "dm", "TestUser");
+      testResult = {
+        success: result.confidenceScore > 0.1,
+        response: result.suggestedResponse.substring(0, 100),
+      };
+    } catch (e) {
+      testResult = {
+        success: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+    
+    res.json({
+      config: aiConfig,
+      testResult,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   // Health Check Endpoint para monitoramento SaaS
   app.get("/api/health", async (req, res) => {
     const startTime = Date.now();
