@@ -107,7 +107,7 @@ const INSTAGRAM_APP_ID = process.env.INSTAGRAM_APP_ID || "";
 const INSTAGRAM_APP_SECRET = process.env.INSTAGRAM_APP_SECRET || "";
 
 // Webhook verification token (generated randomly for security)
-const WEBHOOK_VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || "instagram_webhook_verify_2024";
+const WEBHOOK_VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || "instagram_webhook_verify_2025";
 
 // Verify webhook signature from Meta
 function verifyWebhookSignature(payload: string, signature: string | undefined): { valid: boolean; debug: string } {
@@ -1754,8 +1754,7 @@ export async function registerRoutes(
       status: "ok",
       endpoint: "/api/webhooks/instagram",
       verifyTokenConfigured: !!WEBHOOK_VERIFY_TOKEN,
-      verifyTokenHint: WEBHOOK_VERIFY_TOKEN ? `${WEBHOOK_VERIFY_TOKEN.substring(0, 10)}...` : "NOT SET",
-      expectedToken: "instagram_webhook_verify_2024",
+      verifyTokenValue: WEBHOOK_VERIFY_TOKEN,
       timestamp: new Date().toISOString(),
     });
   });
