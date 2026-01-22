@@ -1755,6 +1755,7 @@ export async function registerRoutes(
       endpoint: "/api/webhooks/instagram",
       verifyTokenConfigured: !!WEBHOOK_VERIFY_TOKEN,
       verifyTokenValue: WEBHOOK_VERIFY_TOKEN,
+      envValue: process.env.WEBHOOK_VERIFY_TOKEN || "(not set - using default)",
       timestamp: new Date().toISOString(),
     });
   });
@@ -1770,20 +1771,27 @@ export async function registerRoutes(
     console.log("╚══════════════════════════════════════════════════════════════╝");
     console.log("Webhook verification request:", { 
       mode, 
-      tokenReceived: token ? `${String(token).substring(0, 10)}...` : "missing",
-      tokenExpected: WEBHOOK_VERIFY_TOKEN ? `${WEBHOOK_VERIFY_TOKEN.substring(0, 10)}...` : "NOT SET",
-      challenge: challenge ? "present" : "missing"
+      tokenReceived: token,
+      tokenExpected: WEBHOOK_VERIFY_TOKEN,
+      challenge: challenge ? "present" : "missing",
+      tokensMatch: token === WEBHOOK_VERIFY_TOKEN
     });
 
-    if (mode === "subscribe" && token === WEBHOOK_VERIFY_TOKEN) {
+    // Convert to strings explicitly for comparison
+    const receivedToken = String(token || "");
+    const expectedToken = String(WEBHOOK_VERIFY_TOKEN || "");
+
+    if (mode === "subscribe" && receivedToken === expectedToken) {
       console.log("✅ Webhook verified successfully! Returning challenge.");
       res.status(200).send(challenge);
     } else {
       console.error("❌ Webhook verification failed!");
-      console.error("  - Mode:", mode);
-      console.error("  - Token match:", token === WEBHOOK_VERIFY_TOKEN);
-      console.error("  - Expected token starts with:", WEBHOOK_VERIFY_TOKEN?.substring(0, 15));
-      console.error("  - Received token starts with:", String(token || "").substring(0, 15));
+      console.error("  - Mode:", mode, "| Expected: subscribe");
+      console.error("  - Received token:", receivedToken);
+      console.error("  - Expected token:", expectedToken);
+      console.error("  - Tokens equal:", receivedToken === expectedToken);
+      console.error("  - Received length:", receivedToken.length);
+      console.error("  - Expected length:", expectedToken.length);
       res.sendStatus(403);
     }
   });
