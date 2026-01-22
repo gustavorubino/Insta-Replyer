@@ -10,6 +10,15 @@ import { downloadAndStoreMedia } from "./utils/media-storage";
 import { decrypt, isEncrypted } from "./encryption";
 import { refreshInstagramToken } from "./utils/token-refresh";
 
+// Store last 20 webhooks received for debugging (in-memory)
+interface WebhookLogEntry {
+  timestamp: string;
+  headers: Record<string, any>;
+  body: any;
+  type: string;
+}
+const recentWebhooks: WebhookLogEntry[] = [];
+
 // Helper function to get the base URL for OAuth callbacks
 // Handles multiple proxy headers (comma-separated values) common in Replit deployments
 function getBaseUrl(req: Request): string {
@@ -1760,6 +1769,17 @@ export async function registerRoutes(
     });
   });
 
+  // Endpoint público para ver webhooks recentes (para debug)
+  app.get("/api/webhooks/recent", (req, res) => {
+    res.json({
+      status: "ok",
+      message: "Lista dos últimos webhooks recebidos",
+      count: recentWebhooks.length,
+      webhooks: recentWebhooks,
+      note: "Se esta lista estiver vazia, nenhum webhook foi recebido do Facebook/Instagram"
+    });
+  });
+
   // Webhook verification endpoint (GET) - Meta will call this to verify the webhook
   app.get("/api/webhooks/instagram", (req, res) => {
     const mode = req.query["hub.mode"];
@@ -1807,6 +1827,23 @@ export async function registerRoutes(
     console.log("[WEBHOOK-RAW] Timestamp:", new Date().toISOString());
     console.log("[WEBHOOK-RAW] Headers:", JSON.stringify(req.headers, null, 2));
     console.log("[WEBHOOK-RAW] Body:", JSON.stringify(req.body, null, 2));
+    
+    // Store webhook for debugging
+    const logEntry: WebhookLogEntry = {
+      timestamp: new Date().toISOString(),
+      headers: {
+        'x-hub-signature-256': req.headers['x-hub-signature-256'],
+        'content-type': req.headers['content-type'],
+        'user-agent': req.headers['user-agent'],
+      },
+      body: req.body,
+      type: req.body?.object || 'unknown'
+    };
+    recentWebhooks.unshift(logEntry);
+    // Keep only last 20 webhooks
+    while (recentWebhooks.length > 20) {
+      recentWebhooks.pop();
+    }
     
     try {
       // Verify webhook signature from Meta
