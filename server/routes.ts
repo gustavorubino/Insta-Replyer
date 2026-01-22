@@ -522,6 +522,25 @@ export async function registerRoutes(
     }
   });
 
+  // AI Configuration Status (diagnostic endpoint - no secrets exposed)
+  app.get("/api/ai-status", isAuthenticated, async (req, res) => {
+    try {
+      const config = getOpenAIConfig();
+      res.json({
+        configured: !!config.apiKey,
+        apiKeySource: config.apiKeySource || "none",
+        baseURLConfigured: !!config.baseURL,
+        baseURLSource: config.baseURLSource || "none",
+        message: config.apiKey 
+          ? "IA configurada corretamente" 
+          : "Falta configurar: AI_INTEGRATIONS_OPENAI_API_KEY ou OPENAI_API_KEY nos Secrets do Deployment"
+      });
+    } catch (error) {
+      console.error("Error checking AI status:", error);
+      res.status(500).json({ error: "Failed to check AI status" });
+    }
+  });
+
   // Get all messages
   app.get("/api/messages", isAuthenticated, async (req, res) => {
     try {
@@ -1195,29 +1214,6 @@ export async function registerRoutes(
       console.error("Error saving Facebook credentials:", error);
       res.status(500).json({ error: "Failed to save credentials" });
     }
-  });
-
-  // Debug endpoint to check OAuth parameters (temporary)
-  app.get("/api/instagram/debug-oauth", isAuthenticated, async (req, res) => {
-    const baseUrl = getBaseUrl(req);
-    const redirectUri = `${baseUrl}/api/instagram/callback`;
-    
-    // Also show raw headers for debugging
-    const rawProto = req.headers["x-forwarded-proto"];
-    const rawHost = req.headers["x-forwarded-host"] || req.headers.host;
-    
-    res.json({
-      client_id: INSTAGRAM_APP_ID,
-      redirect_uri: redirectUri,
-      base_url: baseUrl,
-      raw_headers: {
-        "x-forwarded-proto": rawProto,
-        "x-forwarded-host": rawHost,
-        "host": req.headers.host
-      },
-      env_override: process.env.APP_BASE_URL || null,
-      expected_redirect_uri: "https://insta-replyer--guguinharubino.replit.app/api/instagram/callback"
-    });
   });
 
   // Start Instagram OAuth flow
@@ -2557,7 +2553,7 @@ export async function registerRoutes(
                 instagramRecipientId: recipientId
               });
               // CRITICAL: Update the in-memory object so subsequent checks use the new value
-              instagramUser.instagramRecipientId = recipientId;
+              targetUser.instagramRecipientId = recipientId;
               console.log(`✅ Successfully auto-associated instagramRecipientId=${recipientId}`);
               await storage.deleteSetting(`pending_webhook_${targetUser.id}`);
               await storage.deleteSetting("lastUnmappedWebhookRecipientId");
