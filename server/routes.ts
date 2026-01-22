@@ -522,6 +522,19 @@ export async function registerRoutes(
     }
   });
 
+  // Public AI diagnostic endpoint (no auth, safe info only)
+  app.get("/api/health/ai", async (req, res) => {
+    const config = getOpenAIConfig();
+    res.json({
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || "development",
+      aiConfigured: !!config.apiKey,
+      apiKeySource: config.apiKeySource || "none",
+      baseURLConfigured: !!config.baseURL,
+      baseURLSource: config.baseURLSource || "none"
+    });
+  });
+
   // AI Configuration Status (diagnostic endpoint - no secrets exposed)
   app.get("/api/ai-status", isAuthenticated, async (req, res) => {
     try {

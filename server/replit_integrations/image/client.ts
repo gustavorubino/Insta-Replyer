@@ -3,11 +3,14 @@ import OpenAI, { toFile } from "openai";
 import { Buffer } from "node:buffer";
 import { getOpenAIConfig } from "../../utils/openai-config";
 
-const openAIConfig = getOpenAIConfig();
-export const openai = new OpenAI({
-  apiKey: openAIConfig.apiKey,
-  baseURL: openAIConfig.baseURL,
-});
+// Create OpenAI client on-demand to ensure env vars are read at runtime
+function getOpenAIClient(): OpenAI {
+  const config = getOpenAIConfig();
+  return new OpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseURL,
+  });
+}
 
 /**
  * Generate an image and return as Buffer.
@@ -17,12 +20,13 @@ export async function generateImageBuffer(
   prompt: string,
   size: "1024x1024" | "512x512" | "256x256" = "1024x1024"
 ): Promise<Buffer> {
+  const openai = getOpenAIClient();
   const response = await openai.images.generate({
     model: "gpt-image-1",
     prompt,
     size,
   });
-  const base64 = response.data[0]?.b64_json ?? "";
+  const base64 = response.data?.[0]?.b64_json ?? "";
   return Buffer.from(base64, "base64");
 }
 
@@ -35,6 +39,7 @@ export async function editImages(
   prompt: string,
   outputPath?: string
 ): Promise<Buffer> {
+  const openai = getOpenAIClient();
   const images = await Promise.all(
     imageFiles.map((file) =>
       toFile(fs.createReadStream(file), file, {
@@ -49,7 +54,7 @@ export async function editImages(
     prompt,
   });
 
-  const imageBase64 = response.data[0]?.b64_json ?? "";
+  const imageBase64 = response.data?.[0]?.b64_json ?? "";
   const imageBytes = Buffer.from(imageBase64, "base64");
 
   if (outputPath) {
