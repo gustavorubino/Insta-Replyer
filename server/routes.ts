@@ -10,6 +10,29 @@ import { downloadAndStoreMedia } from "./utils/media-storage";
 import { decrypt, isEncrypted } from "./encryption";
 import { refreshInstagramToken } from "./utils/token-refresh";
 
+// Helper function to get the base URL for OAuth callbacks
+// Handles multiple proxy headers (comma-separated values) common in Replit deployments
+function getBaseUrl(req: Request): string {
+  // Allow explicit override via environment variable for production
+  if (process.env.APP_BASE_URL) {
+    return process.env.APP_BASE_URL;
+  }
+  
+  // Get protocol - take first value if multiple (e.g., "https, http" -> "https")
+  const protoHeader = req.headers["x-forwarded-proto"];
+  const protocol = typeof protoHeader === "string" 
+    ? protoHeader.split(",")[0].trim() 
+    : "https";
+  
+  // Get host - take first value if multiple (e.g., "domain.app, proxy.dev" -> "domain.app")
+  const hostHeader = req.headers["x-forwarded-host"] || req.headers.host;
+  const host = typeof hostHeader === "string"
+    ? hostHeader.split(",")[0].trim()
+    : hostHeader;
+  
+  return `${protocol}://${host}`;
+}
+
 // Helper function to get media type description for AI and learning (bracketed format)
 function getMediaTypeDescription(mediaType: string | null | undefined): string {
   if (!mediaType) return '[Mensagem de mídia]';
@@ -1139,15 +1162,23 @@ export async function registerRoutes(
 
   // Debug endpoint to check OAuth parameters (temporary)
   app.get("/api/instagram/debug-oauth", isAuthenticated, async (req, res) => {
-    const protocol = req.headers["x-forwarded-proto"] || "https";
-    const host = req.headers["x-forwarded-host"] || req.headers.host;
-    const redirectUri = `${protocol}://${host}/api/instagram/callback`;
+    const baseUrl = getBaseUrl(req);
+    const redirectUri = `${baseUrl}/api/instagram/callback`;
+    
+    // Also show raw headers for debugging
+    const rawProto = req.headers["x-forwarded-proto"];
+    const rawHost = req.headers["x-forwarded-host"] || req.headers.host;
     
     res.json({
       client_id: INSTAGRAM_APP_ID,
       redirect_uri: redirectUri,
-      host: host,
-      protocol: protocol,
+      base_url: baseUrl,
+      raw_headers: {
+        "x-forwarded-proto": rawProto,
+        "x-forwarded-host": rawHost,
+        "host": req.headers.host
+      },
+      env_override: process.env.APP_BASE_URL || null,
       expected_redirect_uri: "https://insta-replyer--guguinharubino.replit.app/api/instagram/callback"
     });
   });
@@ -1168,10 +1199,9 @@ export async function registerRoutes(
         return res.status(500).json({ error: "Server configuration error" });
       }
 
-      // Get the base URL for redirect
-      const protocol = req.headers["x-forwarded-proto"] || "https";
-      const host = req.headers["x-forwarded-host"] || req.headers.host;
-      const redirectUri = `${protocol}://${host}/api/instagram/callback`;
+      // Get the base URL for redirect (handles multiple proxy headers)
+      const baseUrl = getBaseUrl(req);
+      const redirectUri = `${baseUrl}/api/instagram/callback`;
 
       // Generate a random nonce and store it in the database with the userId
       // Note: No session fallback - state parameter is the single source of truth
@@ -1290,9 +1320,9 @@ export async function registerRoutes(
         return res.redirect("/settings?instagram_error=credentials_missing");
       }
 
-      const protocol = req.headers["x-forwarded-proto"] || "https";
-      const host = req.headers["x-forwarded-host"] || req.headers.host;
-      const redirectUri = `${protocol}://${host}/api/instagram/callback`;
+      // Get the base URL for redirect (handles multiple proxy headers)
+      const baseUrl = getBaseUrl(req);
+      const redirectUri = `${baseUrl}/api/instagram/callback`;
 
       // Exchange code for access token using Instagram Business Login endpoint
       const tokenResponse = await fetch(INSTAGRAM_TOKEN_URL, {
@@ -2670,9 +2700,9 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Admin access required" });
       }
 
-      const protocol = req.headers["x-forwarded-proto"] || "https";
-      const host = req.headers["x-forwarded-host"] || req.headers.host;
-      const webhookUrl = `${protocol}://${host}/api/webhooks/instagram`;
+      // Get the base URL (handles multiple proxy headers)
+      const baseUrl = getBaseUrl(req);
+      const webhookUrl = `${baseUrl}/api/webhooks/instagram`;
 
       res.json({
         webhookUrl,
