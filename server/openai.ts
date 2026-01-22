@@ -1,4 +1,4 @@
-import type OpenAIClientType from "openai";
+import OpenAI from "openai";
 import pRetry from "p-retry";
 import { storage } from "./storage";
 import { getOpenAIConfig } from "./utils/openai-config";
@@ -32,13 +32,10 @@ export class OpenAIError extends Error {
 }
 
 // Create OpenAI client on-demand to ensure config is read at call time, not at module load
-async function getOpenAIClient() {
+function getOpenAIClient() {
   const config = getOpenAIConfig();
-  const { default: OpenAIClient } = (await import("openai")) as {
-    default: OpenAIClientType;
-  };
   return {
-    client: new OpenAIClient({
+    client: new OpenAI({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
     }),
@@ -47,17 +44,21 @@ async function getOpenAIClient() {
 }
 
 async function callOpenAI(
-  messages: OpenAIClientType.Chat.ChatCompletionMessageParam[]
+  messages: OpenAI.Chat.ChatCompletionMessageParam[]
 ): Promise<string> {
   // Get fresh config and client on each call (ensures env vars are read at runtime)
-  const { client: openai, config: openAIConfig } = await getOpenAIClient();
+  const { client: openai, config: openAIConfig } = getOpenAIClient();
   
   // Log API configuration for debugging (safe - no secrets)
   const hasApiKey = !!openAIConfig.apiKey;
   const hasBaseUrl = !!openAIConfig.baseURL;
+  const isProduction = process.env.NODE_ENV === "production";
+  const apiKeyPreview = openAIConfig.apiKey ? `${openAIConfig.apiKey.substring(0, 10)}...` : "none";
+  
   console.log(
-    `[OpenAI] Config: API Key=${hasApiKey ? "YES" : "NO"} (source: ${openAIConfig.apiKeySource || "none"}), ` +
-    `Base URL=${hasBaseUrl ? "YES" : "NO"} (source: ${openAIConfig.baseURLSource || "none"})`
+    `[OpenAI] Environment: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}, ` +
+    `API Key=${hasApiKey ? "YES" : "NO"} (${apiKeyPreview}, source: ${openAIConfig.apiKeySource || "none"}), ` +
+    `Base URL=${hasBaseUrl ? openAIConfig.baseURL : "default"} (source: ${openAIConfig.baseURLSource || "none"})`
   );
   
   if (!hasApiKey) {
@@ -70,12 +71,12 @@ async function callOpenAI(
   
   return pRetry(
     async () => {
-      console.log("[OpenAI] Calling API with model: gpt-4.1");
+      console.log("[OpenAI] Calling API with model: gpt-4o");
       const startTime = Date.now();
       
       try {
         const response = await openai.chat.completions.create({
-          model: "gpt-4.1",
+          model: "gpt-4o",
           messages,
           response_format: { type: "json_object" },
           max_completion_tokens: 1024,
@@ -92,7 +93,16 @@ async function callOpenAI(
       } catch (err: any) {
         const latency = Date.now() - startTime;
         const status = err?.status || err?.response?.status || "unknown";
-        console.error(`[OpenAI] API Error (${latency}ms): status=${status}, message=${err?.message || err}`);
+        const errorType = err?.type || err?.error?.type || "unknown";
+        const errorCode = err?.code || err?.error?.code || "unknown";
+        console.error(`[OpenAI] API Error (${latency}ms):`);
+        console.error(`[OpenAI]   Status: ${status}`);
+        console.error(`[OpenAI]   Type: ${errorType}`);
+        console.error(`[OpenAI]   Code: ${errorCode}`);
+        console.error(`[OpenAI]   Message: ${err?.message || err}`);
+        if (err?.error) {
+          console.error(`[OpenAI]   Error body:`, JSON.stringify(err.error, null, 2));
+        }
         throw err;
       }
     },
