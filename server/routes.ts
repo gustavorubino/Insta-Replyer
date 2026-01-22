@@ -557,81 +557,29 @@ export async function registerRoutes(
   // AI Connection Test (makes a real API call to verify the connection works)
   app.get("/api/ai-test", isAuthenticated, async (req, res) => {
     try {
-      const config = getOpenAIConfig();
+      // Use the actual generateAIResponse function to test
+      const testResult = await generateAIResponse("Olá", "dm", "TestUser");
       
-      if (!config.apiKey) {
+      if (testResult.error || testResult.errorCode) {
         return res.json({
           success: false,
-          diagnosis: "API key não configurada",
-          details: "Configure AI_INTEGRATIONS_OPENAI_API_KEY ou OPENAI_API_KEY nos Secrets do Deployment"
+          diagnosis: testResult.error || "Erro ao gerar resposta",
+          errorCode: testResult.errorCode,
+          configured: !!getOpenAIConfig().apiKey
         });
       }
 
-      const OpenAI = (await import("openai")).default;
-      const openaiTest = new OpenAI({
-        apiKey: config.apiKey,
-        baseURL: config.baseURL,
+      res.json({
+        success: true,
+        message: "IA funcionando corretamente!",
+        response: testResult.suggestedResponse.substring(0, 100),
+        confidence: testResult.confidenceScore
       });
-
-      const startTime = Date.now();
-      
-      try {
-        const response = await openaiTest.chat.completions.create({
-          model: "gpt-4.1",
-          messages: [{ role: "user", content: "Responda apenas: OK" }],
-          max_completion_tokens: 10,
-        });
-
-        const latency = Date.now() - startTime;
-        const content = response.choices[0]?.message?.content;
-
-        res.json({
-          success: true,
-          latency: `${latency}ms`,
-          response: content,
-          model: response.model,
-          message: "Conexão com OpenAI funcionando!"
-        });
-      } catch (apiError: any) {
-        const latency = Date.now() - startTime;
-        const status = apiError?.status || apiError?.response?.status || "unknown";
-        const errorMessage = apiError?.message || String(apiError);
-        
-        // Log full error server-side for debugging
-        console.error("[AI Test] API Error:", {
-          status,
-          message: errorMessage,
-          baseURL: config.baseURL,
-          apiKeySource: config.apiKeySource
-        });
-        
-        // Provide safe, user-friendly diagnosis without leaking internal details
-        let diagnosis = "Erro ao conectar com a API";
-        if (status === 401 || errorMessage.includes("401") || errorMessage.includes("Unauthorized") || errorMessage.includes("invalid_api_key")) {
-          diagnosis = "API key inválida ou expirada - verifique se a chave está correta";
-        } else if (status === 403 || errorMessage.includes("403")) {
-          diagnosis = "Acesso negado - verifique as permissões da API key";
-        } else if (status === 429 || errorMessage.includes("429") || errorMessage.toLowerCase().includes("quota") || errorMessage.toLowerCase().includes("rate")) {
-          diagnosis = "Quota excedida ou rate limit - aguarde alguns minutos ou aumente seu plano OpenAI";
-        } else if (errorMessage.includes("ENOTFOUND") || errorMessage.includes("ECONNREFUSED") || errorMessage.includes("network")) {
-          diagnosis = "Não foi possível conectar ao servidor - verifique a conexão de rede";
-        } else if (errorMessage.toLowerCase().includes("model")) {
-          diagnosis = "Modelo gpt-4.1 não disponível - verifique se está habilitado na sua conta OpenAI";
-        }
-
-        res.json({
-          success: false,
-          latency: `${latency}ms`,
-          status: typeof status === "number" ? status : undefined,
-          diagnosis,
-          baseURL: config.baseURL ? "(custom)" : "api.openai.com"
-        });
-      }
     } catch (error: any) {
       console.error("[AI Test] Internal error:", error);
       res.status(500).json({ 
         success: false,
-        diagnosis: "Erro interno ao testar conexão com IA"
+        diagnosis: error?.message || "Erro interno ao testar conexão com IA"
       });
     }
   });

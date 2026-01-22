@@ -98,9 +98,10 @@ async function callOpenAI(messages: OpenAI.Chat.ChatCompletionMessageParam[]): P
       factor: 2,
       onFailedAttempt: (error) => {
         console.log(`[OpenAI] Attempt ${error.attemptNumber} failed. Retries left: ${error.retriesLeft}`);
+        console.log(`[OpenAI] Error details:`, error.message || error);
         if (!isRateLimitError(error)) {
-          // Don't retry non-rate-limit errors
-          throw error;
+          // Don't retry non-rate-limit errors - abort immediately
+          throw new pRetry.AbortError(error instanceof Error ? error : new Error(String(error)));
         }
         console.log("[OpenAI] Rate limit detected, will retry...");
       },
