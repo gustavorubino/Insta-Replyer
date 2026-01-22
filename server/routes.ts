@@ -1785,8 +1785,7 @@ export async function registerRoutes(
     });
   });
 
-  // #region agent log - Health Check Endpoint
-  // Endpoint de health check completo para monitoramento SaaS
+  // Health Check Endpoint para monitoramento SaaS
   app.get("/api/health", async (req, res) => {
     const startTime = Date.now();
     const checks: Record<string, { status: string; latency?: number; error?: string }> = {};
@@ -1822,9 +1821,6 @@ export async function registerRoutes(
     const hasErrors = Object.values(checks).some(c => c.status === "error");
     const hasWarnings = Object.values(checks).some(c => c.status === "warning");
     
-    // Log for debugging
-    fetch('http://localhost:7242/ingest/23a4aeac-c618-4148-b51d-d385f78f4aa3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:health',message:'Health check performed',data:{checks,hasErrors,hasWarnings},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-    
     res.status(hasErrors ? 503 : 200).json({
       status: hasErrors ? "unhealthy" : hasWarnings ? "degraded" : "healthy",
       timestamp: new Date().toISOString(),
@@ -1834,7 +1830,6 @@ export async function registerRoutes(
       recentWebhooksCount: recentWebhooks.length
     });
   });
-  // #endregion
 
   // Webhook verification endpoint (GET) - Meta will call this to verify the webhook
   app.get("/api/webhooks/instagram", (req, res) => {
@@ -1884,10 +1879,6 @@ export async function registerRoutes(
     console.log("[WEBHOOK-RAW] Headers:", JSON.stringify(req.headers, null, 2));
     console.log("[WEBHOOK-RAW] Body:", JSON.stringify(req.body, null, 2));
     
-    // #region agent log - H1: Webhook POST received
-    const messagingEvents = req.body?.entry?.[0]?.messaging || [];
-    fetch('http://localhost:7242/ingest/23a4aeac-c618-4148-b51d-d385f78f4aa3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:webhook-post',message:'Webhook POST received',data:{object:req.body?.object,entryCount:req.body?.entry?.length||0,messagingCount:messagingEvents.length,hasMessages:messagingEvents.some((e:any)=>e.message)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
     
     // Store webhook for debugging
     const logEntry: WebhookLogEntry = {
@@ -2394,9 +2385,6 @@ export async function registerRoutes(
       const recipientId = messageData.recipient?.id;
       const allUsers = await authStorage.getAllUsers?.() || [];
       
-      // #region agent log - H1/H2: Webhook arrived and processing started
-      fetch('http://localhost:7242/ingest/23a4aeac-c618-4148-b51d-d385f78f4aa3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:processWebhookMessage',message:'Webhook DM processing started',data:{recipientId,totalUsers:allUsers.length,senderId:messageData.sender?.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H2'})}).catch(()=>{});
-      // #endregion
       
       console.log(`Looking for user with Instagram account: ${recipientId}`);
       console.log(`Total users found: ${allUsers.length}`);
@@ -2440,9 +2428,6 @@ export async function registerRoutes(
         const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccessToken);
         console.log(`Users with Instagram connected: ${usersWithInstagram.length}`);
         
-        // #region agent log - H3: Check how many users with Instagram
-        fetch('http://localhost:7242/ingest/23a4aeac-c618-4148-b51d-d385f78f4aa3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:auto-association',message:'Auto-association attempt',data:{usersWithInstagramCount:usersWithInstagram.length,recipientId,usersInfo:usersWithInstagram.map((u:any)=>({id:u.id,email:u.email,accountId:u.instagramAccountId,recipientIdStored:u.instagramRecipientId}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-        // #endregion
         
         if (usersWithInstagram.length === 1) {
           // Only one user with Instagram - definitely this user's webhook
@@ -2453,9 +2438,6 @@ export async function registerRoutes(
           console.log(`  Current instagramRecipientId: ${targetUser.instagramRecipientId}`);
           console.log(`  New webhook recipientId: ${recipientId}`);
           
-          // #region agent log - H3: Single user auto-association triggered
-          fetch('http://localhost:7242/ingest/23a4aeac-c618-4148-b51d-d385f78f4aa3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:auto-association-single',message:'Single user - auto-associating',data:{userId:targetUser.id,email:targetUser.email,oldRecipientId:targetUser.instagramRecipientId,newRecipientId:recipientId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-          // #endregion
           
           try {
             await authStorage.updateUser(targetUser.id, {
@@ -2465,18 +2447,12 @@ export async function registerRoutes(
             instagramUser.instagramRecipientId = recipientId;
             console.log(`✅ AUTO-ASSOCIATED instagramRecipientId=${recipientId} for user ${targetUser.id}`);
             
-            // #region agent log - H3: Auto-association success
-            fetch('http://localhost:7242/ingest/23a4aeac-c618-4148-b51d-d385f78f4aa3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:auto-association-success',message:'Auto-association successful',data:{userId:targetUser.id,recipientId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-            // #endregion
             
             // Clear any previous unmapped webhook alert
             await storage.deleteSetting("lastUnmappedWebhookRecipientId");
             await storage.deleteSetting("lastUnmappedWebhookTimestamp");
           } catch (err) {
             console.error("Failed to auto-associate instagramRecipientId:", err);
-            // #region agent log - H3: Auto-association error
-            fetch('http://localhost:7242/ingest/23a4aeac-c618-4148-b51d-d385f78f4aa3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:auto-association-error',message:'Auto-association failed',data:{error:String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-            // #endregion
           }
         } else if (usersWithInstagram.length > 1) {
           // STRATEGY 2: Multiple users - try pending webhook markers (time-based)
