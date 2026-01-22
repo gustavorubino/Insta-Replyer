@@ -1748,19 +1748,43 @@ export async function registerRoutes(
 
   // ============ Instagram Webhooks ============
 
+  // Webhook status endpoint (public) - to check if webhook is working
+  app.get("/api/webhooks/status", (req, res) => {
+    res.json({
+      status: "ok",
+      endpoint: "/api/webhooks/instagram",
+      verifyTokenConfigured: !!WEBHOOK_VERIFY_TOKEN,
+      verifyTokenHint: WEBHOOK_VERIFY_TOKEN ? `${WEBHOOK_VERIFY_TOKEN.substring(0, 10)}...` : "NOT SET",
+      expectedToken: "instagram_webhook_verify_2024",
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   // Webhook verification endpoint (GET) - Meta will call this to verify the webhook
   app.get("/api/webhooks/instagram", (req, res) => {
     const mode = req.query["hub.mode"];
     const token = req.query["hub.verify_token"];
     const challenge = req.query["hub.challenge"];
 
-    console.log("Webhook verification request:", { mode, token: token ? "***" : "missing", challenge });
+    console.log("╔══════════════════════════════════════════════════════════════╗");
+    console.log("║  📥 WEBHOOK VERIFICATION REQUEST                             ║");
+    console.log("╚══════════════════════════════════════════════════════════════╝");
+    console.log("Webhook verification request:", { 
+      mode, 
+      tokenReceived: token ? `${String(token).substring(0, 10)}...` : "missing",
+      tokenExpected: WEBHOOK_VERIFY_TOKEN ? `${WEBHOOK_VERIFY_TOKEN.substring(0, 10)}...` : "NOT SET",
+      challenge: challenge ? "present" : "missing"
+    });
 
     if (mode === "subscribe" && token === WEBHOOK_VERIFY_TOKEN) {
-      console.log("Webhook verified successfully");
+      console.log("✅ Webhook verified successfully! Returning challenge.");
       res.status(200).send(challenge);
     } else {
-      console.error("Webhook verification failed");
+      console.error("❌ Webhook verification failed!");
+      console.error("  - Mode:", mode);
+      console.error("  - Token match:", token === WEBHOOK_VERIFY_TOKEN);
+      console.error("  - Expected token starts with:", WEBHOOK_VERIFY_TOKEN?.substring(0, 15));
+      console.error("  - Received token starts with:", String(token || "").substring(0, 15));
       res.sendStatus(403);
     }
   });
@@ -2728,6 +2752,107 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting webhook config:", error);
       res.status(500).json({ error: "Failed to get webhook configuration" });
+    }
+  });
+
+  // Diagnostic endpoint for troubleshooting webhook issues
+  app.get("/api/admin/diagnostics", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const baseUrl = getBaseUrl(req);
+      const webhookUrl = `${baseUrl}/api/webhooks/instagram`;
+
+      // Get all users with Instagram connected
+      const allUsers = await authStorage.getAllUsers?.() || [];
+      const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccountId || u.instagramAccessToken);
+
+      // Check environment variables
+      const envCheck = {
+        INSTAGRAM_APP_ID: !!INSTAGRAM_APP_ID,
+        INSTAGRAM_APP_SECRET: !!INSTAGRAM_APP_SECRET,
+        WEBHOOK_VERIFY_TOKEN: !!WEBHOOK_VERIFY_TOKEN,
+        SESSION_SECRET: !!process.env.SESSION_SECRET,
+      };
+
+      // Get Instagram accounts info
+      const instagramAccounts = usersWithInstagram.map((u: any) => ({
+        userId: u.id,
+        email: u.email,
+        instagramUsername: u.instagramUsername || null,
+        instagramAccountId: u.instagramAccountId || null,
+        instagramRecipientId: u.instagramRecipientId || null,
+        hasAccessToken: !!u.instagramAccessToken,
+        tokenExpiresAt: u.instagramTokenExpiresAt || null,
+        showTokenWarning: u.showTokenWarning || false,
+      }));
+
+      res.json({
+        webhook: {
+          url: webhookUrl,
+          verifyToken: WEBHOOK_VERIFY_TOKEN,
+          callbackUrl: `${webhookUrl}`,
+          fields: ["messages", "messaging_postbacks", "messaging_optins", "message_deliveries", "message_reads"],
+        },
+        environment: envCheck,
+        instagramAccounts,
+        facebookAppConfig: {
+          appId: INSTAGRAM_APP_ID ? `${INSTAGRAM_APP_ID.substring(0, 4)}...` : "NOT SET",
+          instructions: [
+            "1. Go to Facebook Developer Console > Your App",
+            "2. Click on 'Webhooks' in the left menu",
+            "3. Click 'Add Subscription' for Instagram",
+            "4. Enter the Callback URL: " + webhookUrl,
+            "5. Enter the Verify Token: " + WEBHOOK_VERIFY_TOKEN,
+            "6. Select fields: messages, messaging_postbacks",
+            "7. Click 'Verify and Save'",
+            "8. Make sure the app is in 'Live' mode, not 'Development'",
+            "9. Subscribe the Instagram account to the webhook in 'Webhook Subscriptions'",
+          ],
+        },
+        troubleshooting: {
+          noMessagesArriving: [
+            "Check if webhook is configured in Facebook Developer Console",
+            "Verify the Callback URL matches exactly: " + webhookUrl,
+            "Verify the Verify Token matches: " + WEBHOOK_VERIFY_TOKEN,
+            "Make sure app is in LIVE mode (not development)",
+            "Check that Instagram Business account is connected to a Facebook Page",
+            "Ensure the Facebook Page has the app installed",
+            "Check server logs for webhook POST requests",
+          ],
+        },
+      });
+    } catch (error) {
+      console.error("Error getting diagnostics:", error);
+      res.status(500).json({ error: "Failed to get diagnostics" });
+    }
+  });
+
+  // Test webhook endpoint - simulates receiving a webhook
+  app.post("/api/admin/test-webhook", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      // Log that a test was requested
+      console.log("╔════════════════════════════════════════════════════════════════════╗");
+      console.log("║  🧪 TEST WEBHOOK REQUESTED 🧪                                      ║");
+      console.log("╚════════════════════════════════════════════════════════════════════╝");
+      console.log("[TEST] Timestamp:", new Date().toISOString());
+
+      res.json({
+        success: true,
+        message: "Check server logs for webhook test entry",
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error in test webhook:", error);
+      res.status(500).json({ error: "Test failed" });
     }
   });
 
