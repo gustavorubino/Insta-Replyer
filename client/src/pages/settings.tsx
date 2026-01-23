@@ -62,6 +62,7 @@ export default function Settings() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const { t } = useLanguage();
 
   const { data: settings, isLoading } = useQuery<SettingsData>({
@@ -235,7 +236,11 @@ export default function Settings() {
     if (!file) return;
 
     setIsUploadingFile(true);
+    setUploadProgress(0);
+    
     try {
+      // Step 1: Get presigned URL (5%)
+      setUploadProgress(5);
       const response = await fetch("/api/uploads/request-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -252,29 +257,52 @@ export default function Settings() {
       }
 
       const { uploadURL, objectPath } = await response.json();
+      setUploadProgress(10);
 
-      const uploadResponse = await fetch(uploadURL, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type || "application/octet-stream" },
+      // Step 2: Upload file with progress tracking (10-90%)
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        xhr.upload.addEventListener("progress", (event) => {
+          if (event.lengthComputable) {
+            const percentComplete = Math.round((event.loaded / event.total) * 80) + 10;
+            setUploadProgress(Math.min(percentComplete, 90));
+          }
+        });
+        
+        xhr.addEventListener("load", () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error("Falha ao fazer upload do arquivo"));
+          }
+        });
+        
+        xhr.addEventListener("error", () => {
+          reject(new Error("Erro de conexão durante upload"));
+        });
+        
+        xhr.open("PUT", uploadURL);
+        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+        xhr.send(file);
       });
 
-      if (!uploadResponse.ok) {
-        throw new Error("Falha ao fazer upload do arquivo");
-      }
-
+      // Step 3: Register file (95%)
+      setUploadProgress(95);
       await apiRequest("POST", "/api/knowledge/files", {
         fileName: file.name,
         fileType: file.type,
         objectPath,
       });
 
+      setUploadProgress(100);
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge/files"] });
       toast({ title: "Arquivo enviado", description: "O conteúdo está sendo processado." });
     } catch (error) {
       toast({ title: "Erro", description: "Não foi possível enviar o arquivo.", variant: "destructive" });
     } finally {
       setIsUploadingFile(false);
+      setUploadProgress(0);
       e.target.value = "";
     }
   };
@@ -788,7 +816,7 @@ export default function Settings() {
                     ) : (
                       <Upload className="h-4 w-4 mr-2" />
                     )}
-                    {isUploadingFile ? "Enviando..." : "Enviar Arquivo"}
+                    {isUploadingFile ? `Enviando... ${uploadProgress}%` : "Enviar Arquivo"}
                   </Button>
                   <p className="text-xs text-muted-foreground mt-2">
                     Formatos aceitos: PDF, TXT
