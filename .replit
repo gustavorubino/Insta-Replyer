@@ -44,5 +44,5 @@ integrations = ["javascript_openai:1.0.0", "javascript_database:1.0.0", "javascr
 [userenv]
 
 [userenv.shared]
-INSTAGRAM_APP_ID = "1294927529320285"
+INSTAGRAM_APP_ID = "883536760702057"
 WEBHOOK_VERIFY_TOKEN = "instagram_webhook_2025"
