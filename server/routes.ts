@@ -236,7 +236,7 @@ async function replyToInstagramComment(
 }
 
 // Helper to extract user info from request
-async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean; excludeSenderIds: string[] }> {
+async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean; excludeSenderIds: string[]; excludeSenderUsernames: string[] }> {
   const user = req.user as any;
   // Use actualUserId for OIDC users with existing email accounts, fallback to claims.sub or id
   const userId = user.actualUserId || user.claims?.sub || user.id;
@@ -248,6 +248,7 @@ async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: 
   // This includes: instagramAccountId (Graph API ID) and instagramRecipientId (DM webhook ID)
   // These can be different for the same account depending on context
   const excludeSenderIds: string[] = [];
+  const excludeSenderUsernames: string[] = [];
   
   if (dbUser?.instagramAccountId) {
     excludeSenderIds.push(dbUser.instagramAccountId);
@@ -256,13 +257,19 @@ async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: 
     excludeSenderIds.push(dbUser.instagramRecipientId);
   }
   
+  // Also exclude by username as fallback (Instagram uses different IDs in different contexts)
+  if (dbUser?.instagramUsername) {
+    excludeSenderUsernames.push(dbUser.instagramUsername.toLowerCase());
+  }
+  
   // Debug logging for message filtering
-  console.log(`[getUserContext] userId: ${userId}, isAdmin: ${dbUser?.isAdmin}, excludeSenderIds: [${excludeSenderIds.join(', ')}]`);
+  console.log(`[getUserContext] userId: ${userId}, isAdmin: ${dbUser?.isAdmin}, excludeSenderIds: [${excludeSenderIds.join(', ')}], excludeUsernames: [${excludeSenderUsernames.join(', ')}]`);
   
   return {
     userId,
     isAdmin: dbUser?.isAdmin || false,
     excludeSenderIds,
+    excludeSenderUsernames,
   };
 }
 
@@ -603,8 +610,8 @@ export async function registerRoutes(
   // Get all messages
   app.get("/api/messages", isAuthenticated, async (req, res) => {
     try {
-      const { userId, isAdmin, excludeSenderIds } = await getUserContext(req);
-      const messages = await storage.getMessages(userId, isAdmin, excludeSenderIds);
+      const { userId, isAdmin, excludeSenderIds, excludeSenderUsernames } = await getUserContext(req);
+      const messages = await storage.getMessages(userId, isAdmin, excludeSenderIds, excludeSenderUsernames);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -615,8 +622,8 @@ export async function registerRoutes(
   // Get pending messages
   app.get("/api/messages/pending", isAuthenticated, async (req, res) => {
     try {
-      const { userId, isAdmin, excludeSenderIds } = await getUserContext(req);
-      const messages = await storage.getPendingMessages(userId, isAdmin, excludeSenderIds);
+      const { userId, isAdmin, excludeSenderIds, excludeSenderUsernames } = await getUserContext(req);
+      const messages = await storage.getPendingMessages(userId, isAdmin, excludeSenderIds, excludeSenderUsernames);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching pending messages:", error);
@@ -627,9 +634,9 @@ export async function registerRoutes(
   // Get recent messages
   app.get("/api/messages/recent", isAuthenticated, async (req, res) => {
     try {
-      const { userId, isAdmin, excludeSenderIds } = await getUserContext(req);
+      const { userId, isAdmin, excludeSenderIds, excludeSenderUsernames } = await getUserContext(req);
       const limit = parseInt(req.query.limit as string) || 10;
-      const messages = await storage.getRecentMessages(limit, userId, isAdmin, excludeSenderIds);
+      const messages = await storage.getRecentMessages(limit, userId, isAdmin, excludeSenderIds, excludeSenderUsernames);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching recent messages:", error);
@@ -3503,8 +3510,8 @@ export async function registerRoutes(
     }
   });
 
-  // Admin endpoint to manually set Instagram IDs for a user
-  // Use this when webhook IDs differ from OAuth IDs
+  // Admin endpoint to manually set Instagram IDs and username for a user
+  // Use this when webhook IDs differ from OAuth IDs or username needs to be set
   app.post("/api/admin/set-instagram-id/:userId", isAuthenticated, async (req, res) => {
     try {
       const { isAdmin } = await getUserContext(req);
@@ -3513,14 +3520,15 @@ export async function registerRoutes(
       }
 
       const targetUserId = req.params.userId;
-      const { instagramAccountId, instagramRecipientId } = req.body;
+      const { instagramAccountId, instagramRecipientId, instagramUsername } = req.body;
 
-      if (!instagramAccountId && !instagramRecipientId) {
+      if (!instagramAccountId && !instagramRecipientId && !instagramUsername) {
         return res.status(400).json({ 
-          error: "Provide at least one ID to set",
+          error: "Provide at least one field to set",
           usage: {
             instagramAccountId: "The ID used for comments webhooks (entry.id)",
-            instagramRecipientId: "The ID used for DM webhooks (recipient.id)"
+            instagramRecipientId: "The ID used for DM webhooks (recipient.id)",
+            instagramUsername: "The Instagram username (without @) for filtering own messages"
           }
         });
       }
@@ -3535,30 +3543,34 @@ export async function registerRoutes(
       const updates: any = {};
       if (instagramAccountId) updates.instagramAccountId = instagramAccountId;
       if (instagramRecipientId) updates.instagramRecipientId = instagramRecipientId;
+      if (instagramUsername) updates.instagramUsername = instagramUsername.replace('@', '').toLowerCase();
 
       await authStorage.updateUser(targetUserId, updates);
 
-      console.log(`[Admin] Manually set Instagram IDs for user ${targetUserId}:`);
+      console.log(`[Admin] Manually set Instagram data for user ${targetUserId}:`);
       if (instagramAccountId) console.log(`  instagramAccountId: ${targetUser.instagramAccountId} -> ${instagramAccountId}`);
       if (instagramRecipientId) console.log(`  instagramRecipientId: ${targetUser.instagramRecipientId} -> ${instagramRecipientId}`);
+      if (instagramUsername) console.log(`  instagramUsername: ${targetUser.instagramUsername} -> ${instagramUsername}`);
 
       res.json({
         success: true,
-        message: "Instagram IDs updated successfully",
+        message: "Instagram data updated successfully",
         userId: targetUserId,
         email: targetUser.email,
         previous: {
           instagramAccountId: targetUser.instagramAccountId,
-          instagramRecipientId: targetUser.instagramRecipientId
+          instagramRecipientId: targetUser.instagramRecipientId,
+          instagramUsername: targetUser.instagramUsername
         },
         current: {
           instagramAccountId: instagramAccountId || targetUser.instagramAccountId,
-          instagramRecipientId: instagramRecipientId || targetUser.instagramRecipientId
+          instagramRecipientId: instagramRecipientId || targetUser.instagramRecipientId,
+          instagramUsername: instagramUsername || targetUser.instagramUsername
         }
       });
     } catch (error) {
-      console.error("Error setting Instagram IDs:", error);
-      res.status(500).json({ error: "Failed to set Instagram IDs" });
+      console.error("Error setting Instagram data:", error);
+      res.status(500).json({ error: "Failed to set Instagram data" });
     }
   });
 

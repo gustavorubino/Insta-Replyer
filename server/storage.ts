@@ -22,9 +22,9 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   createUser(user: UpsertUser): Promise<User>;
 
-  getMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]>;
-  getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]>;
-  getRecentMessages(limit?: number, userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]>;
+  getMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]>;
+  getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]>;
+  getRecentMessages(limit?: number, userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]>;
   getMessage(id: number): Promise<MessageWithResponse | undefined>;
   getMessageByInstagramId(instagramId: string): Promise<InstagramMessage | undefined>;
   getMessagesByUsername(username: string): Promise<InstagramMessage[]>;
@@ -82,21 +82,42 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async getMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]> {
+  async getMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]> {
     // Build condition: if admin, show all except own sent messages
     // if user, show only their messages
-    // Note: Must use or(isNull(senderId), ne(senderId, excludeSenderId)) because NULL != value returns NULL, not TRUE
-    // Now supports multiple excludeSenderIds (instagramAccountId AND instagramRecipientId)
+    // 
+    // Logic for excluding own messages:
+    // - Include messages where senderId is NULL OR senderId is not in excludeIds
+    // - AND include messages where senderUsername is NULL OR lower(senderUsername) is not in excludeUsernames
+    // This ensures messages are only excluded if BOTH senderId and senderUsername match the exclusion criteria
     
-    // Build exclude condition for all sender IDs (filtering out user's own sent messages)
     const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
-    let excludeCondition: ReturnType<typeof and> | undefined;
+    const validExcludeUsernames = excludeSenderUsernames?.filter(u => u && u.trim() !== '') || [];
     
+    // Build senderId exclusion: include if NULL or not in excluded list
+    let senderIdOk: ReturnType<typeof or> | undefined;
     if (validExcludeIds.length > 0) {
-      // Exclude messages where senderId matches ANY of the user's Instagram IDs
-      // Must also include NULL senderIds (comments often have null senderId)
-      const excludeConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
-      excludeCondition = or(isNull(instagramMessages.senderId), and(...excludeConditions));
+      const idConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
+      senderIdOk = or(isNull(instagramMessages.senderId), and(...idConditions));
+    }
+    
+    // Build senderUsername exclusion: include if NULL or not in excluded list
+    let senderUsernameOk: ReturnType<typeof or> | undefined;
+    if (validExcludeUsernames.length > 0) {
+      const usernameConditions = validExcludeUsernames.map(u => 
+        ne(sql`lower(${instagramMessages.senderUsername})`, u.toLowerCase())
+      );
+      senderUsernameOk = or(isNull(instagramMessages.senderUsername), and(...usernameConditions));
+    }
+    
+    // Combine: both conditions must be satisfied (AND)
+    let excludeCondition: ReturnType<typeof and> | undefined;
+    if (senderIdOk && senderUsernameOk) {
+      excludeCondition = and(senderIdOk, senderUsernameOk);
+    } else if (senderIdOk) {
+      excludeCondition = senderIdOk;
+    } else if (senderUsernameOk) {
+      excludeCondition = senderUsernameOk;
     }
     
     let condition;
@@ -125,21 +146,40 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]> {
+  async getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]> {
     const baseCondition = eq(instagramMessages.status, "pending");
     
-    // Build condition based on role and exclude own sent messages
-    // Note: Must use or(isNull(senderId), ne(senderId, excludeSenderId)) because NULL != value returns NULL, not TRUE
-    // Now supports multiple excludeSenderIds (instagramAccountId AND instagramRecipientId)
+    // Logic for excluding own messages:
+    // - Include messages where senderId is NULL OR senderId is not in excludeIds
+    // - AND include messages where senderUsername is NULL OR lower(senderUsername) is not in excludeUsernames
     
-    // Build exclude condition for all sender IDs (filtering out user's own sent messages)
     const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
-    let excludeCondition: ReturnType<typeof and> | undefined;
+    const validExcludeUsernames = excludeSenderUsernames?.filter(u => u && u.trim() !== '') || [];
     
+    // Build senderId exclusion: include if NULL or not in excluded list
+    let senderIdOk: ReturnType<typeof or> | undefined;
     if (validExcludeIds.length > 0) {
-      // Exclude messages where senderId matches ANY of the user's Instagram IDs
-      const excludeConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
-      excludeCondition = or(isNull(instagramMessages.senderId), and(...excludeConditions));
+      const idConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
+      senderIdOk = or(isNull(instagramMessages.senderId), and(...idConditions));
+    }
+    
+    // Build senderUsername exclusion: include if NULL or not in excluded list
+    let senderUsernameOk: ReturnType<typeof or> | undefined;
+    if (validExcludeUsernames.length > 0) {
+      const usernameConditions = validExcludeUsernames.map(u => 
+        ne(sql`lower(${instagramMessages.senderUsername})`, u.toLowerCase())
+      );
+      senderUsernameOk = or(isNull(instagramMessages.senderUsername), and(...usernameConditions));
+    }
+    
+    // Combine: both conditions must be satisfied (AND)
+    let excludeCondition: ReturnType<typeof and> | undefined;
+    if (senderIdOk && senderUsernameOk) {
+      excludeCondition = and(senderIdOk, senderUsernameOk);
+    } else if (senderIdOk) {
+      excludeCondition = senderIdOk;
+    } else if (senderUsernameOk) {
+      excludeCondition = senderUsernameOk;
     }
     
     let condition;
@@ -168,19 +208,38 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getRecentMessages(limit: number = 10, userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]> {
-    // Build condition based on role and exclude own sent messages
-    // Note: Must use or(isNull(senderId), ne(senderId, excludeSenderId)) because NULL != value returns NULL, not TRUE
-    // Now supports multiple excludeSenderIds (instagramAccountId AND instagramRecipientId)
+  async getRecentMessages(limit: number = 10, userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]> {
+    // Logic for excluding own messages:
+    // - Include messages where senderId is NULL OR senderId is not in excludeIds
+    // - AND include messages where senderUsername is NULL OR lower(senderUsername) is not in excludeUsernames
     
-    // Build exclude condition for all sender IDs (filtering out user's own sent messages)
     const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
-    let excludeCondition: ReturnType<typeof and> | undefined;
+    const validExcludeUsernames = excludeSenderUsernames?.filter(u => u && u.trim() !== '') || [];
     
+    // Build senderId exclusion: include if NULL or not in excluded list
+    let senderIdOk: ReturnType<typeof or> | undefined;
     if (validExcludeIds.length > 0) {
-      // Exclude messages where senderId matches ANY of the user's Instagram IDs
-      const excludeConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
-      excludeCondition = or(isNull(instagramMessages.senderId), and(...excludeConditions));
+      const idConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
+      senderIdOk = or(isNull(instagramMessages.senderId), and(...idConditions));
+    }
+    
+    // Build senderUsername exclusion: include if NULL or not in excluded list
+    let senderUsernameOk: ReturnType<typeof or> | undefined;
+    if (validExcludeUsernames.length > 0) {
+      const usernameConditions = validExcludeUsernames.map(u => 
+        ne(sql`lower(${instagramMessages.senderUsername})`, u.toLowerCase())
+      );
+      senderUsernameOk = or(isNull(instagramMessages.senderUsername), and(...usernameConditions));
+    }
+    
+    // Combine: both conditions must be satisfied (AND)
+    let excludeCondition: ReturnType<typeof and> | undefined;
+    if (senderIdOk && senderUsernameOk) {
+      excludeCondition = and(senderIdOk, senderUsernameOk);
+    } else if (senderIdOk) {
+      excludeCondition = senderIdOk;
+    } else if (senderUsernameOk) {
+      excludeCondition = senderUsernameOk;
     }
     
     let condition;
