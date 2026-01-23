@@ -13,8 +13,12 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - **Webhook Processing**: Comment and DM webhooks use user-specific operation modes and confidence thresholds for auto-send decisions
 - **Statistics**: Dashboard avgConfidence and all stats are filtered by userId (admins see all, users see own)
 - **User Indicator**: Sidebar displays user name, email, and role (Administrador/Usuário)
-- **Own Sent Message Filter**: Messages where senderId matches ANY of the user's Instagram IDs (instagramAccountId OR instagramRecipientId) are excluded from all queries (pending, recent, history). Users never see messages they sent in their own approval queues - only messages they received. The system collects both IDs into an `excludeSenderIds[]` array because Instagram uses different IDs in different contexts (Graph API vs DM webhooks).
-- **NULL Sender ID Handling**: Comment messages may have NULL senderId. Storage queries use `or(isNull(senderId), and(ne(senderId, id1), ne(senderId, id2)...))` pattern to correctly include these messages while excluding the user's own messages (SQL NULL comparisons return NULL, not TRUE).
+- **Own Sent Message Filter**: Messages where senderId OR senderUsername matches ANY of the user's Instagram identifiers are excluded from all queries (pending, recent, history). Users never see messages they sent in their own approval queues - only messages they received.
+  - **Dual Exclusion Criteria**: System uses both `excludeSenderIds[]` (instagramAccountId + instagramRecipientId) AND `excludeSenderUsernames[]` (instagramUsername) for matching
+  - **Logic**: `senderIdOk = or(isNull(senderId), and(ne(senderId, id1), ne(senderId, id2)...))` combined with `senderUsernameOk = or(isNull(senderUsername), and(ne(lower(senderUsername), username1)...))` using AND - message is EXCLUDED if EITHER senderId OR senderUsername matches the user's identifiers
+  - **Case-insensitive username matching**: Uses `lower(senderUsername)` in SQL for reliable matching
+- **NULL Field Handling**: Comment messages may have NULL senderId and/or senderUsername. Storage queries correctly handle NULLs in both fields to include legitimate messages while excluding the user's own messages (SQL NULL comparisons return NULL, not TRUE).
+- **Admin Manual ID Assignment**: Endpoint `/api/admin/set-instagram-id/:userId` allows setting instagramAccountId, instagramRecipientId, AND instagramUsername for any user
 
 ## Features
 
