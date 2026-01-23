@@ -728,6 +728,136 @@ export async function registerRoutes(
     }
   });
 
+  // Get global settings (admin only)
+  app.get("/api/admin/global-settings", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const globalOperationMode = await storage.getSetting("global_operationMode");
+      const globalAutoApproveThreshold = await storage.getSetting("global_autoApproveThreshold");
+      const globalAiTone = await storage.getSetting("global_aiTone");
+      const globalAiContext = await storage.getSetting("global_aiContext");
+
+      res.json({
+        operationMode: globalOperationMode?.value || "manual",
+        confidenceThreshold: Math.round(parseFloat(globalAutoApproveThreshold?.value || "0.9") * 100),
+        systemPrompt: globalAiContext?.value || "",
+        aiTone: globalAiTone?.value || "",
+      });
+    } catch (error) {
+      console.error("Error fetching global settings:", error);
+      res.status(500).json({ error: "Failed to fetch global settings" });
+    }
+  });
+
+  // Update global settings (admin only)
+  app.patch("/api/admin/global-settings", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const updates = req.body;
+
+      if (updates.operationMode !== undefined) {
+        await storage.setSetting("global_operationMode", updates.operationMode);
+      }
+      if (updates.confidenceThreshold !== undefined) {
+        await storage.setSetting("global_autoApproveThreshold", String(updates.confidenceThreshold / 100));
+      }
+      if (updates.systemPrompt !== undefined) {
+        await storage.setSetting("global_aiContext", updates.systemPrompt);
+      }
+      if (updates.aiTone !== undefined) {
+        await storage.setSetting("global_aiTone", updates.aiTone);
+      }
+
+      console.log("[Admin] Global settings updated:", updates);
+      res.json({ success: true, message: "Configurações globais atualizadas com sucesso" });
+    } catch (error) {
+      console.error("Error updating global settings:", error);
+      res.status(500).json({ error: "Failed to update global settings" });
+    }
+  });
+
+  // Reset user settings to use global defaults (admin only)
+  app.post("/api/admin/users/:userId/reset-settings", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const targetUserId = req.params.userId;
+      const user = await authStorage.getUser(targetUserId);
+      
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Reset user-specific settings to null so they inherit global defaults
+      await authStorage.updateUser(targetUserId, {
+        operationMode: null,
+        autoApproveThreshold: null,
+        aiTone: null,
+        aiContext: null,
+      });
+
+      console.log(`[Admin] Reset settings for user ${targetUserId} to use global defaults`);
+      res.json({ success: true, message: "Configurações do usuário resetadas para usar os padrões globais" });
+    } catch (error) {
+      console.error("Error resetting user settings:", error);
+      res.status(500).json({ error: "Failed to reset user settings" });
+    }
+  });
+
+  // Update specific user settings (admin only)
+  app.patch("/api/admin/users/:userId/settings", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const targetUserId = req.params.userId;
+      const user = await authStorage.getUser(targetUserId);
+      
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const updates = req.body;
+      const userUpdates: Record<string, string | null> = {};
+
+      if (updates.operationMode !== undefined) {
+        userUpdates.operationMode = updates.operationMode;
+      }
+      if (updates.confidenceThreshold !== undefined) {
+        userUpdates.autoApproveThreshold = String(updates.confidenceThreshold / 100);
+      }
+      if (updates.systemPrompt !== undefined) {
+        userUpdates.aiContext = updates.systemPrompt;
+      }
+      if (updates.aiTone !== undefined) {
+        userUpdates.aiTone = updates.aiTone;
+      }
+
+      if (Object.keys(userUpdates).length > 0) {
+        await authStorage.updateUser(targetUserId, userUpdates);
+        console.log(`[Admin] Updated settings for user ${targetUserId}:`, userUpdates);
+      }
+
+      res.json({ success: true, message: "Configurações do usuário atualizadas com sucesso" });
+    } catch (error) {
+      console.error("Error updating user settings:", error);
+      res.status(500).json({ error: "Failed to update user settings" });
+    }
+  });
+
   // Refresh Instagram profile data for a user (admin only)
   app.post("/api/admin/users/:userId/refresh-instagram", isAuthenticated, async (req, res) => {
     try {
@@ -1166,10 +1296,10 @@ export async function registerRoutes(
     }
   });
 
-  // Get settings (per-user)
+  // Get settings (per-user with global defaults)
   app.get("/api/settings", isAuthenticated, async (req, res) => {
     try {
-      const { userId } = await getUserContext(req);
+      const { userId, isAdmin } = await getUserContext(req);
       
       // Get user-specific settings from user record
       const user = await authStorage.getUser(userId);
@@ -1177,17 +1307,44 @@ export async function registerRoutes(
         return res.status(404).json({ error: "User not found" });
       }
       
+      // Get global settings (defined by admin)
+      const globalOperationMode = await storage.getSetting("global_operationMode");
+      const globalAutoApproveThreshold = await storage.getSetting("global_autoApproveThreshold");
+      const globalAiTone = await storage.getSetting("global_aiTone");
+      const globalAiContext = await storage.getSetting("global_aiContext");
+      
+      // Merge: user personalization takes precedence over global defaults
+      // If user has not set a value (null/undefined), use global default
+      const operationMode = user.operationMode || globalOperationMode?.value || "manual";
+      const autoApproveThreshold = user.autoApproveThreshold || globalAutoApproveThreshold?.value || "0.9";
+      const aiTone = user.aiTone || globalAiTone?.value || "";
+      const aiContext = user.aiContext || globalAiContext?.value || "";
+      
       const isInstagramConnected = !!(user.instagramAccountId && user.instagramAccessToken);
       
       res.json({
         instagramConnected: isInstagramConnected,
         instagramUsername: user.instagramUsername || "",
         instagramAccountId: user.instagramAccountId || "",
-        operationMode: user.operationMode || "manual",
-        confidenceThreshold: Math.round(parseFloat(user.autoApproveThreshold || "0.9") * 100),
-        systemPrompt: user.aiContext || "",
-        aiTone: user.aiTone || "",
-        autoReplyEnabled: user.operationMode === "auto" || user.operationMode === "semi_auto",
+        operationMode,
+        confidenceThreshold: Math.round(parseFloat(autoApproveThreshold) * 100),
+        systemPrompt: aiContext,
+        aiTone,
+        autoReplyEnabled: operationMode === "auto" || operationMode === "semi_auto",
+        // Include info about which settings are personalized vs global (for UI indication)
+        isPersonalized: {
+          operationMode: !!user.operationMode,
+          confidenceThreshold: !!user.autoApproveThreshold,
+          systemPrompt: !!user.aiContext,
+          aiTone: !!user.aiTone,
+        },
+        // Global defaults for reference
+        globalDefaults: {
+          operationMode: globalOperationMode?.value || "manual",
+          confidenceThreshold: Math.round(parseFloat(globalAutoApproveThreshold?.value || "0.9") * 100),
+          systemPrompt: globalAiContext?.value || "",
+          aiTone: globalAiTone?.value || "",
+        },
       });
     } catch (error) {
       console.error("Error fetching settings:", error);
