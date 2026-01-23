@@ -13,8 +13,8 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - **Webhook Processing**: Comment and DM webhooks use user-specific operation modes and confidence thresholds for auto-send decisions
 - **Statistics**: Dashboard avgConfidence and all stats are filtered by userId (admins see all, users see own)
 - **User Indicator**: Sidebar displays user name, email, and role (Administrador/Usuário)
-- **Own Sent Message Filter**: Messages where senderId matches user's instagramAccountId are excluded from all queries (pending, recent, history). Users never see messages they sent in their own approval queues - only messages they received.
-- **NULL Sender ID Handling**: Comment messages may have NULL senderId. Storage queries use `or(isNull(senderId), ne(senderId, excludeSenderId))` pattern to correctly include these messages (SQL NULL comparisons return NULL, not TRUE).
+- **Own Sent Message Filter**: Messages where senderId matches ANY of the user's Instagram IDs (instagramAccountId OR instagramRecipientId) are excluded from all queries (pending, recent, history). Users never see messages they sent in their own approval queues - only messages they received. The system collects both IDs into an `excludeSenderIds[]` array because Instagram uses different IDs in different contexts (Graph API vs DM webhooks).
+- **NULL Sender ID Handling**: Comment messages may have NULL senderId. Storage queries use `or(isNull(senderId), and(ne(senderId, id1), ne(senderId, id2)...))` pattern to correctly include these messages while excluding the user's own messages (SQL NULL comparisons return NULL, not TRUE).
 
 ## Features
 

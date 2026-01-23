@@ -236,17 +236,33 @@ async function replyToInstagramComment(
 }
 
 // Helper to extract user info from request
-async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean; instagramAccountId?: string }> {
+async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean; excludeSenderIds: string[] }> {
   const user = req.user as any;
   // Use actualUserId for OIDC users with existing email accounts, fallback to claims.sub or id
   const userId = user.actualUserId || user.claims?.sub || user.id;
   
-  // Fetch user from database to get isAdmin status and Instagram account ID
+  // Fetch user from database to get isAdmin status and ALL Instagram IDs for filtering
   const dbUser = await authStorage.getUser(userId);
+  
+  // Collect ALL possible sender IDs that belong to this user
+  // This includes: instagramAccountId (Graph API ID) and instagramRecipientId (DM webhook ID)
+  // These can be different for the same account depending on context
+  const excludeSenderIds: string[] = [];
+  
+  if (dbUser?.instagramAccountId) {
+    excludeSenderIds.push(dbUser.instagramAccountId);
+  }
+  if (dbUser?.instagramRecipientId) {
+    excludeSenderIds.push(dbUser.instagramRecipientId);
+  }
+  
+  // Debug logging for message filtering
+  console.log(`[getUserContext] userId: ${userId}, isAdmin: ${dbUser?.isAdmin}, excludeSenderIds: [${excludeSenderIds.join(', ')}]`);
+  
   return {
     userId,
     isAdmin: dbUser?.isAdmin || false,
-    instagramAccountId: dbUser?.instagramAccountId || undefined,
+    excludeSenderIds,
   };
 }
 
@@ -587,8 +603,8 @@ export async function registerRoutes(
   // Get all messages
   app.get("/api/messages", isAuthenticated, async (req, res) => {
     try {
-      const { userId, isAdmin, instagramAccountId } = await getUserContext(req);
-      const messages = await storage.getMessages(userId, isAdmin, instagramAccountId);
+      const { userId, isAdmin, excludeSenderIds } = await getUserContext(req);
+      const messages = await storage.getMessages(userId, isAdmin, excludeSenderIds);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -599,8 +615,8 @@ export async function registerRoutes(
   // Get pending messages
   app.get("/api/messages/pending", isAuthenticated, async (req, res) => {
     try {
-      const { userId, isAdmin, instagramAccountId } = await getUserContext(req);
-      const messages = await storage.getPendingMessages(userId, isAdmin, instagramAccountId);
+      const { userId, isAdmin, excludeSenderIds } = await getUserContext(req);
+      const messages = await storage.getPendingMessages(userId, isAdmin, excludeSenderIds);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching pending messages:", error);
@@ -611,9 +627,9 @@ export async function registerRoutes(
   // Get recent messages
   app.get("/api/messages/recent", isAuthenticated, async (req, res) => {
     try {
-      const { userId, isAdmin, instagramAccountId } = await getUserContext(req);
+      const { userId, isAdmin, excludeSenderIds } = await getUserContext(req);
       const limit = parseInt(req.query.limit as string) || 10;
-      const messages = await storage.getRecentMessages(limit, userId, isAdmin, instagramAccountId);
+      const messages = await storage.getRecentMessages(limit, userId, isAdmin, excludeSenderIds);
       res.json(messages);
     } catch (error) {
       console.error("Error fetching recent messages:", error);

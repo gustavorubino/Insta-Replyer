@@ -22,9 +22,9 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   createUser(user: UpsertUser): Promise<User>;
 
-  getMessages(userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]>;
-  getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]>;
-  getRecentMessages(limit?: number, userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]>;
+  getMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]>;
+  getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]>;
+  getRecentMessages(limit?: number, userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]>;
   getMessage(id: number): Promise<MessageWithResponse | undefined>;
   getMessageByInstagramId(instagramId: string): Promise<InstagramMessage | undefined>;
   getMessagesByUsername(username: string): Promise<InstagramMessage[]>;
@@ -82,20 +82,31 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async getMessages(userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]> {
+  async getMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]> {
     // Build condition: if admin, show all except own sent messages
     // if user, show only their messages
     // Note: Must use or(isNull(senderId), ne(senderId, excludeSenderId)) because NULL != value returns NULL, not TRUE
+    // Now supports multiple excludeSenderIds (instagramAccountId AND instagramRecipientId)
+    
+    // Build exclude condition for all sender IDs (filtering out user's own sent messages)
+    const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
+    let excludeCondition: ReturnType<typeof and> | undefined;
+    
+    if (validExcludeIds.length > 0) {
+      // Exclude messages where senderId matches ANY of the user's Instagram IDs
+      // Must also include NULL senderIds (comments often have null senderId)
+      const excludeConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
+      excludeCondition = or(isNull(instagramMessages.senderId), and(...excludeConditions));
+    }
+    
     let condition;
     if (isAdmin || !userId) {
       // Admin sees all messages, but exclude messages where sender is the admin's Instagram account
-      condition = excludeSenderId 
-        ? or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId))
-        : undefined;
+      condition = excludeCondition;
     } else {
       // Regular user sees only their messages, excluding their own sent messages
-      condition = excludeSenderId
-        ? and(eq(instagramMessages.userId, userId), or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId)))
+      condition = excludeCondition
+        ? and(eq(instagramMessages.userId, userId), excludeCondition)
         : eq(instagramMessages.userId, userId);
     }
 
@@ -114,21 +125,33 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]> {
+  async getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]> {
     const baseCondition = eq(instagramMessages.status, "pending");
     
     // Build condition based on role and exclude own sent messages
     // Note: Must use or(isNull(senderId), ne(senderId, excludeSenderId)) because NULL != value returns NULL, not TRUE
+    // Now supports multiple excludeSenderIds (instagramAccountId AND instagramRecipientId)
+    
+    // Build exclude condition for all sender IDs (filtering out user's own sent messages)
+    const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
+    let excludeCondition: ReturnType<typeof and> | undefined;
+    
+    if (validExcludeIds.length > 0) {
+      // Exclude messages where senderId matches ANY of the user's Instagram IDs
+      const excludeConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
+      excludeCondition = or(isNull(instagramMessages.senderId), and(...excludeConditions));
+    }
+    
     let condition;
     if (isAdmin || !userId) {
       // Admin sees all pending messages, but exclude messages where sender is the admin's Instagram account
-      condition = excludeSenderId 
-        ? and(baseCondition, or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId)))
+      condition = excludeCondition 
+        ? and(baseCondition, excludeCondition)
         : baseCondition;
     } else {
       // Regular user sees only their pending messages, excluding their own sent messages
-      condition = excludeSenderId
-        ? and(baseCondition, eq(instagramMessages.userId, userId), or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId)))
+      condition = excludeCondition
+        ? and(baseCondition, eq(instagramMessages.userId, userId), excludeCondition)
         : and(baseCondition, eq(instagramMessages.userId, userId));
     }
 
@@ -145,19 +168,29 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getRecentMessages(limit: number = 10, userId?: string, isAdmin?: boolean, excludeSenderId?: string): Promise<MessageWithResponse[]> {
+  async getRecentMessages(limit: number = 10, userId?: string, isAdmin?: boolean, excludeSenderIds?: string[]): Promise<MessageWithResponse[]> {
     // Build condition based on role and exclude own sent messages
     // Note: Must use or(isNull(senderId), ne(senderId, excludeSenderId)) because NULL != value returns NULL, not TRUE
+    // Now supports multiple excludeSenderIds (instagramAccountId AND instagramRecipientId)
+    
+    // Build exclude condition for all sender IDs (filtering out user's own sent messages)
+    const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
+    let excludeCondition: ReturnType<typeof and> | undefined;
+    
+    if (validExcludeIds.length > 0) {
+      // Exclude messages where senderId matches ANY of the user's Instagram IDs
+      const excludeConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
+      excludeCondition = or(isNull(instagramMessages.senderId), and(...excludeConditions));
+    }
+    
     let condition;
     if (isAdmin || !userId) {
       // Admin sees all messages, but exclude messages where sender is the admin's Instagram account
-      condition = excludeSenderId 
-        ? or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId))
-        : undefined;
+      condition = excludeCondition;
     } else {
       // Regular user sees only their messages, excluding their own sent messages
-      condition = excludeSenderId
-        ? and(eq(instagramMessages.userId, userId), or(isNull(instagramMessages.senderId), ne(instagramMessages.senderId, excludeSenderId)))
+      condition = excludeCondition
+        ? and(eq(instagramMessages.userId, userId), excludeCondition)
         : eq(instagramMessages.userId, userId);
     }
 
