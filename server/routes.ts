@@ -2544,7 +2544,40 @@ export async function registerRoutes(
         }
       }
       
-      // Strategy 2: Use Business Discovery API by username (works for public business/creator accounts)
+      // Strategy 2: Try direct IGSID lookup (if fromUserId is available)
+      if (!senderAvatar && fromUserId && instagramUser.instagramAccessToken) {
+        try {
+          console.log(`[Profile Fetch] Tentando busca direta por IGSID ${fromUserId}...`);
+          const encToken = instagramUser.instagramAccessToken;
+          const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
+          
+          // Try Instagram Graph API direct lookup
+          const directUrl = `https://graph.instagram.com/v21.0/${fromUserId}?fields=profile_pic,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`;
+          const directRes = await fetch(directUrl);
+          const directData = await directRes.json() as any;
+          
+          if (directRes.ok && (directData.profile_pic || directData.profile_picture_url)) {
+            senderAvatar = directData.profile_pic || directData.profile_picture_url;
+            console.log(`[Profile Fetch] SUCCESS via IGSID direto para ${fromUserId}`);
+          } else if (directData?.error) {
+            console.log(`[Profile Fetch] IGSID direto falhou: ${directData.error.message}`);
+            
+            // Fallback: Try Facebook Graph API
+            const fbUrl = `https://graph.facebook.com/v21.0/${fromUserId}?fields=profile_pic&access_token=${encodeURIComponent(accessToken)}`;
+            const fbRes = await fetch(fbUrl);
+            const fbData = await fbRes.json() as any;
+            
+            if (fbRes.ok && fbData.profile_pic) {
+              senderAvatar = fbData.profile_pic;
+              console.log(`[Profile Fetch] SUCCESS via Facebook Graph API para ${fromUserId}`);
+            }
+          }
+        } catch (e) {
+          console.log(`[Profile Fetch] Erro busca direta IGSID ${fromUserId}:`, e);
+        }
+      }
+      
+      // Strategy 3: Use Business Discovery API by username (works for public business/creator accounts)
       if (!senderAvatar && username && username !== "instagram_user" && instagramUser.instagramAccessToken) {
         try {
           console.log(`[Profile Fetch] Tentando Business Discovery para @${username}...`);

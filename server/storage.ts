@@ -121,15 +121,16 @@ export class DatabaseStorage implements IStorage {
     }
     
     let condition;
-    if (isAdmin || !userId) {
-      // Admin sees all messages, but exclude messages where sender is the admin's Instagram account
-      condition = excludeCondition;
-    } else {
-      // Regular user sees only their messages, excluding their own sent messages
-      condition = excludeCondition
-        ? and(eq(instagramMessages.userId, userId), excludeCondition)
-        : eq(instagramMessages.userId, userId);
+    // All users (including admins) see only their own messages
+    // This ensures proper data isolation in a multi-tenant SaaS
+    // SECURITY: userId is REQUIRED - no fallback to prevent data leaks
+    if (!userId) {
+      console.warn("[SECURITY] Query called without userId - returning empty");
+      return [];
     }
+    condition = excludeCondition
+      ? and(eq(instagramMessages.userId, userId), excludeCondition)
+      : eq(instagramMessages.userId, userId);
 
     const query = db
       .select()
@@ -183,17 +184,16 @@ export class DatabaseStorage implements IStorage {
     }
     
     let condition;
-    if (isAdmin || !userId) {
-      // Admin sees all pending messages, but exclude messages where sender is the admin's Instagram account
-      condition = excludeCondition 
-        ? and(baseCondition, excludeCondition)
-        : baseCondition;
-    } else {
-      // Regular user sees only their pending messages, excluding their own sent messages
-      condition = excludeCondition
-        ? and(baseCondition, eq(instagramMessages.userId, userId), excludeCondition)
-        : and(baseCondition, eq(instagramMessages.userId, userId));
+    // All users (including admins) see only their own messages
+    // This ensures proper data isolation in a multi-tenant SaaS
+    // SECURITY: userId is REQUIRED - no fallback to prevent data leaks
+    if (!userId) {
+      console.warn("[SECURITY] getPendingMessages called without userId - returning empty");
+      return [];
     }
+    condition = excludeCondition
+      ? and(baseCondition, eq(instagramMessages.userId, userId), excludeCondition)
+      : and(baseCondition, eq(instagramMessages.userId, userId));
 
     const messages = await db
       .select()
@@ -243,15 +243,16 @@ export class DatabaseStorage implements IStorage {
     }
     
     let condition;
-    if (isAdmin || !userId) {
-      // Admin sees all messages, but exclude messages where sender is the admin's Instagram account
-      condition = excludeCondition;
-    } else {
-      // Regular user sees only their messages, excluding their own sent messages
-      condition = excludeCondition
-        ? and(eq(instagramMessages.userId, userId), excludeCondition)
-        : eq(instagramMessages.userId, userId);
+    // All users (including admins) see only their own messages
+    // This ensures proper data isolation in a multi-tenant SaaS
+    // SECURITY: userId is REQUIRED - no fallback to prevent data leaks
+    if (!userId) {
+      console.warn("[SECURITY] Query called without userId - returning empty");
+      return [];
     }
+    condition = excludeCondition
+      ? and(eq(instagramMessages.userId, userId), excludeCondition)
+      : eq(instagramMessages.userId, userId);
 
     const query = db
       .select()
@@ -447,7 +448,13 @@ export class DatabaseStorage implements IStorage {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const userCondition = isAdmin || !userId ? undefined : eq(instagramMessages.userId, userId);
+    // All users (including admins) see only their own stats for proper data isolation
+    // SECURITY: userId is REQUIRED - return zeros to prevent data leaks
+    if (!userId) {
+      console.warn("[SECURITY] getStats called without userId - returning zeros");
+      return { totalMessages: 0, pendingMessages: 0, approvedToday: 0, rejectedToday: 0, autoSentToday: 0, avgConfidence: 0 };
+    }
+    const userCondition = eq(instagramMessages.userId, userId);
 
     const [totalResult] = await db
       .select({ count: sql<number>`count(*)` })
