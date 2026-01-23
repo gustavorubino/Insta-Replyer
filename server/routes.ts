@@ -2878,7 +2878,7 @@ export async function registerRoutes(
       // OPTIMIZATION: Check if senderId matches any known user's Instagram account
       // This handles cross-account lookups where API calls fail due to permissions
       // Exclude the current instagramUser (recipient) to avoid self-matching
-      const knownInstagramUser = allUsers.find((u: any) => 
+      let knownInstagramUser = allUsers.find((u: any) => 
         u.id !== instagramUser.id && // Don't match the recipient
         (u.instagramAccountId === senderId || u.instagramRecipientId === senderId)
       );
@@ -2900,10 +2900,13 @@ export async function registerRoutes(
           // First, try using the sender's own token if available (most reliable)
           if (knownInstagramUser.instagramAccessToken) {
             try {
-              const senderToken = knownInstagramUser.instagramAccessToken;
+              // CRITICAL: Decrypt the token before using in API calls
+              const encSenderToken = knownInstagramUser.instagramAccessToken;
+              const senderToken = isEncrypted(encSenderToken) ? decrypt(encSenderToken) : encSenderToken;
+              console.log(`Using sender's own token (decrypted: ${isEncrypted(encSenderToken)}) to fetch profile picture...`);
+              
               // Use Facebook Graph API for business accounts
               const fbProfileUrl = `https://graph.facebook.com/v21.0/${senderId}?fields=profile_picture_url&access_token=${senderToken}`;
-              console.log(`Trying sender's own token to fetch profile picture...`);
               const profileRes = await fetch(fbProfileUrl);
               const profileData = await profileRes.json();
               if (profileData.profile_picture_url) {
@@ -3011,6 +3014,29 @@ export async function registerRoutes(
           senderAvatar = userInfo.avatar;
         }
         console.log(`Resolved sender info: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}`);
+        
+        // OPTIMIZATION: If we got a valid username from API, try to match with registered users
+        // This helps when the senderId differs from stored IDs but username matches
+        if (senderUsername && senderUsername !== senderId && senderUsername !== "instagram_user") {
+          const matchedByUsername = allUsers.find((u: any) => 
+            u.id !== instagramUser.id && 
+            u.instagramUsername && 
+            u.instagramUsername.toLowerCase() === senderUsername.toLowerCase()
+          );
+          
+          if (matchedByUsername) {
+            console.log(`Matched sender by username @${senderUsername} to user ${matchedByUsername.email}`);
+            // Use cached data from the matched user if better
+            if (matchedByUsername.firstName) {
+              senderName = matchedByUsername.firstName;
+            }
+            // Use cached avatar if we don't have one
+            if (!senderAvatar && (matchedByUsername.instagramProfilePic || matchedByUsername.profileImageUrl)) {
+              senderAvatar = matchedByUsername.instagramProfilePic || matchedByUsername.profileImageUrl;
+              console.log(`Using cached avatar from matched user`);
+            }
+          }
+        }
       }
 
       // Process attachments (photos, videos, audio, gifs, etc.)
