@@ -3,17 +3,6 @@ type EnvConfig = {
   source?: string;
 };
 
-const API_KEY_CANDIDATES = [
-  "AI_INTEGRATIONS_OPENAI_API_KEY",
-  "OPENAI_API_KEY",
-];
-
-const BASE_URL_CANDIDATES = [
-  "AI_INTEGRATIONS_OPENAI_BASE_URL",
-  "OPENAI_BASE_URL",
-  "OPENAI_API_BASE_URL",
-];
-
 function readFirstEnv(keys: string[]): EnvConfig {
   for (const key of keys) {
     const value = process.env[key];
@@ -31,50 +20,62 @@ export function getOpenAIConfig(): {
   baseURLSource?: string;
 } {
   const isProduction = process.env.NODE_ENV === "production";
+  
+  // Log all available env vars for debugging (safe - no values)
+  const envVarsPresent = {
+    OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
+    AI_INTEGRATIONS_OPENAI_API_KEY: !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    AI_INTEGRATIONS_OPENAI_BASE_URL: !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    OPENAI_BASE_URL: !!process.env.OPENAI_BASE_URL,
+    NODE_ENV: process.env.NODE_ENV,
+  };
+  console.log("[OpenAI Config] Environment check:", JSON.stringify(envVarsPresent));
 
-  // Prefer explicit OpenAI key in production
-  const apiKeyCandidates = isProduction
-    ? ["OPENAI_API_KEY", "AI_INTEGRATIONS_OPENAI_API_KEY"]
-    : API_KEY_CANDIDATES;
+  // In production, ALWAYS prefer OPENAI_API_KEY and ignore Replit integration vars
+  if (isProduction) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    
+    if (apiKey && apiKey.trim().length > 0) {
+      console.log("[OpenAI Config] Production mode: Using OPENAI_API_KEY");
+      return {
+        apiKey: apiKey,
+        baseURL: undefined, // Use default OpenAI URL
+        apiKeySource: "OPENAI_API_KEY",
+        baseURLSource: "default (https://api.openai.com/v1)",
+      };
+    }
+    
+    // No OPENAI_API_KEY in production - this is an error
+    console.error("[OpenAI Config] CRITICAL: No OPENAI_API_KEY found in production!");
+    return {
+      apiKey: undefined,
+      baseURL: undefined,
+      apiKeySource: "MISSING - configure OPENAI_API_KEY in Deployment Secrets",
+      baseURLSource: undefined,
+    };
+  }
+
+  // Development mode - try Replit integration first, then fallback
+  const apiKeyCandidates = [
+    "AI_INTEGRATIONS_OPENAI_API_KEY",
+    "OPENAI_API_KEY",
+  ];
+  
+  const baseURLCandidates = [
+    "AI_INTEGRATIONS_OPENAI_BASE_URL",
+    "OPENAI_BASE_URL",
+    "OPENAI_API_BASE_URL",
+  ];
 
   const apiKey = readFirstEnv(apiKeyCandidates);
-  const baseURL = readFirstEnv(BASE_URL_CANDIDATES);
+  const baseURL = readFirstEnv(baseURLCandidates);
 
-  let baseURLValue = baseURL.value;
-  let baseURLSource = baseURL.source;
-
-  // Ignore localhost base URLs in production (Replit integration often sets this in dev)
-  if (
-    isProduction &&
-    baseURLValue &&
-    (baseURLValue.includes("localhost") || baseURLValue.includes("127.0.0.1"))
-  ) {
-    console.warn(`[OpenAI] Ignoring base URL in production: ${baseURLValue}`);
-    baseURLValue = undefined;
-    baseURLSource = baseURL.source
-      ? `${baseURL.source} (ignored: localhost in production)`
-      : undefined;
-  }
-
-  let apiKeyValue = apiKey.value;
-  let apiKeySource = apiKey.source;
-
-  // If we ignored the base URL in production and only have the Replit key,
-  // force a clear missing key error to avoid confusing OpenAI auth failures.
-  if (
-    isProduction &&
-    !baseURLValue &&
-    apiKeySource === "AI_INTEGRATIONS_OPENAI_API_KEY" &&
-    !process.env.OPENAI_API_KEY
-  ) {
-    apiKeyValue = undefined;
-    apiKeySource = "AI_INTEGRATIONS_OPENAI_API_KEY (ignored: use OPENAI_API_KEY in production)";
-  }
+  console.log(`[OpenAI Config] Development mode: API Key from ${apiKey.source || 'none'}, Base URL from ${baseURL.source || 'default'}`);
 
   return {
-    apiKey: apiKeyValue,
-    baseURL: baseURLValue,
-    apiKeySource: apiKeySource,
-    baseURLSource: baseURLSource,
+    apiKey: apiKey.value,
+    baseURL: baseURL.value,
+    apiKeySource: apiKey.source,
+    baseURLSource: baseURL.source,
   };
 }
