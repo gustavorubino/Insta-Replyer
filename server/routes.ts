@@ -13,14 +13,42 @@ import { refreshInstagramToken } from "./utils/token-refresh";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 
-// Store last 20 webhooks received for debugging (in-memory)
+// Store last 50 webhooks received for debugging (in-memory)
+interface WebhookProcessingResult {
+  action: 'processed' | 'ignored' | 'error';
+  reason?: string;
+  userId?: string;
+  messageId?: number;
+  messageType?: string;
+}
 interface WebhookLogEntry {
   timestamp: string;
   headers: Record<string, any>;
   body: any;
   type: string;
+  processingResults?: WebhookProcessingResult[];
 }
 const recentWebhooks: WebhookLogEntry[] = [];
+
+// Helper to add processing result to a specific webhook entry by timestamp
+function addWebhookProcessingResult(result: WebhookProcessingResult, webhookTimestamp?: string) {
+  // Find the webhook by timestamp, or use the most recent if not specified
+  let targetWebhook = recentWebhooks[0];
+  if (webhookTimestamp) {
+    targetWebhook = recentWebhooks.find(w => w.timestamp === webhookTimestamp) || recentWebhooks[0];
+  }
+  
+  if (targetWebhook) {
+    if (!targetWebhook.processingResults) {
+      targetWebhook.processingResults = [];
+    }
+    targetWebhook.processingResults.push(result);
+    console.log(`[WEBHOOK-RESULT] ${result.action}: ${result.reason || 'OK'}`);
+  }
+}
+
+// Store current webhook timestamp for processing context
+let currentWebhookTimestamp: string | undefined;
 
 // Helper function to get the base URL for OAuth callbacks
 // Handles multiple proxy headers (comma-separated values) common in Replit deployments
@@ -1847,15 +1875,44 @@ export async function registerRoutes(
     });
   });
 
-  // Endpoint público para ver webhooks recentes (para debug)
-  app.get("/api/webhooks/recent", (req, res) => {
-    res.json({
-      status: "ok",
-      message: "Lista dos últimos webhooks recebidos",
-      count: recentWebhooks.length,
-      webhooks: recentWebhooks,
-      note: "Se esta lista estiver vazia, nenhum webhook foi recebido do Facebook/Instagram"
-    });
+  // Admin-only endpoint to view recent webhooks with processing results
+  app.get("/api/webhooks/recent", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Não autenticado" });
+      }
+      
+      const currentUser = await authStorage.getUser(userId);
+      if (!currentUser?.isAdmin) {
+        return res.status(403).json({ error: "Acesso negado. Apenas administradores." });
+      }
+      
+      res.json({
+        status: "ok",
+        message: "Lista dos últimos webhooks recebidos (admin only)",
+        count: recentWebhooks.length,
+        webhooks: recentWebhooks.map(w => ({
+          timestamp: w.timestamp,
+          type: w.type,
+          processingResults: w.processingResults || [],
+          entryCount: w.body?.entry?.length || 0,
+          entries: w.body?.entry?.map((e: any) => ({
+            id: e.id,
+            changes: e.changes?.map((c: any) => ({
+              field: c.field,
+              valueType: c.value?.item || c.value?.verb || 'unknown',
+              textPreview: c.value?.text?.substring(0, 50) || null
+            })) || [],
+            messagingCount: e.messaging?.length || 0
+          })) || []
+        })),
+        note: "processingResults mostra se cada item foi processado, ignorado ou teve erro."
+      });
+    } catch (error) {
+      console.error("Error fetching recent webhooks:", error);
+      res.status(500).json({ error: "Erro ao buscar webhooks recentes" });
+    }
   });
 
   // AI Test Endpoint para diagnóstico
@@ -2009,19 +2066,21 @@ export async function registerRoutes(
     
     
     // Store webhook for debugging
+    const webhookTimestamp = new Date().toISOString();
+    currentWebhookTimestamp = webhookTimestamp; // Set context for processing
+    
     const logEntry: WebhookLogEntry = {
-      timestamp: new Date().toISOString(),
+      timestamp: webhookTimestamp,
       headers: {
-        'x-hub-signature-256': req.headers['x-hub-signature-256'],
+        'has-signature': !!req.headers['x-hub-signature-256'],
         'content-type': req.headers['content-type'],
-        'user-agent': req.headers['user-agent'],
       },
       body: req.body,
       type: req.body?.object || 'unknown'
     };
     recentWebhooks.unshift(logEntry);
-    // Keep only last 20 webhooks
-    while (recentWebhooks.length > 20) {
+    // Keep only last 50 webhooks
+    while (recentWebhooks.length > 50) {
       recentWebhooks.pop();
     }
     
@@ -2129,6 +2188,11 @@ export async function registerRoutes(
         console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Dados obrigatórios ausentes");
         console.log("  - commentId presente:", !!commentId);
         console.log("  - text presente:", !!text);
+        addWebhookProcessingResult({
+          action: 'ignored',
+          reason: `Dados ausentes: commentId=${!!commentId}, text=${!!text}`,
+          messageType: 'comment'
+        }, currentWebhookTimestamp);
         return;
       }
 
@@ -2138,6 +2202,12 @@ export async function registerRoutes(
         console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Comentário já existe no banco");
         console.log("  - Comment ID:", commentId);
         console.log("  - Mensagem existente ID:", existingMessage.id);
+        addWebhookProcessingResult({
+          action: 'ignored',
+          reason: `Duplicado: já existe como mensagem ID ${existingMessage.id}`,
+          messageType: 'comment',
+          messageId: existingMessage.id
+        }, currentWebhookTimestamp);
         return;
       }
 
@@ -2146,6 +2216,11 @@ export async function registerRoutes(
       // This is the definitive way to identify the account owner
       if (!pageId) {
         console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: pageId não disponível");
+        addWebhookProcessingResult({
+          action: 'ignored',
+          reason: 'pageId (entry.id) não disponível no webhook',
+          messageType: 'comment'
+        }, currentWebhookTimestamp);
         return;
       }
       
@@ -2398,6 +2473,11 @@ export async function registerRoutes(
         console.log("  - Usuários com Instagram:", usersWithInstagram.length);
         console.log("  - instagramAccountIds disponíveis:", usersWithInstagram.map((u: any) => u.instagramAccountId));
         console.log("  - AÇÃO: O usuário precisa reconectar o Instagram em Configurações");
+        addWebhookProcessingResult({
+          action: 'ignored',
+          reason: `Nenhum usuário encontrado para pageId=${pageId}. IDs disponíveis: ${usersWithInstagram.map((u: any) => u.instagramAccountId).join(', ')}`,
+          messageType: 'comment'
+        }, currentWebhookTimestamp);
         return;
       }
       
@@ -2421,6 +2501,12 @@ export async function registerRoutes(
       if (fromUserId && fromUserId === instagramUser.instagramAccountId) {
         console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Comentário do próprio dono (match por ID)");
         console.log("  - Comment ID:", commentId);
+        addWebhookProcessingResult({
+          action: 'ignored',
+          reason: `Comentário do próprio dono (fromUserId=${fromUserId} === instagramAccountId)`,
+          messageType: 'comment',
+          userId: instagramUser.id
+        }, currentWebhookTimestamp);
         return;
       }
       
@@ -2429,6 +2515,12 @@ export async function registerRoutes(
           username.toLowerCase() === instagramUser.instagramUsername.toLowerCase()) {
         console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Comentário do próprio dono (match por username)");
         console.log("  - Comment ID:", commentId);
+        addWebhookProcessingResult({
+          action: 'ignored',
+          reason: `Comentário do próprio dono (username=${username} === instagramUsername)`,
+          messageType: 'comment',
+          userId: instagramUser.id
+        }, currentWebhookTimestamp);
         return;
       }
       
@@ -2555,9 +2647,22 @@ export async function registerRoutes(
       console.log("║    COMENTÁRIO PROCESSADO COM SUCESSO                         ║");
       console.log("╚══════════════════════════════════════════════════════════════╝");
       console.log("[COMMENT-WEBHOOK] Comment ID:", commentId);
+      
+      addWebhookProcessingResult({
+        action: 'processed',
+        reason: `Comentário de @${username} salvo e resposta IA gerada`,
+        messageType: 'comment',
+        userId: instagramUser.id,
+        messageId: newMessage.id
+      }, currentWebhookTimestamp);
       console.log("[COMMENT-WEBHOOK] Atribuído ao usuário:", instagramUser.email);
     } catch (error) {
       console.error("Error processing webhook comment:", error);
+      addWebhookProcessingResult({
+        action: 'error',
+        reason: `Erro ao processar comentário: ${error instanceof Error ? error.message : String(error)}`,
+        messageType: 'comment'
+      }, currentWebhookTimestamp);
     }
   }
 
