@@ -2164,16 +2164,19 @@ export async function registerRoutes(
         }
       }
 
-      // FALLBACK #2: If still not found, try any user with Instagram connected
+      // FALLBACK #2: If still not found, try SMART AUTO-ASSOCIATION (same logic as DMs)
       if (!instagramUser) {
-        console.log("[COMMENT-WEBHOOK] ⚠️ Tentando fallback: buscar qualquer usuário com token...");
+        console.log("[COMMENT-WEBHOOK] ⚠️ Tentando auto-associação inteligente...");
         const usersWithToken = allUsers.filter((u: any) => u.instagramAccessToken);
         console.log(`  - Usuários com token: ${usersWithToken.length}`);
         
         if (usersWithToken.length === 1) {
-          // Only one user with Instagram - use them
+          // STRATEGY 1: Only one user with Instagram - use them
           instagramUser = usersWithToken[0];
-          console.log(`[COMMENT-WEBHOOK] ✅ Usando único usuário com token: ${instagramUser.email}`);
+          console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIANDO: Único usuário com token: ${instagramUser.email}`);
+          console.log(`  Current instagramAccountId: ${instagramUser.instagramAccountId}`);
+          console.log(`  New pageId from webhook: ${pageId}`);
+          
           // Update their instagramAccountId for future matches
           try {
             await authStorage.updateUser(instagramUser.id, { instagramAccountId: pageId });
@@ -2182,12 +2185,75 @@ export async function registerRoutes(
             console.log("[COMMENT-WEBHOOK] ⚠️ Não foi possível atualizar instagramAccountId:", e);
           }
         } else if (usersWithToken.length > 1) {
-          // Multiple users - log details to help admin fix
-          console.log("[COMMENT-WEBHOOK] ❌ Múltiplos usuários com token - impossível determinar qual usar:");
-          usersWithToken.forEach((u: any, i: number) => {
-            console.log(`  [${i+1}] ${u.email} - instagramAccountId: ${u.instagramAccountId}, recipientId: ${u.instagramRecipientId}`);
-          });
-          console.log("  AÇÃO: Admin deve atualizar o instagramAccountId do usuário correto para:", pageId);
+          // STRATEGY 2: Multiple users - try pending webhook markers (time-based association)
+          console.log("[COMMENT-WEBHOOK] 🔍 Múltiplos usuários - tentando associação por janela de tempo...");
+          
+          const ASSOCIATION_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+          const now = Date.now();
+          const eligibleUsers: { user: any; pendingTime: number }[] = [];
+          
+          for (const u of usersWithToken) {
+            // Check if user has a pending webhook marker within the time window
+            try {
+              const pendingSetting = await storage.getSetting(`pending_webhook_${u.id}`);
+              if (pendingSetting?.value) {
+                const pendingTime = new Date(pendingSetting.value).getTime();
+                const elapsedMs = now - pendingTime;
+                
+                if (elapsedMs <= ASSOCIATION_WINDOW_MS) {
+                  console.log(`  [✓] Usuário ${u.email} tem marcador pendente de ${Math.round(elapsedMs / 1000)}s atrás`);
+                  eligibleUsers.push({ user: u, pendingTime });
+                } else {
+                  console.log(`  [✗] Usuário ${u.email} - marcador expirado (${Math.round(elapsedMs / 60000)}min atrás)`);
+                  // Clean up expired marker
+                  await storage.deleteSetting(`pending_webhook_${u.id}`);
+                }
+              } else {
+                console.log(`  [✗] Usuário ${u.email} - sem marcador pendente`);
+              }
+            } catch (err) {
+              console.log(`  [!] Erro ao verificar marcador do usuário ${u.id}:`, err);
+            }
+          }
+          
+          if (eligibleUsers.length === 1) {
+            // Exactly one user within the time window - auto-associate
+            instagramUser = eligibleUsers[0].user;
+            console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIANDO por janela de tempo: ${instagramUser.email}`);
+            
+            try {
+              await authStorage.updateUser(instagramUser.id, { instagramAccountId: pageId });
+              console.log(`[COMMENT-WEBHOOK] ✅ instagramAccountId atualizado para ${pageId}`);
+              
+              // Clear the pending marker
+              await storage.deleteSetting(`pending_webhook_${instagramUser.id}`);
+              console.log(`[COMMENT-WEBHOOK] ✅ Marcador pendente removido`);
+            } catch (e) {
+              console.log("[COMMENT-WEBHOOK] ⚠️ Erro ao atualizar:", e);
+            }
+          } else if (eligibleUsers.length > 1) {
+            // Multiple users within window - sort by most recent and use that one
+            eligibleUsers.sort((a, b) => b.pendingTime - a.pendingTime);
+            instagramUser = eligibleUsers[0].user;
+            console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIANDO (mais recente): ${instagramUser.email}`);
+            
+            try {
+              await authStorage.updateUser(instagramUser.id, { instagramAccountId: pageId });
+              console.log(`[COMMENT-WEBHOOK] ✅ instagramAccountId atualizado para ${pageId}`);
+              await storage.deleteSetting(`pending_webhook_${instagramUser.id}`);
+            } catch (e) {
+              console.log("[COMMENT-WEBHOOK] ⚠️ Erro ao atualizar:", e);
+            }
+          } else {
+            // No users within time window - log for admin intervention
+            console.log("[COMMENT-WEBHOOK] ❌ Nenhum usuário dentro da janela de associação");
+            console.log("  Usuários com token:");
+            usersWithToken.forEach((u: any, i: number) => {
+              console.log(`    [${i+1}] ${u.email} - instagramAccountId: ${u.instagramAccountId}`);
+            });
+            console.log("  AÇÃO: Usuário deve reconectar o Instagram em Configurações para recriar o marcador");
+            console.log("  pageId do webhook:", pageId);
+          }
         }
       }
 
