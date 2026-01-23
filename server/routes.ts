@@ -326,6 +326,21 @@ export async function registerRoutes(
       if (cleanedWebhooks > 0) {
         console.log(`Cleaned up ${cleanedWebhooks} expired pending webhook marker(s)`);
       }
+      
+      // AUTO-FIX: Copy instagramRecipientId to instagramAccountId for users where it's null
+      // This fixes issues where Business Discovery API fails because instagramAccountId is missing
+      const allUsers = await authStorage.getAllUsers?.() || [];
+      for (const user of allUsers) {
+        if (!user.instagramAccountId && user.instagramRecipientId && user.instagramAccessToken) {
+          console.log(`[Auto-Fix] User ${user.id} has instagramRecipientId but no instagramAccountId - copying...`);
+          try {
+            await authStorage.updateUser(user.id, { instagramAccountId: user.instagramRecipientId });
+            console.log(`[Auto-Fix] ✅ User ${user.id} instagramAccountId set to ${user.instagramRecipientId}`);
+          } catch (e) {
+            console.error(`[Auto-Fix] Failed to update user ${user.id}:`, e);
+          }
+        }
+      }
     } catch (e) {
       console.error("Cleanup error:", e);
     }
@@ -2606,6 +2621,18 @@ export async function registerRoutes(
         }
       }
       
+      // Strategy 4: Generate placeholder avatar based on initials (fallback)
+      if (!senderAvatar && username && username !== "instagram_user") {
+        // Use UI Avatars service for a nice placeholder based on username initials
+        const initials = username.substring(0, 2).toUpperCase();
+        // Generate a consistent color based on username (same username = same color)
+        const colors = ['9b59b6', '3498db', '1abc9c', 'e74c3c', 'f39c12', '2ecc71', 'e91e63', '00bcd4'];
+        const colorIndex = username.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
+        const bgColor = colors[colorIndex];
+        senderAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=${bgColor}&color=fff&size=128&bold=true`;
+        console.log(`[Profile Fetch] Usando avatar placeholder para @${username}`);
+      }
+      
       // Log final result
       console.log(`[Profile Fetch] Resultado final para @${username}: ${senderAvatar ? 'foto encontrada' : 'sem foto'}`);
 
@@ -3292,6 +3319,15 @@ export async function registerRoutes(
       } else if (mediaType && text) {
         // If both text and media, combine them
         contentForAI = `[Anexo: ${getMediaDescriptionNatural(mediaType)}] ${text}`;
+      }
+
+      // Fallback: Generate placeholder avatar if none found
+      if (!senderAvatar && senderUsername && senderUsername !== "instagram_user") {
+        const colors = ['9b59b6', '3498db', '1abc9c', 'e74c3c', 'f39c12', '2ecc71', 'e91e63', '00bcd4'];
+        const colorIndex = senderUsername.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) % colors.length;
+        const bgColor = colors[colorIndex];
+        senderAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(senderUsername)}&background=${bgColor}&color=fff&size=128&bold=true`;
+        console.log(`[DM-WEBHOOK] Usando avatar placeholder para @${senderUsername}`);
       }
 
       // Create the message
