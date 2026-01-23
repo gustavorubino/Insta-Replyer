@@ -3232,6 +3232,87 @@ export async function registerRoutes(
     }
   });
 
+  // Admin endpoint to check Meta webhook subscriptions
+  app.get("/api/admin/webhook-subscriptions", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const appId = process.env.INSTAGRAM_APP_ID;
+      const appSecret = process.env.INSTAGRAM_APP_SECRET;
+      
+      if (!appId || !appSecret) {
+        return res.json({
+          error: "Missing INSTAGRAM_APP_ID or INSTAGRAM_APP_SECRET",
+          subscriptions: null,
+          diagnosis: {
+            problem: "Environment variables missing",
+            solution: "Configure INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET"
+          }
+        });
+      }
+
+      // Get app access token
+      const appToken = `${appId}|${appSecret}`;
+      
+      // Check current subscriptions
+      const subUrl = `https://graph.facebook.com/v21.0/${appId}/subscriptions?access_token=${encodeURIComponent(appToken)}`;
+      const subRes = await fetch(subUrl);
+      const subData = await subRes.json();
+
+      console.log("[WEBHOOK-SUB] Subscriptions response:", JSON.stringify(subData));
+
+      // Find instagram subscriptions
+      const instagramSub = subData.data?.find((s: any) => s.object === "instagram");
+      
+      // Check required fields
+      const requiredFields = ["comments", "mentions", "messages"];
+      const subscribedFields = instagramSub?.fields?.map((f: any) => f.name) || [];
+      const missingFields = requiredFields.filter(f => !subscribedFields.includes(f));
+      
+      // Diagnosis
+      let diagnosis: any = { status: "ok" };
+      if (!instagramSub) {
+        diagnosis = {
+          status: "error",
+          problem: "No Instagram webhook subscription found",
+          solution: "In Meta Developer Console: Go to Products > Webhooks > Instagram > Subscribe to object"
+        };
+      } else if (missingFields.length > 0) {
+        diagnosis = {
+          status: "warning",
+          problem: `Missing webhook fields: ${missingFields.join(", ")}`,
+          solution: `In Meta Developer Console: Go to Products > Webhooks > Instagram > Click 'Subscribe' for each field: ${missingFields.join(", ")}`
+        };
+      }
+
+      res.json({
+        appId,
+        subscriptions: subData.data || [],
+        instagramSubscription: instagramSub || null,
+        subscribedFields,
+        requiredFields,
+        missingFields,
+        diagnosis,
+        callbackUrl: instagramSub?.callback_url || null,
+        note: "If comments field is missing, go to Meta Developer Console and subscribe to it"
+      });
+    } catch (error: any) {
+      console.error("Error checking subscriptions:", error);
+      res.status(500).json({ 
+        error: "Failed to check subscriptions", 
+        details: error.message,
+        diagnosis: {
+          status: "error",
+          problem: "Could not connect to Meta API",
+          solution: "Check INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET values"
+        }
+      });
+    }
+  });
+
   // Admin endpoint to view and sync Instagram IDs for ALL users
   app.get("/api/admin/instagram-ids", isAuthenticated, async (req, res) => {
     try {
