@@ -2259,8 +2259,12 @@ export async function registerRoutes(
         
         for (const u of usersWithToken) {
           try {
+            // IMPORTANT: Decrypt token before using (tokens are encrypted in the database)
+            const encryptedToken = u.instagramAccessToken;
+            const accessToken = isEncrypted(encryptedToken) ? decrypt(encryptedToken) : encryptedToken;
+            
             // Try to fetch info about pageId using this user's token
-            const testUrl = `https://graph.instagram.com/v21.0/${pageId}?fields=id,username&access_token=${encodeURIComponent(u.instagramAccessToken)}`;
+            const testUrl = `https://graph.instagram.com/v21.0/${pageId}?fields=id,username&access_token=${encodeURIComponent(accessToken)}`;
             console.log(`  Testando com token de ${u.email}...`);
             
             const response = await fetch(testUrl);
@@ -2428,7 +2432,8 @@ export async function registerRoutes(
       if (!senderAvatar && username && username !== "instagram_user" && instagramUser.instagramAccessToken) {
         try {
           console.log(`[Profile Fetch] Tentando Business Discovery para @${username}...`);
-          const accessToken = instagramUser.instagramAccessToken;
+          const encToken = instagramUser.instagramAccessToken;
+          const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
           const discoveryUrl = `https://graph.instagram.com/v21.0/${instagramUser.instagramAccountId}?fields=business_discovery.username(${username}){profile_picture_url,name,username}&access_token=${encodeURIComponent(accessToken)}`;
           const discoveryRes = await fetch(discoveryUrl);
           const discoveryData = await discoveryRes.json();
@@ -2498,10 +2503,12 @@ export async function registerRoutes(
         if (aiResponse) {
           // Actually send the comment reply via Instagram API
           console.log("[COMMENT-WEBHOOK] Enviando resposta automática...");
+          const encAutoToken = instagramUser.instagramAccessToken;
+          const autoToken = isEncrypted(encAutoToken) ? decrypt(encAutoToken) : encAutoToken;
           const sendResult = await replyToInstagramComment(
             commentId,
             aiResult.suggestedResponse,
-            instagramUser.instagramAccessToken
+            autoToken
           );
           
           if (sendResult.success) {
@@ -2939,7 +2946,8 @@ export async function registerRoutes(
           // Fallback: try with recipient's token (less likely to work for cross-account)
           if (!senderAvatar && instagramUser.instagramAccessToken) {
             try {
-              const accessToken = instagramUser.instagramAccessToken;
+              const encDmToken = instagramUser.instagramAccessToken;
+              const accessToken = isEncrypted(encDmToken) ? decrypt(encDmToken) : encDmToken;
               const profileUrl = `https://graph.instagram.com/${senderId}?fields=profile_pic&access_token=${accessToken}`;
               const profileRes = await fetch(profileUrl);
               const profileData = await profileRes.json();
@@ -2963,9 +2971,10 @@ export async function registerRoutes(
           }
         }
       } else if (senderId && instagramUser.instagramAccessToken) {
-        const accessToken = instagramUser.instagramAccessToken;
+        const encDmToken2 = instagramUser.instagramAccessToken;
+        const accessToken = isEncrypted(encDmToken2) ? decrypt(encDmToken2) : encDmToken2;
         
-        // Verify token is not still encrypted (should have been decrypted by getAllUsers)
+        // Verify token is not still encrypted (should have been decrypted)
         const tokenParts = accessToken.split(":");
         if (tokenParts.length === 3 && tokenParts[0].length === 24) {
           console.error(`ERROR: Token appears to still be encrypted (length=${accessToken.length}). Decryption may have failed.`);
@@ -3101,10 +3110,12 @@ export async function registerRoutes(
         const aiResponse = await storage.getAiResponse(newMessage.id);
         if (aiResponse) {
           // Actually send the DM via Instagram API
+          const encAutoSendToken = instagramUser.instagramAccessToken!;
+          const autoSendToken = isEncrypted(encAutoSendToken) ? decrypt(encAutoSendToken) : encAutoSendToken;
           const sendResult = await sendInstagramMessage(
             senderId,
             aiResult.suggestedResponse,
-            instagramUser.instagramAccessToken!,
+            autoSendToken,
             instagramUser.instagramAccountId!
           );
           
@@ -3150,6 +3161,48 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting webhook config:", error);
       res.status(500).json({ error: "Failed to get webhook configuration" });
+    }
+  });
+
+  // Admin endpoint to view recent webhooks for debugging
+  app.get("/api/admin/webhooks-debug", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      // Get all users with Instagram for comparison
+      const allUsers = await authStorage.getAllUsers?.() || [];
+      const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccountId || u.instagramRecipientId || u.instagramAccessToken);
+
+      const userMapping = usersWithInstagram.map((u: any) => ({
+        userId: u.id,
+        email: u.email,
+        instagramUsername: u.instagramUsername || null,
+        instagramAccountId: u.instagramAccountId || null,
+        instagramRecipientId: u.instagramRecipientId || null,
+        hasToken: !!u.instagramAccessToken
+      }));
+
+      res.json({
+        webhookCount: recentWebhooks.length,
+        webhooks: recentWebhooks.map(w => ({
+          timestamp: w.timestamp,
+          type: w.type,
+          entryIds: w.body?.entry?.map((e: any) => ({
+            id: e.id,
+            changesFields: e.changes?.map((c: any) => c.field),
+            messagingCount: e.messaging?.length || 0
+          })) || [],
+          body: JSON.stringify(w.body).substring(0, 500) + "..."
+        })),
+        userMapping,
+        note: "Compare entry.id values with instagramAccountId and instagramRecipientId to debug matching issues"
+      });
+    } catch (error) {
+      console.error("Error getting webhook debug info:", error);
+      res.status(500).json({ error: "Failed to get webhook debug info" });
     }
   });
 
