@@ -1,6 +1,6 @@
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { MessageSquare, AtSign, Eye, Image, Video, Mic, FileImage, Play, ExternalLink } from "lucide-react";
+import { MessageSquare, AtSign, Eye, Image, Video, Mic, FileImage, Play, ExternalLink, Reply } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -158,6 +158,22 @@ export function MessageCard({ message, onView }: MessageCardProps) {
                 </Badge>
               )}
             </div>
+            
+            {/* Parent comment context (for reply comments) */}
+            {message.type === "comment" && message.parentCommentText && (
+              <div className="mt-2 mb-1 pl-3 border-l-2 border-muted-foreground/30" data-testid={`parent-comment-${message.id}`}>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Reply className="h-3 w-3 rotate-180" />
+                  <span>Respondendo a</span>
+                  {message.parentCommentUsername && (
+                    <span className="font-medium">@{message.parentCommentUsername}</span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground/80 line-clamp-1 mt-0.5">
+                  "{message.parentCommentText}"
+                </p>
+              </div>
+            )}
             
             {/* Media thumbnail */}
             {message.mediaUrl && (

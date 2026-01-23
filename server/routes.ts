@@ -2659,6 +2659,40 @@ export async function registerRoutes(
         }
       }
 
+      // Check if this is a reply to another comment and fetch parent comment data
+      let parentCommentId: string | null = null;
+      let parentCommentText: string | null = null;
+      let parentCommentUsername: string | null = null;
+      
+      // Instagram sends parent_id when comment is a reply to another comment
+      const parentId = commentData.parent_id;
+      if (parentId && instagramUser.instagramAccessToken) {
+        try {
+          console.log(`[COMMENT-WEBHOOK] 📝 Este é uma resposta ao comentário ${parentId}`);
+          const encToken = instagramUser.instagramAccessToken;
+          const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
+          
+          // Fetch parent comment details from Instagram API
+          const parentUrl = `https://graph.instagram.com/v21.0/${parentId}?fields=text,username,from&access_token=${encodeURIComponent(accessToken)}`;
+          const parentRes = await fetch(parentUrl);
+          const parentData = await parentRes.json() as any;
+          
+          if (parentRes.ok && parentData) {
+            parentCommentId = parentId;
+            parentCommentText = parentData.text || null;
+            parentCommentUsername = parentData.username || parentData.from?.username || null;
+            console.log(`[COMMENT-WEBHOOK] ✅ Dados do comentário pai encontrados:`);
+            console.log(`    - ID: ${parentCommentId}`);
+            console.log(`    - Texto: ${parentCommentText?.substring(0, 50)}${(parentCommentText?.length || 0) > 50 ? '...' : ''}`);
+            console.log(`    - Usuário: @${parentCommentUsername}`);
+          } else if (parentData?.error) {
+            console.log(`[COMMENT-WEBHOOK] ⚠️ Erro ao buscar comentário pai: ${parentData.error.message}`);
+          }
+        } catch (e) {
+          console.log(`[COMMENT-WEBHOOK] ⚠️ Erro ao buscar comentário pai:`, e);
+        }
+      }
+
       // Create the message
       console.log("[COMMENT-WEBHOOK] Criando mensagem no banco...");
       const newMessage = await storage.createMessage({
@@ -2672,6 +2706,9 @@ export async function registerRoutes(
         content: text,
         postId: mediaId || null,
         postPermalink: postPermalink,
+        parentCommentId: parentCommentId,
+        parentCommentText: parentCommentText,
+        parentCommentUsername: parentCommentUsername,
       });
       console.log("[COMMENT-WEBHOOK] ✅ Mensagem criada com sucesso!");
       console.log("  - Message ID:", newMessage.id);

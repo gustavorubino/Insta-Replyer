@@ -13,6 +13,7 @@ import {
   Smile,
   AlertTriangle,
   ExternalLink,
+  Reply,
 } from "lucide-react";
 import {
   Dialog,
@@ -212,6 +213,25 @@ export function ApprovalModal({
                 </div>
               </div>
               <Separator className="my-3" />
+              
+              {/* Parent comment context (for reply comments) */}
+              {message.type === "comment" && message.parentCommentText && (
+                <div className="mb-3 p-3 rounded-lg bg-muted/50 border border-muted" data-testid="parent-comment-context">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
+                    <Reply className="h-3.5 w-3.5 rotate-180" />
+                    <span>Em resposta ao comentário</span>
+                    {message.parentCommentUsername && (
+                      <>
+                        <span>de</span>
+                        <span className="font-semibold">@{message.parentCommentUsername}</span>
+                      </>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground italic">
+                    "{message.parentCommentText}"
+                  </p>
+                </div>
+              )}
               
               {/* Media display */}
               {message.mediaUrl && (
