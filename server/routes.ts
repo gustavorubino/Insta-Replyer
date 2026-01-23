@@ -2245,20 +2245,125 @@ export async function registerRoutes(
               console.log("[COMMENT-WEBHOOK] ⚠️ Erro ao atualizar:", e);
             }
           } else {
-            // No users within time window - log for admin intervention
-            console.log("[COMMENT-WEBHOOK] ❌ Nenhum usuário dentro da janela de associação");
-            console.log("  Usuários com token:");
-            usersWithToken.forEach((u: any, i: number) => {
-              console.log(`    [${i+1}] ${u.email} - instagramAccountId: ${u.instagramAccountId}`);
-            });
-            console.log("  AÇÃO: Usuário deve reconectar o Instagram em Configurações para recriar o marcador");
-            console.log("  pageId do webhook:", pageId);
+            // No users within time window - try FALLBACK #3
+            console.log("[COMMENT-WEBHOOK] ⚠️ Nenhum usuário dentro da janela de associação, tentando FALLBACK #3...");
+          }
+        }
+      }
+
+      // FALLBACK #3: Try to identify user by fetching Instagram username for pageId
+      // This works when OAuth ID differs from webhook ID but username matches
+      if (!instagramUser) {
+        console.log("[COMMENT-WEBHOOK] 🔍 FALLBACK #3: Tentando identificar por API...");
+        const usersWithToken = allUsers.filter((u: any) => u.instagramAccessToken && u.instagramUsername);
+        
+        for (const u of usersWithToken) {
+          try {
+            // Try to fetch info about pageId using this user's token
+            const testUrl = `https://graph.instagram.com/v21.0/${pageId}?fields=id,username&access_token=${encodeURIComponent(u.instagramAccessToken)}`;
+            console.log(`  Testando com token de ${u.email}...`);
+            
+            const response = await fetch(testUrl);
+            if (response.ok) {
+              const data = await response.json() as any;
+              console.log(`  Resposta da API:`, JSON.stringify(data));
+              
+              // If we can access this pageId with this user's token, it likely belongs to them
+              if (data.username && data.username.toLowerCase() === u.instagramUsername?.toLowerCase()) {
+                console.log(`[COMMENT-WEBHOOK] ✅ FALLBACK #3: Usuário identificado por username match: ${u.email}`);
+                instagramUser = u;
+                
+                // Update IDs for future matches
+                try {
+                  await authStorage.updateUser(u.id, { 
+                    instagramAccountId: pageId,
+                    instagramRecipientId: u.instagramRecipientId || pageId
+                  });
+                  console.log(`[COMMENT-WEBHOOK] ✅ IDs atualizados para ${pageId}`);
+                } catch (e) {
+                  console.log("[COMMENT-WEBHOOK] ⚠️ Erro ao atualizar IDs:", e);
+                }
+                break;
+              } else if (data.id) {
+                // Token works for this account - likely the owner
+                console.log(`[COMMENT-WEBHOOK] ✅ FALLBACK #3: Usuário identificado por acesso à API: ${u.email}`);
+                instagramUser = u;
+                
+                try {
+                  await authStorage.updateUser(u.id, { 
+                    instagramAccountId: pageId,
+                    instagramRecipientId: u.instagramRecipientId || pageId
+                  });
+                  console.log(`[COMMENT-WEBHOOK] ✅ IDs atualizados para ${pageId}`);
+                } catch (e) {
+                  console.log("[COMMENT-WEBHOOK] ⚠️ Erro ao atualizar IDs:", e);
+                }
+                break;
+              }
+            } else {
+              console.log(`  Token de ${u.email} não tem acesso ao pageId ${pageId}`);
+            }
+          } catch (err) {
+            console.log(`  Erro ao testar token de ${u.email}:`, err);
+          }
+        }
+      }
+
+      // FALLBACK #4 (LAST RESORT): If there are exactly 2 users and only one doesn't match, use the other
+      if (!instagramUser) {
+        console.log("[COMMENT-WEBHOOK] 🔍 FALLBACK #4: Tentando dedução por exclusão...");
+        const usersWithToken = allUsers.filter((u: any) => u.instagramAccessToken);
+        
+        if (usersWithToken.length === 2) {
+          // Find which user's instagramAccountId or instagramRecipientId matches pageId
+          const matchingUser = usersWithToken.find((u: any) => 
+            u.instagramAccountId === pageId || u.instagramRecipientId === pageId
+          );
+          
+          if (!matchingUser) {
+            // Neither user matches - this pageId is new
+            // Try to determine which user by checking who DOESN'T have this pageId
+            const userWithDifferentId = usersWithToken.find((u: any) => 
+              u.instagramAccountId && u.instagramAccountId !== pageId
+            );
+            const userWithoutId = usersWithToken.find((u: any) => !u.instagramAccountId);
+            
+            // If one user has a different ID and another doesn't have one, use the one without
+            if (userWithDifferentId && userWithoutId && userWithDifferentId.id !== userWithoutId.id) {
+              instagramUser = userWithoutId;
+              console.log(`[COMMENT-WEBHOOK] ✅ FALLBACK #4: Dedução - ${userWithDifferentId.email} já tem ID diferente, usando ${userWithoutId.email}`);
+            } else {
+              // Both have IDs or neither does - use the most recently updated
+              const sortedByActivity = [...usersWithToken].sort((a, b) => {
+                const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+                const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+                return bTime - aTime;
+              });
+              
+              // Use the user whose instagramAccountId is CLOSER to pageId (in case of number-based IDs)
+              // Or simply use the one without a matching instagramAccountId (new user)
+              for (const u of sortedByActivity) {
+                if (u.instagramAccountId !== pageId) {
+                  // This user doesn't have this pageId - it might be theirs
+                  console.log(`[COMMENT-WEBHOOK] ⚠️ FALLBACK #4: Tentando ${u.email} (último ativo)`);
+                  instagramUser = u;
+                  
+                  try {
+                    await authStorage.updateUser(u.id, { instagramAccountId: pageId });
+                    console.log(`[COMMENT-WEBHOOK] ✅ instagramAccountId atualizado para ${pageId}`);
+                  } catch (e) {
+                    console.log("[COMMENT-WEBHOOK] ⚠️ Erro ao atualizar:", e);
+                  }
+                  break;
+                }
+              }
+            }
           }
         }
       }
 
       if (!instagramUser) {
-        console.log("[COMMENT-WEBHOOK] ❌ CRITICAL: Nenhum usuário com Instagram disponível");
+        console.log("[COMMENT-WEBHOOK] ❌ CRITICAL: Nenhum usuário identificado após todos os fallbacks");
         console.log("  - pageId procurado:", pageId);
         console.log("  - Total usuários no DB:", allUsers.length);
         console.log("  - Usuários com Instagram:", usersWithInstagram.length);
@@ -3045,6 +3150,102 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting webhook config:", error);
       res.status(500).json({ error: "Failed to get webhook configuration" });
+    }
+  });
+
+  // Admin endpoint to view and sync Instagram IDs for ALL users
+  app.get("/api/admin/instagram-ids", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const allUsers = await authStorage.getAllUsers?.() || [];
+      const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccessToken);
+
+      const userIds = usersWithInstagram.map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        instagramUsername: u.instagramUsername || "(not set)",
+        instagramAccountId: u.instagramAccountId || "(not set)",
+        instagramRecipientId: u.instagramRecipientId || "(not set)",
+        needsSync: u.instagramRecipientId && u.instagramAccountId !== u.instagramRecipientId,
+        syncUrl: `/api/admin/sync-instagram-ids/${u.id}`
+      }));
+
+      res.json({
+        totalUsers: allUsers.length,
+        usersWithInstagram: usersWithInstagram.length,
+        users: userIds,
+        syncAllUrl: "/api/admin/sync-all-instagram-ids"
+      });
+    } catch (error) {
+      console.error("Error getting Instagram IDs:", error);
+      res.status(500).json({ error: "Failed to get Instagram IDs" });
+    }
+  });
+
+  // Admin endpoint to sync ALL users' Instagram IDs at once
+  app.post("/api/admin/sync-all-instagram-ids", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const allUsers = await authStorage.getAllUsers?.() || [];
+      const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccessToken);
+      
+      const results: any[] = [];
+      
+      for (const user of usersWithInstagram) {
+        if (user.instagramRecipientId && user.instagramAccountId !== user.instagramRecipientId) {
+          try {
+            await authStorage.updateUser(user.id, {
+              instagramAccountId: user.instagramRecipientId
+            });
+            results.push({
+              userId: user.id,
+              email: user.email,
+              status: "synced",
+              oldAccountId: user.instagramAccountId,
+              newAccountId: user.instagramRecipientId
+            });
+            console.log(`[Admin] Synced IDs for ${user.email}: ${user.instagramAccountId} -> ${user.instagramRecipientId}`);
+          } catch (err) {
+            results.push({
+              userId: user.id,
+              email: user.email,
+              status: "error",
+              error: String(err)
+            });
+          }
+        } else if (!user.instagramRecipientId) {
+          results.push({
+            userId: user.id,
+            email: user.email,
+            status: "skipped",
+            reason: "No instagramRecipientId set (needs to receive a DM first)"
+          });
+        } else {
+          results.push({
+            userId: user.id,
+            email: user.email,
+            status: "already_synced",
+            instagramAccountId: user.instagramAccountId
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        message: "Sync completed",
+        results
+      });
+    } catch (error) {
+      console.error("Error syncing all Instagram IDs:", error);
+      res.status(500).json({ error: "Failed to sync Instagram IDs" });
     }
   });
 
