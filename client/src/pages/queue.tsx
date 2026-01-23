@@ -332,60 +332,97 @@ export default function Queue() {
           ))}
         </div>
       ) : filteredMessages && filteredMessages.length > 0 ? (
-        <div className="space-y-4">
+        <div className="space-y-6">
           {viewMode === "grouped" ? (
             <>
-              {/* Grouped comments by post */}
-              {postGroups.length > 0 && (
-                <div className="space-y-4">
-                  <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <AtSign className="h-4 w-4" />
-                    Comentários por publicação ({postGroups.reduce((acc, g) => acc + g.comments.length, 0)})
-                  </h2>
-                  {postGroups.map((group) => (
-                    <PostCommentGroup
-                      key={group.postId}
-                      postId={group.postId}
-                      postCaption={group.postCaption}
-                      postThumbnailUrl={group.postThumbnailUrl}
-                      postPermalink={group.postPermalink}
-                      comments={group.comments}
-                      onViewMessage={handleViewMessage}
-                    />
-                  ))}
-                </div>
-              )}
-              
-              {/* Ungrouped comments (no postId) */}
-              {ungroupedComments.length > 0 && (
-                <div className="space-y-3">
-                  <h2 className="text-sm font-medium text-muted-foreground">
-                    Comentários sem post identificado ({ungroupedComments.length})
-                  </h2>
-                  {ungroupedComments.map((message) => (
-                    <MessageCard
-                      key={message.id}
-                      message={message}
-                      onView={handleViewMessage}
-                    />
-                  ))}
-                </div>
-              )}
-              
-              {/* DMs */}
+              {/* DMs Section */}
               {dmMessages.length > 0 && (
-                <div className="space-y-3">
-                  <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4" />
-                    Mensagens Diretas ({dmMessages.length})
-                  </h2>
-                  {dmMessages.map((message) => (
-                    <MessageCard
-                      key={message.id}
-                      message={message}
-                      onView={handleViewMessage}
-                    />
-                  ))}
+                <div className="space-y-4" data-testid="section-dms">
+                  <div className="border-b pb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+                        <MessageSquare className="h-4 w-4 text-primary" />
+                      </div>
+                      <div>
+                        <h2 className="text-base font-semibold flex items-center gap-2">
+                          Mensagens Diretas
+                          <span className="text-sm font-normal text-muted-foreground">({dmMessages.length})</span>
+                        </h2>
+                        <p className="text-sm text-muted-foreground">
+                          Mensagens privadas recebidas no Instagram Direct
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {dmMessages.map((message) => (
+                      <MessageCard
+                        key={message.id}
+                        message={message}
+                        onView={handleViewMessage}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Comments Section */}
+              {(postGroups.length > 0 || ungroupedComments.length > 0) && (
+                <div className="space-y-4" data-testid="section-comments">
+                  <div className="border-b pb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary">
+                        <AtSign className="h-4 w-4 text-secondary-foreground" />
+                      </div>
+                      <div>
+                        <h2 className="text-base font-semibold flex items-center gap-2">
+                          Comentários
+                          <span className="text-sm font-normal text-muted-foreground">
+                            ({postGroups.reduce((acc, g) => acc + g.comments.length, 0) + ungroupedComments.length})
+                          </span>
+                        </h2>
+                        <p className="text-sm text-muted-foreground">
+                          Comentários em publicações do Instagram
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Grouped comments by post */}
+                  {postGroups.length > 0 && (
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-medium text-muted-foreground pl-1">
+                        Agrupados por publicação
+                      </h3>
+                      {postGroups.map((group) => (
+                        <PostCommentGroup
+                          key={group.postId}
+                          postId={group.postId}
+                          postCaption={group.postCaption}
+                          postThumbnailUrl={group.postThumbnailUrl}
+                          postPermalink={group.postPermalink}
+                          comments={group.comments}
+                          onViewMessage={handleViewMessage}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* Ungrouped comments (no postId) */}
+                  {ungroupedComments.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-medium text-muted-foreground pl-1">
+                        Sem post identificado ({ungroupedComments.length})
+                      </h3>
+                      {ungroupedComments.map((message) => (
+                        <MessageCard
+                          key={message.id}
+                          message={message}
+                          onView={handleViewMessage}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </>
