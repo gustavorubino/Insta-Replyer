@@ -1579,11 +1579,9 @@ export async function registerRoutes(
       console.log(`OAuth IDs - Token user_id: ${tokenUserId}, API id: ${instagramAccountId}, username: ${instagramUsername}`);
 
       // Store Instagram data
-      // IMPORTANT: Do NOT set instagramRecipientId here because:
-      // - The ID from OAuth (igUserData.id or tokenData.user_id) is often DIFFERENT from the webhook recipient ID
-      // - The webhook recipient ID is the Instagram Business Account ID (IGBA ID) used by Facebook
-      // - Setting the wrong ID causes webhook matching to fail
-      // - Leaving it null/undefined enables auto-association on first webhook
+      // AUTO-CONFIGURE: Set instagramRecipientId equal to instagramAccountId
+      // This ensures the webhook ID is configured immediately for the best user experience
+      // If webhooks arrive with a different ID, the auto-association system will correct it
       const updates: any = {
         instagramAccountId,
         instagramUsername,
@@ -1595,14 +1593,15 @@ export async function registerRoutes(
         refreshAttempts: "0",
         lastRefreshError: null,
         showTokenWarning: false,
-        // DO NOT set instagramRecipientId - let it be auto-associated by first webhook
-        // This ensures we use the correct ID that Facebook actually sends in webhooks
-        instagramRecipientId: null,
+        // AUTO-CONFIGURE: Set instagramRecipientId = instagramAccountId
+        // This works for most Instagram Business accounts where the IDs are the same
+        // If different, auto-association will update on first webhook
+        instagramRecipientId: instagramAccountId,
       };
       
       console.log(`Storing Instagram profile pic: ${profilePictureUrl ? "found" : "not available"}`);
 
-      console.log(`instagramRecipientId set to NULL - will be auto-associated on first webhook`);
+      console.log(`instagramRecipientId AUTO-CONFIGURED to: ${instagramAccountId}`);
       console.log(`OAuth IDs for reference - tokenUserId: ${tokenUserId}, instagramAccountId: ${instagramAccountId}`);
 
       await authStorage.updateUser(userId, updates);
@@ -2288,7 +2287,7 @@ export async function registerRoutes(
           // STRATEGY 2: Multiple users - try pending webhook markers (time-based association)
           console.log("[COMMENT-WEBHOOK] 🔍 Múltiplos usuários - tentando associação por janela de tempo...");
           
-          const ASSOCIATION_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+          const ASSOCIATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours - expanded for better UX
           const now = Date.now();
           const eligibleUsers: { user: any; pendingTime: number }[] = [];
           
@@ -2304,7 +2303,7 @@ export async function registerRoutes(
                   console.log(`  [✓] Usuário ${u.email} tem marcador pendente de ${Math.round(elapsedMs / 1000)}s atrás`);
                   eligibleUsers.push({ user: u, pendingTime });
                 } else {
-                  console.log(`  [✗] Usuário ${u.email} - marcador expirado (${Math.round(elapsedMs / 60000)}min atrás)`);
+                  console.log(`  [✗] Usuário ${u.email} - marcador expirado (${Math.round(elapsedMs / 3600000)}h atrás)`);
                   // Clean up expired marker
                   await storage.deleteSetting(`pending_webhook_${u.id}`);
                 }
@@ -2912,7 +2911,7 @@ export async function registerRoutes(
           }
         } else if (usersWithInstagram.length > 1) {
           // STRATEGY 2: Multiple users - try pending webhook markers (time-based)
-          const ASSOCIATION_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+          const ASSOCIATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours - expanded for better UX
           const now = Date.now();
           const eligibleUsers: any[] = [];
           

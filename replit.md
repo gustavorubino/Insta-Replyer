@@ -75,11 +75,12 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
     - Uses sender's own token to fetch profile picture (most reliable for cross-account)
     - Falls back to recipient's token, then API lookup
     - Auto-updates instagramProfilePic cache when photo is fetched
-  - **Secure Auto-association**: 
-    - Stores `pending_webhook_{userId}` marker during OAuth with timestamp
-    - Only auto-associates if webhook arrives within 15-minute window from OAuth
-    - One-time marker deleted after successful association
-    - Multiple eligible users require admin intervention (no auto-association)
+  - **Automatic Webhook ID Configuration**: 
+    - OAuth callback automatically sets `instagramRecipientId = instagramAccountId`
+    - Eliminates manual configuration step for users
+    - Startup auto-fix job corrects existing users missing webhook IDs
+    - 24-hour auto-association window if webhook ID differs from OAuth ID
+    - Fallback association by username match via API
     - Periodic cleanup of expired markers (startup + every hour)
   - Clears unmapped webhook alert after successful auto-association
   - Falls back to admin notification only when no eligible users found or window expired

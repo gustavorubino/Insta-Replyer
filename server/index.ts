@@ -3,7 +3,7 @@ import { registerRoutes } from "./routes";
 import { setupMediaEndpoint } from "./utils/media-storage";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { startTokenRefreshJob } from "./jobs/token-refresh-job";
+import { startTokenRefreshJob, autoFixMissingRecipientIds } from "./jobs/token-refresh-job";
 
 const app = express();
 const httpServer = createServer(app);
@@ -133,6 +133,9 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      
+      // Auto-fix users with missing instagramRecipientId
+      autoFixMissingRecipientIds();
       
       // Start token refresh job (runs daily at 3am)
       startTokenRefreshJob();

@@ -77,6 +77,52 @@ export function startTokenRefreshJob() {
   console.log("[Token Refresh Job] Job agendado para rodar diariamente às 3h");
 }
 
+// Auto-fix users that have instagramAccountId but no instagramRecipientId
+// This ensures webhook IDs are always configured for the best user experience
+export async function autoFixMissingRecipientIds() {
+  try {
+    console.log("[Auto-Fix] Verificando usuários sem instagramRecipientId configurado...");
+    
+    const usersNeedingFix = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        instagramAccountId: users.instagramAccountId,
+        instagramRecipientId: users.instagramRecipientId,
+      })
+      .from(users)
+      .where(
+        and(
+          isNotNull(users.instagramAccountId),
+          sql`(${users.instagramRecipientId} IS NULL OR ${users.instagramRecipientId} = '')`
+        )
+      );
+
+    if (usersNeedingFix.length === 0) {
+      console.log("[Auto-Fix] Todos os usuários já têm instagramRecipientId configurado");
+      return;
+    }
+
+    console.log(`[Auto-Fix] ${usersNeedingFix.length} usuário(s) precisam de correção`);
+
+    for (const user of usersNeedingFix) {
+      if (!user.instagramAccountId) continue;
+      
+      await db
+        .update(users)
+        .set({ instagramRecipientId: user.instagramAccountId })
+        .where(sql`${users.id} = ${user.id}`);
+
+      console.log(`[Auto-Fix] ✅ ${user.email}: instagramRecipientId definido como ${user.instagramAccountId}`);
+    }
+
+    console.log("[Auto-Fix] Correção concluída!");
+
+  } catch (error) {
+    console.error("[Auto-Fix] Erro ao corrigir usuários:", error);
+  }
+}
+
 export async function checkExpiringTokens() {
   try {
     const now = new Date();
