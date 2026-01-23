@@ -27,12 +27,16 @@ interface PostGroup {
   comments: MessageWithResponse[];
 }
 
-export default function Queue() {
+interface QueueProps {
+  defaultFilter?: "all" | "dm" | "comment";
+}
+
+export default function Queue({ defaultFilter = "all" }: QueueProps) {
   const [selectedMessage, setSelectedMessage] =
     useState<MessageWithResponse | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"all" | "dm" | "comment">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "dm" | "comment">(defaultFilter);
   const [viewMode, setViewMode] = useState<"grouped" | "list">("grouped");
   const { toast } = useToast();
   const queryClient = useQueryClient();

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import {
@@ -11,6 +12,9 @@ import {
   Shield,
   Users,
   AlertTriangle,
+  ChevronDown,
+  MessageCircle,
+  MessageSquare,
 } from "lucide-react";
 import { SiInstagram } from "react-icons/si";
 import {
@@ -23,8 +27,16 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+  SidebarMenuSubButton,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -39,17 +51,15 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
   const [location, navigate] = useLocation();
   const { user } = useAuth();
   const { t } = useLanguage();
+  const [queueOpen, setQueueOpen] = useState(() => location.startsWith("/queue"));
+
+  const isQueueActive = location.startsWith("/queue");
 
   const menuItems = [
     {
       title: t.nav.dashboard,
       url: "/",
       icon: LayoutDashboard,
-    },
-    {
-      title: t.nav.queue,
-      url: "/queue",
-      icon: Inbox,
     },
     {
       title: t.nav.history,
@@ -60,6 +70,19 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
       title: t.nav.settings,
       url: "/settings",
       icon: Settings,
+    },
+  ];
+
+  const queueSubItems = [
+    {
+      title: t.nav.queueComments,
+      url: "/queue/comments",
+      icon: MessageCircle,
+    },
+    {
+      title: t.nav.queueDms,
+      url: "/queue/dms",
+      icon: MessageSquare,
     },
   ];
 
@@ -129,7 +152,71 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
           <SidebarGroupLabel>{t.nav.menu}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => {
+              {/* Dashboard */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  data-active={location === "/"}
+                  className="data-[active=true]:bg-sidebar-accent"
+                >
+                  <Link href="/" data-testid="link-dashboard">
+                    <LayoutDashboard className="h-4 w-4" />
+                    <span>{t.nav.dashboard}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {/* Queue with submenu */}
+              <Collapsible
+                open={queueOpen}
+                onOpenChange={setQueueOpen}
+                className="group/collapsible"
+              >
+                <SidebarMenuItem>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton
+                      data-active={isQueueActive}
+                      className="data-[active=true]:bg-sidebar-accent"
+                      data-testid="link-queue"
+                    >
+                      <Inbox className="h-4 w-4" />
+                      <span>{t.nav.queue}</span>
+                      {pendingCount > 0 && (
+                        <Badge
+                          variant="default"
+                          className="ml-auto h-5 min-w-5 px-1.5"
+                        >
+                          {pendingCount}
+                        </Badge>
+                      )}
+                      <ChevronDown className="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-180" />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      {queueSubItems.map((item) => {
+                        const isActive = location === item.url;
+                        return (
+                          <SidebarMenuSubItem key={item.url}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={isActive}
+                            >
+                              <Link href={item.url} data-testid={`link-${item.url.replace("/queue/", "queue-")}`}>
+                                <item.icon className="h-4 w-4" />
+                                <span>{item.title}</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        );
+                      })}
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </SidebarMenuItem>
+              </Collapsible>
+
+              {/* Other menu items */}
+              {menuItems.filter(item => item.url !== "/").map((item) => {
                 const isActive = location === item.url;
                 return (
                   <SidebarMenuItem key={item.url}>
@@ -141,14 +228,6 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
                       <Link href={item.url} data-testid={`link-${item.url.replace("/", "") || "dashboard"}`}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
-                        {item.url === "/queue" && pendingCount > 0 && (
-                          <Badge
-                            variant="default"
-                            className="ml-auto h-5 min-w-5 px-1.5"
-                          >
-                            {pendingCount}
-                          </Badge>
-                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

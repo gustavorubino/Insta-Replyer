@@ -25,6 +25,8 @@ export const ptBR = {
   nav: {
     dashboard: "Dashboard",
     queue: "Fila de Aprovação",
+    queueComments: "Comentários",
+    queueDms: "Mensagens Diretas",
     history: "Histórico",
     settings: "Configurações",
     admin: "Administração",

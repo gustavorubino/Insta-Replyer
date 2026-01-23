@@ -27,6 +27,8 @@ export const en: TranslationKeys = {
   nav: {
     dashboard: "Dashboard",
     queue: "Approval Queue",
+    queueComments: "Comments",
+    queueDms: "Direct Messages",
     history: "History",
     settings: "Settings",
     admin: "Administration",

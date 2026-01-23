@@ -30,6 +30,8 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/queue/comments">{() => <Queue defaultFilter="comment" />}</Route>
+      <Route path="/queue/dms">{() => <Queue defaultFilter="dm" />}</Route>
       <Route path="/queue" component={Queue} />
       <Route path="/history" component={History} />
       <Route path="/settings" component={Settings} />
