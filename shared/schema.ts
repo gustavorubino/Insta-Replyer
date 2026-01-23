@@ -20,6 +20,7 @@ export const instagramMessages = pgTable("instagram_messages", {
   mediaUrl: text("media_url"),
   mediaType: text("media_type"), // 'image', 'video', 'audio', 'gif', 'reel', 'story_mention', etc.
   postId: text("post_id"), // For comments, reference to the post
+  postPermalink: text("post_permalink"), // For comments, the URL to the post (e.g., https://www.instagram.com/p/ABC123/)
   status: text("status").notNull().default("pending"), // 'pending', 'approved', 'rejected', 'auto_sent'
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
   processedAt: timestamp("processed_at"),

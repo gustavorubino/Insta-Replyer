@@ -1662,7 +1662,7 @@ export async function registerRoutes(
 
       // Fetch recent media (posts) to get comments
       try {
-        const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,comments_count&access_token=${accessToken}&limit=10`;
+        const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,comments_count,permalink&access_token=${accessToken}&limit=10`;
         console.log("Fetching media from:", mediaUrl.replace(accessToken, "TOKEN_HIDDEN"));
         const mediaResponse = await fetch(mediaUrl);
         const mediaData = await mediaResponse.json() as any;
@@ -1697,6 +1697,7 @@ export async function registerRoutes(
                           senderUsername: username,
                           content: comment.text,
                           postId: post.id,
+                          postPermalink: post.permalink || null,
                           status: "pending",
                         });
 
@@ -2627,7 +2628,7 @@ export async function registerRoutes(
         const initials = username.substring(0, 2).toUpperCase();
         // Generate a consistent color based on username (same username = same color)
         const colors = ['9b59b6', '3498db', '1abc9c', 'e74c3c', 'f39c12', '2ecc71', 'e91e63', '00bcd4'];
-        const colorIndex = username.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
+        const colorIndex = username.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) % colors.length;
         const bgColor = colors[colorIndex];
         senderAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=${bgColor}&color=fff&size=128&bold=true`;
         console.log(`[Profile Fetch] Usando avatar placeholder para @${username}`);
@@ -2635,6 +2636,28 @@ export async function registerRoutes(
       
       // Log final result
       console.log(`[Profile Fetch] Resultado final para @${username}: ${senderAvatar ? 'foto encontrada' : 'sem foto'}`);
+
+      // Try to get the permalink of the post for direct linking to Instagram
+      let postPermalink: string | null = null;
+      if (mediaId && instagramUser.instagramAccessToken) {
+        try {
+          console.log(`[COMMENT-WEBHOOK] Buscando permalink do post ${mediaId}...`);
+          const encToken = instagramUser.instagramAccessToken;
+          const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
+          const permalinkUrl = `https://graph.instagram.com/v21.0/${mediaId}?fields=permalink&access_token=${encodeURIComponent(accessToken)}`;
+          const permalinkRes = await fetch(permalinkUrl);
+          const permalinkData = await permalinkRes.json() as any;
+          
+          if (permalinkRes.ok && permalinkData.permalink) {
+            postPermalink = permalinkData.permalink;
+            console.log(`[COMMENT-WEBHOOK] ✅ Permalink encontrado: ${postPermalink}`);
+          } else if (permalinkData?.error) {
+            console.log(`[COMMENT-WEBHOOK] ⚠️ Erro ao buscar permalink: ${permalinkData.error.message}`);
+          }
+        } catch (e) {
+          console.log(`[COMMENT-WEBHOOK] ⚠️ Erro ao buscar permalink:`, e);
+        }
+      }
 
       // Create the message
       console.log("[COMMENT-WEBHOOK] Criando mensagem no banco...");
@@ -2648,6 +2671,7 @@ export async function registerRoutes(
         senderId: fromUserId || null,
         content: text,
         postId: mediaId || null,
+        postPermalink: postPermalink,
       });
       console.log("[COMMENT-WEBHOOK] ✅ Mensagem criada com sucesso!");
       console.log("  - Message ID:", newMessage.id);
