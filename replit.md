@@ -34,6 +34,20 @@ Sistema automatizado de respostas para DMs e comentários do Instagram usando In
 - Tema claro/escuro
 - Seletor de emojis no modal de aprovação
 - **Suporte a mídia**: Fotos, vídeos, áudios, GIFs, reels, stickers e desenhos recebidos via DM
+- **Base de Conhecimento**: Treinamento da IA com links e arquivos
+
+### Knowledge Base (AI Training)
+- **Links de Treinamento**: Adicione URLs de sites para a IA aprender o conteúdo
+  - Extração automática de texto de páginas web usando cheerio
+  - Status de processamento: pending, processing, completed, error
+  - Endpoint: GET/POST/DELETE /api/knowledge/links
+- **Arquivos de Treinamento**: Upload de PDFs e TXT para treinamento
+  - Suporte a PDF (via pdf-parse) e TXT
+  - Armazenamento em Object Storage da Replit
+  - Endpoint: GET/POST/DELETE /api/knowledge/files
+- **Integração com IA**: O conhecimento extraído é automaticamente incluído no contexto das respostas
+  - Função getKnowledgeContext busca todo conteúdo processado do usuário
+  - Contexto é adicionado ao prompt do sistema antes de gerar respostas
 
 ### Instagram Integration (Meta Graph API)
 - **Centralized App Configuration**:

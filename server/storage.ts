@@ -4,6 +4,8 @@ import {
   aiResponses,
   learningHistory,
   settings,
+  knowledgeLinks,
+  knowledgeFiles,
   type User,
   type UpsertUser,
   type InstagramMessage,
@@ -14,6 +16,10 @@ import {
   type InsertLearningHistory,
   type Setting,
   type MessageWithResponse,
+  type KnowledgeLink,
+  type KnowledgeFile,
+  type InsertKnowledgeLink,
+  type InsertKnowledgeFile,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, ne, or, isNull } from "drizzle-orm";
@@ -69,6 +75,21 @@ export interface IStorage {
   }>>;
 
   deleteUserData(userId: string): Promise<{ messages: number }>;
+
+  // Knowledge Links
+  getKnowledgeLinks(userId: string): Promise<KnowledgeLink[]>;
+  createKnowledgeLink(data: InsertKnowledgeLink): Promise<KnowledgeLink>;
+  updateKnowledgeLink(id: number, data: Partial<KnowledgeLink>): Promise<KnowledgeLink | undefined>;
+  deleteKnowledgeLink(id: number): Promise<void>;
+
+  // Knowledge Files
+  getKnowledgeFiles(userId: string): Promise<KnowledgeFile[]>;
+  createKnowledgeFile(data: InsertKnowledgeFile): Promise<KnowledgeFile>;
+  updateKnowledgeFile(id: number, data: Partial<KnowledgeFile>): Promise<KnowledgeFile | undefined>;
+  deleteKnowledgeFile(id: number): Promise<void>;
+
+  // Get all knowledge content for AI context
+  getKnowledgeContext(userId: string): Promise<string>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -558,6 +579,105 @@ export class DatabaseStorage implements IStorage {
       .where(eq(instagramMessages.userId, userId))
       .returning();
     return { messages: deleted.length };
+  }
+
+  // Knowledge Links
+  async getKnowledgeLinks(userId: string): Promise<KnowledgeLink[]> {
+    return db
+      .select()
+      .from(knowledgeLinks)
+      .where(eq(knowledgeLinks.userId, userId))
+      .orderBy(desc(knowledgeLinks.createdAt));
+  }
+
+  async createKnowledgeLink(data: InsertKnowledgeLink): Promise<KnowledgeLink> {
+    const [created] = await db
+      .insert(knowledgeLinks)
+      .values(data)
+      .returning();
+    return created;
+  }
+
+  async updateKnowledgeLink(id: number, data: Partial<KnowledgeLink>): Promise<KnowledgeLink | undefined> {
+    const [updated] = await db
+      .update(knowledgeLinks)
+      .set(data)
+      .where(eq(knowledgeLinks.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteKnowledgeLink(id: number): Promise<void> {
+    await db.delete(knowledgeLinks).where(eq(knowledgeLinks.id, id));
+  }
+
+  // Knowledge Files
+  async getKnowledgeFiles(userId: string): Promise<KnowledgeFile[]> {
+    return db
+      .select()
+      .from(knowledgeFiles)
+      .where(eq(knowledgeFiles.userId, userId))
+      .orderBy(desc(knowledgeFiles.createdAt));
+  }
+
+  async createKnowledgeFile(data: InsertKnowledgeFile): Promise<KnowledgeFile> {
+    const [created] = await db
+      .insert(knowledgeFiles)
+      .values(data)
+      .returning();
+    return created;
+  }
+
+  async updateKnowledgeFile(id: number, data: Partial<KnowledgeFile>): Promise<KnowledgeFile | undefined> {
+    const [updated] = await db
+      .update(knowledgeFiles)
+      .set(data)
+      .where(eq(knowledgeFiles.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteKnowledgeFile(id: number): Promise<void> {
+    await db.delete(knowledgeFiles).where(eq(knowledgeFiles.id, id));
+  }
+
+  // Get all knowledge content for AI context
+  async getKnowledgeContext(userId: string): Promise<string> {
+    const links = await db
+      .select()
+      .from(knowledgeLinks)
+      .where(and(
+        eq(knowledgeLinks.userId, userId),
+        eq(knowledgeLinks.status, "completed")
+      ));
+
+    const files = await db
+      .select()
+      .from(knowledgeFiles)
+      .where(and(
+        eq(knowledgeFiles.userId, userId),
+        eq(knowledgeFiles.status, "completed")
+      ));
+
+    const sections: string[] = [];
+
+    for (const link of links) {
+      if (link.content) {
+        sections.push(`--- Source: ${link.title || link.url} ---\n${link.content}`);
+      }
+    }
+
+    for (const file of files) {
+      if (file.content) {
+        sections.push(`--- Source: ${file.fileName} ---\n${file.content}`);
+      }
+    }
+
+    if (sections.length === 0) {
+      return "";
+    }
+
+    return `=== KNOWLEDGE BASE ===\n\n${sections.join("\n\n")}\n\n=== END KNOWLEDGE BASE ===`;
   }
 }
 

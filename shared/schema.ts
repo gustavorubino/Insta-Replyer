@@ -57,6 +57,33 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+// Knowledge Base - Links for AI training
+export const knowledgeLinks = pgTable("knowledge_links", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  url: text("url").notNull(),
+  title: text("title"),
+  content: text("content"), // Extracted text content from the URL
+  status: text("status").notNull().default("pending"), // 'pending', 'processing', 'completed', 'error'
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  processedAt: timestamp("processed_at"),
+});
+
+// Knowledge Base - Files for AI training
+export const knowledgeFiles = pgTable("knowledge_files", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type").notNull(), // 'pdf', 'txt', 'docx'
+  objectPath: text("object_path").notNull(), // Path in object storage
+  content: text("content"), // Extracted text content from the file
+  status: text("status").notNull().default("pending"), // 'pending', 'processing', 'completed', 'error'
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  processedAt: timestamp("processed_at"),
+});
+
 // Relations
 export const instagramMessagesRelations = relations(instagramMessages, ({ one }) => ({
   aiResponse: one(aiResponses, {
@@ -103,6 +130,18 @@ export const insertSettingSchema = createInsertSchema(settings).omit({
   updatedAt: true,
 });
 
+export const insertKnowledgeLinkSchema = createInsertSchema(knowledgeLinks).omit({
+  id: true,
+  createdAt: true,
+  processedAt: true,
+});
+
+export const insertKnowledgeFileSchema = createInsertSchema(knowledgeFiles).omit({
+  id: true,
+  createdAt: true,
+  processedAt: true,
+});
+
 // Types
 export type InstagramMessage = typeof instagramMessages.$inferSelect;
 export type InsertInstagramMessage = z.infer<typeof insertInstagramMessageSchema>;
@@ -115,6 +154,12 @@ export type InsertLearningHistory = z.infer<typeof insertLearningHistorySchema>;
 
 export type Setting = typeof settings.$inferSelect;
 export type InsertSetting = z.infer<typeof insertSettingSchema>;
+
+export type KnowledgeLink = typeof knowledgeLinks.$inferSelect;
+export type InsertKnowledgeLink = z.infer<typeof insertKnowledgeLinkSchema>;
+
+export type KnowledgeFile = typeof knowledgeFiles.$inferSelect;
+export type InsertKnowledgeFile = z.infer<typeof insertKnowledgeFileSchema>;
 
 // Combined type for message with AI response
 export type MessageWithResponse = InstagramMessage & {

@@ -10,6 +10,14 @@ import {
   AlertCircle,
   CheckCircle,
   ExternalLink,
+  Database,
+  FileText,
+  Plus,
+  Trash2,
+  Loader2,
+  Globe,
+  File,
+  Upload,
 } from "lucide-react";
 import { SiInstagram } from "react-icons/si";
 import {
@@ -35,6 +43,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useLanguage } from "@/i18n";
+import { Input } from "@/components/ui/input";
 
 interface SettingsData {
   instagramConnected: boolean;
@@ -51,10 +60,20 @@ export default function Settings() {
   const queryClient = useQueryClient();
   const searchString = useSearch();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [newLinkUrl, setNewLinkUrl] = useState("");
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
   const { t } = useLanguage();
 
   const { data: settings, isLoading } = useQuery<SettingsData>({
     queryKey: ["/api/settings"],
+  });
+
+  const { data: knowledgeLinks = [], isLoading: linksLoading } = useQuery<any[]>({
+    queryKey: ["/api/knowledge/links"],
+  });
+
+  const { data: knowledgeFiles = [], isLoading: filesLoading } = useQuery<any[]>({
+    queryKey: ["/api/knowledge/files"],
   });
 
   const [localSettings, setLocalSettings] = useState<SettingsData | null>(null);
@@ -166,6 +185,100 @@ export default function Settings() {
       });
     },
   });
+
+  const addLinkMutation = useMutation({
+    mutationFn: async (url: string) => {
+      await apiRequest("POST", "/api/knowledge/links", { url });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/links"] });
+      setNewLinkUrl("");
+      toast({ title: "Link adicionado", description: "O conteúdo está sendo processado." });
+    },
+    onError: () => {
+      toast({ title: "Erro", description: "Não foi possível adicionar o link.", variant: "destructive" });
+    },
+  });
+
+  const deleteLinkMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/knowledge/links/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/links"] });
+      toast({ title: "Link removido" });
+    },
+  });
+
+  const deleteFileMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/knowledge/files/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/files"] });
+      toast({ title: "Arquivo removido" });
+    },
+  });
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingFile(true);
+    try {
+      const response = await fetch("/api/uploads/request-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name: file.name,
+          size: file.size,
+          contentType: file.type || "application/octet-stream",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Falha ao obter URL de upload");
+      }
+
+      const { uploadURL, objectPath } = await response.json();
+
+      const uploadResponse = await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error("Falha ao fazer upload do arquivo");
+      }
+
+      await apiRequest("POST", "/api/knowledge/files", {
+        fileName: file.name,
+        fileType: file.type,
+        objectPath,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/files"] });
+      toast({ title: "Arquivo enviado", description: "O conteúdo está sendo processado." });
+    } catch (error) {
+      toast({ title: "Erro", description: "Não foi possível enviar o arquivo.", variant: "destructive" });
+    } finally {
+      setIsUploadingFile(false);
+      e.target.value = "";
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "completed":
+        return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Concluído</Badge>;
+      case "error":
+        return <Badge variant="destructive">Erro</Badge>;
+      default:
+        return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">Processando...</Badge>;
+    }
+  };
 
   const handleConnectInstagram = async () => {
     setIsConnecting(true);
@@ -555,6 +668,151 @@ export default function Settings() {
                 <p>
                   {t.settings.ai.autoLearningInfo2}
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Base de Conhecimento</CardTitle>
+              <CardDescription>
+                Adicione links e arquivos para treinar a IA com informações específicas do seu negócio.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Globe className="h-4 w-4" />
+                  <Label>Links de Treinamento</Label>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    type="url"
+                    placeholder="https://exemplo.com/pagina"
+                    value={newLinkUrl}
+                    onChange={(e) => setNewLinkUrl(e.target.value)}
+                    data-testid="input-knowledge-link"
+                  />
+                  <Button
+                    onClick={() => {
+                      if (newLinkUrl.trim()) {
+                        addLinkMutation.mutate(newLinkUrl.trim());
+                      }
+                    }}
+                    disabled={!newLinkUrl.trim() || addLinkMutation.isPending}
+                    data-testid="button-add-knowledge-link"
+                  >
+                    {addLinkMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                {linksLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                ) : knowledgeLinks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhum link adicionado ainda.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {knowledgeLinks.map((link: any) => (
+                      <div
+                        key={link.id}
+                        className="flex items-center justify-between gap-2 p-3 rounded-lg border"
+                        data-testid={`knowledge-link-${link.id}`}
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="text-sm truncate">{link.url}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {getStatusBadge(link.status)}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteLinkMutation.mutate(link.id)}
+                            disabled={deleteLinkMutation.isPending}
+                            data-testid={`button-delete-link-${link.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  <Label>Arquivos de Treinamento</Label>
+                </div>
+                <div>
+                  <input
+                    type="file"
+                    accept=".pdf,.txt"
+                    onChange={handleFileUpload}
+                    disabled={isUploadingFile}
+                    className="hidden"
+                    id="knowledge-file-upload"
+                    data-testid="input-knowledge-file"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => document.getElementById("knowledge-file-upload")?.click()}
+                    disabled={isUploadingFile}
+                    data-testid="button-upload-knowledge-file"
+                  >
+                    {isUploadingFile ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4 mr-2" />
+                    )}
+                    {isUploadingFile ? "Enviando..." : "Enviar Arquivo"}
+                  </Button>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Formatos aceitos: PDF, TXT
+                  </p>
+                </div>
+                {filesLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                ) : knowledgeFiles.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhum arquivo enviado ainda.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {knowledgeFiles.map((file: any) => (
+                      <div
+                        key={file.id}
+                        className="flex items-center justify-between gap-2 p-3 rounded-lg border"
+                        data-testid={`knowledge-file-${file.id}`}
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <File className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="text-sm truncate">{file.fileName}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {getStatusBadge(file.status)}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteFileMutation.mutate(file.id)}
+                            disabled={deleteFileMutation.isPending}
+                            data-testid={`button-delete-file-${file.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

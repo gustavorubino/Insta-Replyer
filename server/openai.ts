@@ -149,7 +149,8 @@ async function callOpenAI(
 export async function generateAIResponse(
   messageContent: string,
   messageType: "dm" | "comment",
-  senderName: string
+  senderName: string,
+  userId?: string
 ): Promise<GenerateResponseResult> {
   const systemPromptSetting = await storage.getSetting("systemPrompt");
   const systemPrompt = systemPromptSetting?.value || getDefaultSystemPrompt();
@@ -157,8 +158,22 @@ export async function generateAIResponse(
   const learningHistory = await storage.getLearningHistory();
   const learningContext = formatLearningContext(learningHistory.slice(0, 10));
 
+  // Fetch knowledge base context if userId is provided
+  let knowledgeContext = "";
+  if (userId) {
+    try {
+      knowledgeContext = await storage.getKnowledgeContext(userId);
+      if (knowledgeContext) {
+        console.log(`[OpenAI] Knowledge context loaded for user ${userId}, length: ${knowledgeContext.length}`);
+      }
+    } catch (err) {
+      console.error("[OpenAI] Error loading knowledge context:", err);
+    }
+  }
+
   const prompt = `${systemPrompt}
 
+${knowledgeContext ? `\n${knowledgeContext}\n` : ""}
 ${learningContext}
 
 Agora, gere uma resposta para a seguinte mensagem:
@@ -275,12 +290,24 @@ export async function regenerateResponse(
   messageContent: string,
   messageType: "dm" | "comment",
   senderName: string,
-  previousSuggestion: string
+  previousSuggestion: string,
+  userId?: string
 ): Promise<GenerateResponseResult> {
   const systemPromptSetting = await storage.getSetting("systemPrompt");
   const systemPrompt = systemPromptSetting?.value || getDefaultSystemPrompt();
 
+  // Fetch knowledge base context if userId is provided
+  let knowledgeContext = "";
+  if (userId) {
+    try {
+      knowledgeContext = await storage.getKnowledgeContext(userId);
+    } catch (err) {
+      console.error("[OpenAI] Error loading knowledge context for regenerate:", err);
+    }
+  }
+
   const prompt = `${systemPrompt}
+${knowledgeContext ? `\n${knowledgeContext}\n` : ""}
 
 A resposta anterior foi rejeitada ou o usuário pediu uma nova sugestão.
 

@@ -12,6 +12,8 @@ import { decrypt, isEncrypted } from "./encryption";
 import { refreshInstagramToken } from "./utils/token-refresh";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
+import { extractFromUrl, extractFromPdf, extractFromText } from "./knowledge-extractor";
+import { ObjectStorageService } from "./replit_integrations/object_storage";
 
 // Store last 50 webhooks received for debugging (in-memory)
 interface WebhookProcessingResult {
@@ -915,7 +917,8 @@ export async function registerRoutes(
       const aiResult = await generateAIResponse(
         getMessageContentForAI(message),
         message.type as "dm" | "comment",
-        message.senderName
+        message.senderName,
+        userId
       );
 
       const aiResponse = await storage.createAiResponse({
@@ -1105,7 +1108,8 @@ export async function registerRoutes(
         getMessageContentForAI(message),
         message.type as "dm" | "comment",
         message.senderName,
-        previousResponse
+        previousResponse,
+        userId
       );
 
       // Check if AI generation failed
@@ -1682,7 +1686,8 @@ export async function registerRoutes(
                           const aiResult = await generateAIResponse(
                             comment.text,
                             "comment",
-                            comment.username || "Unknown"
+                            comment.username || "Unknown",
+                            userId
                           );
 
                           await storage.createAiResponse({
@@ -2621,7 +2626,7 @@ export async function registerRoutes(
 
       // Generate AI response
       console.log("[COMMENT-WEBHOOK] Gerando resposta IA...");
-      const aiResult = await generateAIResponse(text, "comment", displayName);
+      const aiResult = await generateAIResponse(text, "comment", displayName, instagramUser.id);
       await storage.createAiResponse({
         messageId: newMessage.id,
         suggestedResponse: aiResult.suggestedResponse,
@@ -3301,7 +3306,7 @@ export async function registerRoutes(
       });
 
       // Generate AI response
-      const aiResult = await generateAIResponse(contentForAI, "dm", senderName);
+      const aiResult = await generateAIResponse(contentForAI, "dm", senderName, instagramUser.id);
       await storage.createAiResponse({
         messageId: newMessage.id,
         suggestedResponse: aiResult.suggestedResponse,
@@ -3809,6 +3814,234 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error in test webhook:", error);
       res.status(500).json({ error: "Test failed" });
+    }
+  });
+
+  // ============================================
+  // Knowledge Base API Endpoints
+  // ============================================
+
+  // GET /api/knowledge/links - Lista todos os links do usuário
+  app.get("/api/knowledge/links", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const links = await storage.getKnowledgeLinks(userId);
+      res.json(links);
+    } catch (error) {
+      console.error("Error fetching knowledge links:", error);
+      res.status(500).json({ error: "Failed to fetch knowledge links" });
+    }
+  });
+
+  // POST /api/knowledge/links - Adiciona um novo link (processa em background)
+  app.post("/api/knowledge/links", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const { url } = req.body;
+
+      if (!url || typeof url !== "string") {
+        return res.status(400).json({ error: "URL is required" });
+      }
+
+      // Validate URL format
+      try {
+        new URL(url);
+      } catch {
+        return res.status(400).json({ error: "Invalid URL format" });
+      }
+
+      // Create record with pending status
+      const link = await storage.createKnowledgeLink({
+        userId,
+        url,
+        status: "pending",
+      });
+
+      // Process in background
+      setImmediate(async () => {
+        try {
+          // Update to processing
+          await storage.updateKnowledgeLink(link.id, { status: "processing" });
+
+          // Extract content from URL
+          const extracted = await extractFromUrl(url);
+
+          // Update with extracted content
+          await storage.updateKnowledgeLink(link.id, {
+            title: extracted.title,
+            content: extracted.content,
+            status: "completed",
+            processedAt: new Date(),
+          });
+
+          console.log(`[KNOWLEDGE] Link ${link.id} processed successfully: ${extracted.title}`);
+        } catch (error) {
+          console.error(`[KNOWLEDGE] Error processing link ${link.id}:`, error);
+          await storage.updateKnowledgeLink(link.id, {
+            status: "error",
+            errorMessage: error instanceof Error ? error.message : "Unknown error",
+            processedAt: new Date(),
+          });
+        }
+      });
+
+      // Return immediately with the created record
+      res.status(201).json(link);
+    } catch (error) {
+      console.error("Error creating knowledge link:", error);
+      res.status(500).json({ error: "Failed to create knowledge link" });
+    }
+  });
+
+  // DELETE /api/knowledge/links/:id - Remove um link
+  app.delete("/api/knowledge/links/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const linkId = parseInt(req.params.id, 10);
+
+      if (isNaN(linkId)) {
+        return res.status(400).json({ error: "Invalid link ID" });
+      }
+
+      // Verify the link belongs to the user
+      const links = await storage.getKnowledgeLinks(userId);
+      const link = links.find(l => l.id === linkId);
+
+      if (!link) {
+        return res.status(404).json({ error: "Link not found" });
+      }
+
+      await storage.deleteKnowledgeLink(linkId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting knowledge link:", error);
+      res.status(500).json({ error: "Failed to delete knowledge link" });
+    }
+  });
+
+  // GET /api/knowledge/files - Lista todos os arquivos do usuário
+  app.get("/api/knowledge/files", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const files = await storage.getKnowledgeFiles(userId);
+      res.json(files);
+    } catch (error) {
+      console.error("Error fetching knowledge files:", error);
+      res.status(500).json({ error: "Failed to fetch knowledge files" });
+    }
+  });
+
+  // POST /api/knowledge/files - Registra um arquivo após upload (processa em background)
+  app.post("/api/knowledge/files", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const { fileName, fileType, objectPath } = req.body;
+
+      if (!fileName || typeof fileName !== "string") {
+        return res.status(400).json({ error: "fileName is required" });
+      }
+      if (!fileType || typeof fileType !== "string") {
+        return res.status(400).json({ error: "fileType is required" });
+      }
+      if (!objectPath || typeof objectPath !== "string") {
+        return res.status(400).json({ error: "objectPath is required" });
+      }
+
+      // Validate file type
+      const allowedTypes = ["pdf", "txt"];
+      if (!allowedTypes.includes(fileType.toLowerCase())) {
+        return res.status(400).json({ error: "Invalid file type. Allowed: pdf, txt" });
+      }
+
+      // Create record with pending status
+      const file = await storage.createKnowledgeFile({
+        userId,
+        fileName,
+        fileType: fileType.toLowerCase(),
+        objectPath,
+        status: "pending",
+      });
+
+      // Process in background
+      setImmediate(async () => {
+        try {
+          // Update to processing
+          await storage.updateKnowledgeFile(file.id, { status: "processing" });
+
+          // Download file from object storage
+          const objectStorage = new ObjectStorageService();
+          const objectFile = await objectStorage.getObjectEntityFile(objectPath);
+          
+          // Download the file content
+          const chunks: Buffer[] = [];
+          const stream = objectFile.createReadStream();
+          
+          await new Promise<void>((resolve, reject) => {
+            stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+            stream.on("end", () => resolve());
+            stream.on("error", reject);
+          });
+          
+          const buffer = Buffer.concat(chunks);
+
+          let extracted;
+          if (fileType.toLowerCase() === "pdf") {
+            extracted = await extractFromPdf(buffer);
+          } else {
+            // txt file
+            const textContent = buffer.toString("utf-8");
+            extracted = extractFromText(textContent);
+          }
+
+          // Update with extracted content
+          await storage.updateKnowledgeFile(file.id, {
+            content: extracted.content,
+            status: "completed",
+            processedAt: new Date(),
+          });
+
+          console.log(`[KNOWLEDGE] File ${file.id} processed successfully: ${fileName}`);
+        } catch (error) {
+          console.error(`[KNOWLEDGE] Error processing file ${file.id}:`, error);
+          await storage.updateKnowledgeFile(file.id, {
+            status: "error",
+            errorMessage: error instanceof Error ? error.message : "Unknown error",
+            processedAt: new Date(),
+          });
+        }
+      });
+
+      // Return immediately with the created record
+      res.status(201).json(file);
+    } catch (error) {
+      console.error("Error creating knowledge file:", error);
+      res.status(500).json({ error: "Failed to create knowledge file" });
+    }
+  });
+
+  // DELETE /api/knowledge/files/:id - Remove um arquivo
+  app.delete("/api/knowledge/files/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const fileId = parseInt(req.params.id, 10);
+
+      if (isNaN(fileId)) {
+        return res.status(400).json({ error: "Invalid file ID" });
+      }
+
+      // Verify the file belongs to the user
+      const files = await storage.getKnowledgeFiles(userId);
+      const file = files.find(f => f.id === fileId);
+
+      if (!file) {
+        return res.status(404).json({ error: "File not found" });
+      }
+
+      await storage.deleteKnowledgeFile(fileId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting knowledge file:", error);
+      res.status(500).json({ error: "Failed to delete knowledge file" });
     }
   });
 
