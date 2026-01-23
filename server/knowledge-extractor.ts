@@ -5,6 +5,20 @@ export interface ExtractedContent {
   content: string;
 }
 
+// Sanitize text to remove null bytes and invalid UTF-8 characters
+function sanitizeText(text: string): string {
+  return text
+    // Remove null bytes (0x00)
+    .replace(/\x00/g, "")
+    // Remove other control characters except newline, tab, carriage return
+    .replace(/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    // Remove surrogate pairs that are invalid
+    .replace(/[\uD800-\uDFFF]/g, "")
+    // Normalize whitespace
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 interface PdfData {
   text: string;
   info?: {
@@ -75,22 +89,20 @@ export async function extractFromPdf(buffer: Buffer): Promise<ExtractedContent> 
   const pdfParse = require("pdf-parse");
   const data: PdfData = await pdfParse(buffer);
   
-  const content = data.text
-    .replace(/\s+/g, " ")
-    .replace(/\n\s*\n/g, "\n")
-    .trim();
-
-  const title = data.info?.Title || "PDF Document";
+  // Sanitize the extracted text to remove null bytes and invalid characters
+  const content = sanitizeText(data.text);
+  const title = sanitizeText(data.info?.Title || "PDF Document");
 
   return { title, content };
 }
 
 export function extractFromText(content: string): ExtractedContent {
-  const lines = content.trim().split("\n");
+  const sanitizedContent = sanitizeText(content);
+  const lines = sanitizedContent.split("\n");
   const title = lines[0]?.substring(0, 100) || "Text Document";
   
   return { 
-    title, 
-    content: content.trim() 
+    title: sanitizeText(title), 
+    content: sanitizedContent 
   };
 }
