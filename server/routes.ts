@@ -3821,6 +3821,21 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // Learning Stats API Endpoint
+  // ============================================
+
+  // GET /api/learning/stats - Retorna estatísticas de aprendizado
+  app.get("/api/learning/stats", isAuthenticated, async (req, res) => {
+    try {
+      const history = await storage.getLearningHistory();
+      res.json({ count: history.length });
+    } catch (error) {
+      console.error("Error fetching learning stats:", error);
+      res.status(500).json({ error: "Failed to fetch learning stats" });
+    }
+  });
+
+  // ============================================
   // Knowledge Base API Endpoints
   // ============================================
 

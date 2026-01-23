@@ -88,6 +88,10 @@ export default function Settings() {
     },
   });
 
+  const { data: learningStats } = useQuery<{ count: number }>({
+    queryKey: ["/api/learning/stats"],
+  });
+
   const [localSettings, setLocalSettings] = useState<SettingsData | null>(null);
 
   useEffect(() => {
@@ -728,15 +732,18 @@ export default function Settings() {
                 <div className="flex items-start gap-2 p-3 rounded-lg bg-background border">
                   <Bot className="h-4 w-4 mt-0.5 text-muted-foreground" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium">Tom da IA</p>
+                    <p className="text-sm font-medium">Aprendizado</p>
                     <p className="text-xs text-muted-foreground">
-                      {localSettings.aiTone === "professional" && "Profissional"}
-                      {localSettings.aiTone === "friendly" && "Amigável"}
-                      {localSettings.aiTone === "casual" && "Casual"}
-                      {!localSettings.aiTone && "Padrão"}
+                      {learningStats?.count 
+                        ? `${learningStats.count} correç${learningStats.count === 1 ? 'ão' : 'ões'} realizadas`
+                        : "Nenhuma correção ainda"}
                     </p>
                   </div>
-                  <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+                  {learningStats?.count && learningStats.count > 0 ? (
+                    <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0" />
+                  )}
                 </div>
                 <div className="flex items-start gap-2 p-3 rounded-lg bg-background border">
                   <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground" />
@@ -777,112 +784,6 @@ export default function Settings() {
               <p className="text-xs text-muted-foreground">
                 {t.settings.ai.systemPromptHelper}
               </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Tom da IA</CardTitle>
-              <CardDescription>
-                Escolha o estilo de comunicação que a IA usará nas respostas.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div
-                  className={`p-4 rounded-lg border cursor-pointer transition-colors ${
-                    localSettings.aiTone === "professional"
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-muted/50"
-                  }`}
-                  onClick={() =>
-                    setLocalSettings({ ...localSettings, aiTone: "professional" })
-                  }
-                  data-testid="option-tone-professional"
-                >
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={`h-4 w-4 rounded-full border-2 ${
-                        localSettings.aiTone === "professional"
-                          ? "border-primary bg-primary"
-                          : "border-muted-foreground"
-                      }`}
-                    >
-                      {localSettings.aiTone === "professional" && (
-                        <div className="h-full w-full flex items-center justify-center">
-                          <div className="h-1.5 w-1.5 rounded-full bg-white"></div>
-                        </div>
-                      )}
-                    </div>
-                    <span className="font-medium">Profissional</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Respostas formais e objetivas
-                  </p>
-                </div>
-                <div
-                  className={`p-4 rounded-lg border cursor-pointer transition-colors ${
-                    localSettings.aiTone === "friendly"
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-muted/50"
-                  }`}
-                  onClick={() =>
-                    setLocalSettings({ ...localSettings, aiTone: "friendly" })
-                  }
-                  data-testid="option-tone-friendly"
-                >
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={`h-4 w-4 rounded-full border-2 ${
-                        localSettings.aiTone === "friendly"
-                          ? "border-primary bg-primary"
-                          : "border-muted-foreground"
-                      }`}
-                    >
-                      {localSettings.aiTone === "friendly" && (
-                        <div className="h-full w-full flex items-center justify-center">
-                          <div className="h-1.5 w-1.5 rounded-full bg-white"></div>
-                        </div>
-                      )}
-                    </div>
-                    <span className="font-medium">Amigável</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Respostas calorosas e acolhedoras
-                  </p>
-                </div>
-                <div
-                  className={`p-4 rounded-lg border cursor-pointer transition-colors ${
-                    localSettings.aiTone === "casual"
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-muted/50"
-                  }`}
-                  onClick={() =>
-                    setLocalSettings({ ...localSettings, aiTone: "casual" })
-                  }
-                  data-testid="option-tone-casual"
-                >
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={`h-4 w-4 rounded-full border-2 ${
-                        localSettings.aiTone === "casual"
-                          ? "border-primary bg-primary"
-                          : "border-muted-foreground"
-                      }`}
-                    >
-                      {localSettings.aiTone === "casual" && (
-                        <div className="h-full w-full flex items-center justify-center">
-                          <div className="h-1.5 w-1.5 rounded-full bg-white"></div>
-                        </div>
-                      )}
-                    </div>
-                    <span className="font-medium">Casual</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Respostas descontraídas e informais
-                  </p>
-                </div>
-              </div>
             </CardContent>
           </Card>
 
