@@ -2587,6 +2587,20 @@ export async function registerRoutes(
         );
         if (instagramUser) {
           console.log(`Matched user ${instagramUser.id} by instagramRecipientId`);
+          
+          // SYNC FIX: Also update instagramAccountId to match recipientId
+          // This ensures comments (which use instagramAccountId) will also work
+          if (instagramUser.instagramAccountId !== recipientId) {
+            try {
+              await authStorage.updateUser(instagramUser.id, {
+                instagramAccountId: recipientId
+              });
+              console.log(`✅ SYNC: Updated instagramAccountId to ${recipientId} for user ${instagramUser.id}`);
+              instagramUser.instagramAccountId = recipientId;
+            } catch (err) {
+              console.error("Failed to sync instagramAccountId:", err);
+            }
+          }
         }
       }
 
@@ -2611,12 +2625,17 @@ export async function registerRoutes(
           
           
           try {
+            // SYNC FIX: Update BOTH instagramRecipientId AND instagramAccountId
+            // This ensures both DMs and comments will work with the same ID
             await authStorage.updateUser(targetUser.id, {
-              instagramRecipientId: recipientId
+              instagramRecipientId: recipientId,
+              instagramAccountId: recipientId
             });
             // CRITICAL: Update the in-memory object so subsequent checks use the new value
             instagramUser.instagramRecipientId = recipientId;
+            instagramUser.instagramAccountId = recipientId;
             console.log(`✅ AUTO-ASSOCIATED instagramRecipientId=${recipientId} for user ${targetUser.id}`);
+            console.log(`✅ SYNC: Also updated instagramAccountId=${recipientId}`);
             
             
             // Clear any previous unmapped webhook alert
@@ -2658,12 +2677,16 @@ export async function registerRoutes(
             console.log(`SECURE AUTO-ASSOCIATING webhook ID ${recipientId} with user ${targetUser.id} (${targetUser.email})`);
             
             try {
+              // SYNC FIX: Update BOTH instagramRecipientId AND instagramAccountId
               await authStorage.updateUser(targetUser.id, {
-                instagramRecipientId: recipientId
+                instagramRecipientId: recipientId,
+                instagramAccountId: recipientId
               });
               // CRITICAL: Update the in-memory object so subsequent checks use the new value
               targetUser.instagramRecipientId = recipientId;
+              targetUser.instagramAccountId = recipientId;
               console.log(`✅ Successfully auto-associated instagramRecipientId=${recipientId}`);
+              console.log(`✅ SYNC: Also updated instagramAccountId=${recipientId}`);
               await storage.deleteSetting(`pending_webhook_${targetUser.id}`);
               await storage.deleteSetting("lastUnmappedWebhookRecipientId");
               await storage.deleteSetting("lastUnmappedWebhookTimestamp");
@@ -3022,6 +3045,58 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting webhook config:", error);
       res.status(500).json({ error: "Failed to get webhook configuration" });
+    }
+  });
+
+  // Admin endpoint to sync Instagram IDs for a user
+  // This copies instagramRecipientId to instagramAccountId to fix comment webhook matching
+  app.post("/api/admin/sync-instagram-ids/:userId", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const targetUserId = req.params.userId;
+      const allUsers = await authStorage.getAllUsers?.() || [];
+      const targetUser = allUsers.find((u: any) => u.id === targetUserId);
+
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!targetUser.instagramRecipientId) {
+        return res.status(400).json({ 
+          error: "User has no instagramRecipientId set. User needs to receive at least one DM first.",
+          currentIds: {
+            instagramAccountId: targetUser.instagramAccountId,
+            instagramRecipientId: targetUser.instagramRecipientId
+          }
+        });
+      }
+
+      // Sync: copy instagramRecipientId to instagramAccountId
+      const newAccountId = targetUser.instagramRecipientId;
+      await authStorage.updateUser(targetUserId, {
+        instagramAccountId: newAccountId
+      });
+
+      console.log(`[Admin] Synced Instagram IDs for user ${targetUserId}:`);
+      console.log(`  Old instagramAccountId: ${targetUser.instagramAccountId}`);
+      console.log(`  New instagramAccountId: ${newAccountId} (from instagramRecipientId)`);
+
+      res.json({
+        success: true,
+        message: "Instagram IDs synchronized successfully",
+        userId: targetUserId,
+        email: targetUser.email,
+        oldAccountId: targetUser.instagramAccountId,
+        newAccountId: newAccountId,
+        instagramRecipientId: targetUser.instagramRecipientId
+      });
+    } catch (error) {
+      console.error("Error syncing Instagram IDs:", error);
+      res.status(500).json({ error: "Failed to sync Instagram IDs" });
     }
   });
 
