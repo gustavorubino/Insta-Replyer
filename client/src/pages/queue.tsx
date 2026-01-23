@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, Filter, RefreshCw, MessageSquare, AtSign, LayoutGrid, List } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,11 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
   const [viewMode, setViewMode] = useState<"grouped" | "list">("grouped");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Sync filter when navigating between queue routes
+  useEffect(() => {
+    setTypeFilter(defaultFilter);
+  }, [defaultFilter]);
 
   const { data: messages, isLoading, refetch, isRefetching } = useQuery<MessageWithResponse[]>({
     queryKey: ["/api/messages/pending"],
