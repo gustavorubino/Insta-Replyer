@@ -782,6 +782,112 @@ export default function Settings() {
 
           <Card>
             <CardHeader>
+              <CardTitle>Tom da IA</CardTitle>
+              <CardDescription>
+                Escolha o estilo de comunicação que a IA usará nas respostas.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div
+                  className={`p-4 rounded-lg border cursor-pointer transition-colors ${
+                    localSettings.aiTone === "professional"
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-muted/50"
+                  }`}
+                  onClick={() =>
+                    setLocalSettings({ ...localSettings, aiTone: "professional" })
+                  }
+                  data-testid="option-tone-professional"
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`h-4 w-4 rounded-full border-2 ${
+                        localSettings.aiTone === "professional"
+                          ? "border-primary bg-primary"
+                          : "border-muted-foreground"
+                      }`}
+                    >
+                      {localSettings.aiTone === "professional" && (
+                        <div className="h-full w-full flex items-center justify-center">
+                          <div className="h-1.5 w-1.5 rounded-full bg-white"></div>
+                        </div>
+                      )}
+                    </div>
+                    <span className="font-medium">Profissional</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Respostas formais e objetivas
+                  </p>
+                </div>
+                <div
+                  className={`p-4 rounded-lg border cursor-pointer transition-colors ${
+                    localSettings.aiTone === "friendly"
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-muted/50"
+                  }`}
+                  onClick={() =>
+                    setLocalSettings({ ...localSettings, aiTone: "friendly" })
+                  }
+                  data-testid="option-tone-friendly"
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`h-4 w-4 rounded-full border-2 ${
+                        localSettings.aiTone === "friendly"
+                          ? "border-primary bg-primary"
+                          : "border-muted-foreground"
+                      }`}
+                    >
+                      {localSettings.aiTone === "friendly" && (
+                        <div className="h-full w-full flex items-center justify-center">
+                          <div className="h-1.5 w-1.5 rounded-full bg-white"></div>
+                        </div>
+                      )}
+                    </div>
+                    <span className="font-medium">Amigável</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Respostas calorosas e acolhedoras
+                  </p>
+                </div>
+                <div
+                  className={`p-4 rounded-lg border cursor-pointer transition-colors ${
+                    localSettings.aiTone === "casual"
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-muted/50"
+                  }`}
+                  onClick={() =>
+                    setLocalSettings({ ...localSettings, aiTone: "casual" })
+                  }
+                  data-testid="option-tone-casual"
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`h-4 w-4 rounded-full border-2 ${
+                        localSettings.aiTone === "casual"
+                          ? "border-primary bg-primary"
+                          : "border-muted-foreground"
+                      }`}
+                    >
+                      {localSettings.aiTone === "casual" && (
+                        <div className="h-full w-full flex items-center justify-center">
+                          <div className="h-1.5 w-1.5 rounded-full bg-white"></div>
+                        </div>
+                      )}
+                    </div>
+                    <span className="font-medium">Casual</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Respostas descontraídas e informais
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Base de Conhecimento</CardTitle>
               <CardDescription>
                 Adicione links e arquivos para treinar a IA com informações específicas do seu negócio.
