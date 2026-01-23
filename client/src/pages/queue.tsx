@@ -278,30 +278,32 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
             data-testid="input-search-messages"
           />
         </div>
-        <Select
-          value={typeFilter}
-          onValueChange={(v) => setTypeFilter(v as "all" | "dm" | "comment")}
-        >
-          <SelectTrigger className="w-[160px]" data-testid="select-type-filter">
-            <Filter className="h-4 w-4 mr-2" />
-            <SelectValue placeholder="Tipo" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="dm">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="h-3 w-3" />
-                DMs
-              </div>
-            </SelectItem>
-            <SelectItem value="comment">
-              <div className="flex items-center gap-2">
-                <AtSign className="h-3 w-3" />
-                Comentários
-              </div>
-            </SelectItem>
-          </SelectContent>
-        </Select>
+{defaultFilter === "all" && (
+          <Select
+            value={typeFilter}
+            onValueChange={(v) => setTypeFilter(v as "all" | "dm" | "comment")}
+          >
+            <SelectTrigger className="w-[160px]" data-testid="select-type-filter">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Tipo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="dm">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-3 w-3" />
+                  DMs
+                </div>
+              </SelectItem>
+              <SelectItem value="comment">
+                <div className="flex items-center gap-2">
+                  <AtSign className="h-3 w-3" />
+                  Comentários
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        )}
         
         <div className="flex items-center border rounded-md">
           <Button
