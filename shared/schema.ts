@@ -65,6 +65,7 @@ export const knowledgeLinks = pgTable("knowledge_links", {
   title: text("title"),
   content: text("content"), // Extracted text content from the URL
   status: text("status").notNull().default("pending"), // 'pending', 'processing', 'completed', 'error'
+  progress: integer("progress").notNull().default(0), // 0-100 percentage
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
   processedAt: timestamp("processed_at"),
@@ -79,6 +80,7 @@ export const knowledgeFiles = pgTable("knowledge_files", {
   objectPath: text("object_path").notNull(), // Path in object storage
   content: text("content"), // Extracted text content from the file
   status: text("status").notNull().default("pending"), // 'pending', 'processing', 'completed', 'error'
+  progress: integer("progress").notNull().default(0), // 0-100 percentage
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
   processedAt: timestamp("processed_at"),

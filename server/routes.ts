@@ -3860,17 +3860,24 @@ export async function registerRoutes(
       // Process in background
       setImmediate(async () => {
         try {
-          // Update to processing
-          await storage.updateKnowledgeLink(link.id, { status: "processing" });
+          // Update to processing - 10%
+          await storage.updateKnowledgeLink(link.id, { status: "processing", progress: 10 });
+
+          // Fetching URL - 30%
+          await storage.updateKnowledgeLink(link.id, { progress: 30 });
 
           // Extract content from URL
           const extracted = await extractFromUrl(url);
 
-          // Update with extracted content
+          // Processing content - 70%
+          await storage.updateKnowledgeLink(link.id, { progress: 70 });
+
+          // Update with extracted content - 100%
           await storage.updateKnowledgeLink(link.id, {
             title: extracted.title,
             content: extracted.content,
             status: "completed",
+            progress: 100,
             processedAt: new Date(),
           });
 
@@ -3879,6 +3886,7 @@ export async function registerRoutes(
           console.error(`[KNOWLEDGE] Error processing link ${link.id}:`, error);
           await storage.updateKnowledgeLink(link.id, {
             status: "error",
+            progress: 0,
             errorMessage: error instanceof Error ? error.message : "Unknown error",
             processedAt: new Date(),
           });
@@ -3965,14 +3973,16 @@ export async function registerRoutes(
       // Process in background
       setImmediate(async () => {
         try {
-          // Update to processing
-          await storage.updateKnowledgeFile(file.id, { status: "processing" });
+          // Update to processing - 10%
+          await storage.updateKnowledgeFile(file.id, { status: "processing", progress: 10 });
 
-          // Download file from object storage
+          // Download file from object storage - 30%
+          await storage.updateKnowledgeFile(file.id, { progress: 30 });
           const objectStorage = new ObjectStorageService();
           const objectFile = await objectStorage.getObjectEntityFile(objectPath);
           
-          // Download the file content
+          // Download the file content - 50%
+          await storage.updateKnowledgeFile(file.id, { progress: 50 });
           const chunks: Buffer[] = [];
           const stream = objectFile.createReadStream();
           
@@ -3984,6 +3994,9 @@ export async function registerRoutes(
           
           const buffer = Buffer.concat(chunks);
 
+          // Processing content - 70%
+          await storage.updateKnowledgeFile(file.id, { progress: 70 });
+          
           let extracted;
           if (fileType.toLowerCase() === "pdf") {
             extracted = await extractFromPdf(buffer);
@@ -3993,10 +4006,11 @@ export async function registerRoutes(
             extracted = extractFromText(textContent);
           }
 
-          // Update with extracted content
+          // Update with extracted content - 100%
           await storage.updateKnowledgeFile(file.id, {
             content: extracted.content,
             status: "completed",
+            progress: 100,
             processedAt: new Date(),
           });
 
@@ -4005,6 +4019,7 @@ export async function registerRoutes(
           console.error(`[KNOWLEDGE] Error processing file ${file.id}:`, error);
           await storage.updateKnowledgeFile(file.id, {
             status: "error",
+            progress: 0,
             errorMessage: error instanceof Error ? error.message : "Unknown error",
             processedAt: new Date(),
           });

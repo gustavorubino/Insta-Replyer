@@ -70,10 +70,20 @@ export default function Settings() {
 
   const { data: knowledgeLinks = [], isLoading: linksLoading } = useQuery<any[]>({
     queryKey: ["/api/knowledge/links"],
+    refetchInterval: (query) => {
+      const data = query.state.data as any[] | undefined;
+      const hasProcessing = data?.some((l: any) => l.status === "pending" || l.status === "processing");
+      return hasProcessing ? 1000 : false;
+    },
   });
 
   const { data: knowledgeFiles = [], isLoading: filesLoading } = useQuery<any[]>({
     queryKey: ["/api/knowledge/files"],
+    refetchInterval: (query) => {
+      const data = query.state.data as any[] | undefined;
+      const hasProcessing = data?.some((f: any) => f.status === "pending" || f.status === "processing");
+      return hasProcessing ? 1000 : false;
+    },
   });
 
   const [localSettings, setLocalSettings] = useState<SettingsData | null>(null);
@@ -269,14 +279,19 @@ export default function Settings() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, progress?: number) => {
     switch (status) {
       case "completed":
         return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Concluído</Badge>;
       case "error":
         return <Badge variant="destructive">Erro</Badge>;
       default:
-        return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">Processando...</Badge>;
+        const progressValue = progress ?? 0;
+        return (
+          <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+            Processando... {progressValue}%
+          </Badge>
+        );
     }
   };
 
@@ -728,7 +743,7 @@ export default function Settings() {
                           <span className="text-sm truncate">{link.url}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          {getStatusBadge(link.status)}
+                          {getStatusBadge(link.status, link.progress)}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -798,7 +813,7 @@ export default function Settings() {
                           <span className="text-sm truncate">{file.fileName}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          {getStatusBadge(file.status)}
+                          {getStatusBadge(file.status, file.progress)}
                           <Button
                             variant="ghost"
                             size="icon"
