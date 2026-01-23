@@ -2073,13 +2073,15 @@ export async function registerRoutes(
         }
 
         // Process direct messages (Messenger Platform format)
+        // IMPORTANT: Pass entryItem.id to identify which account received the webhook
         for (const messageEvent of messaging) {
           console.log("=== MESSAGING EVENT RECEIVED ===");
           console.log("Messaging event:", JSON.stringify(messageEvent).substring(0, 500));
+          console.log(`Entry ID (account that received webhook): ${entryItem.id}`);
           
           if (messageEvent.message) {
             console.log(">>> Processing DM webhook");
-            await processWebhookMessage(messageEvent);
+            await processWebhookMessage(messageEvent, entryItem.id);
           }
         }
       }
@@ -2658,14 +2660,39 @@ export async function registerRoutes(
   }
 
 // Helper function to process incoming DMs from webhooks
-  async function processWebhookMessage(messageData: any) {
+  // entryId: The ID of the Instagram account that received this webhook (entry.id)
+  async function processWebhookMessage(messageData: any, entryId?: string) {
     try {
       console.log("Processing webhook DM:", JSON.stringify(messageData));
 
       const senderId = messageData.sender?.id;
+      const recipientId = messageData.recipient?.id;
       const messageId = messageData.message?.mid;
       const text = messageData.message?.text;
       const attachments = messageData.message?.attachments;
+      const isEcho = messageData.message?.is_echo === true;
+
+      console.log(`[DM-WEBHOOK] entryId=${entryId}, senderId=${senderId}, recipientId=${recipientId}, is_echo=${isEcho}`);
+
+      // CRITICAL: Skip "echo" messages - these are messages SENT by the business account
+      // We only want to process RECEIVED messages, not echoes of what we sent
+      if (isEcho) {
+        console.log(`[SKIP] Message is an echo (sent by business): mid=${messageId}`);
+        return;
+      }
+
+      // CRITICAL: Skip if sender is the same as recipient (self-messages)
+      if (senderId && recipientId && senderId === recipientId) {
+        console.log(`[SKIP] Sender equals recipient (self-message): senderId=${senderId}`);
+        return;
+      }
+
+      // CRITICAL: Skip if the sender is the same as the entry ID
+      // This means the webhook was sent to the account that sent the message (echo without is_echo flag)
+      if (entryId && senderId && entryId === senderId) {
+        console.log(`[SKIP] Sender matches entry ID - outgoing message from account ${entryId}`);
+        return;
+      }
 
       // Accept messages with text OR attachments
       if (!messageId || (!text && !attachments?.length)) {
@@ -2681,7 +2708,6 @@ export async function registerRoutes(
       }
 
       // Find the user who owns this Instagram account by matching instagramAccountId with recipient
-      const recipientId = messageData.recipient?.id;
       const allUsers = await authStorage.getAllUsers?.() || [];
       
       
