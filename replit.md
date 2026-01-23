@@ -15,11 +15,19 @@ This project is an automated response system for Instagram DMs and comments, lev
 ### Multi-User Data Isolation
 The system provides robust multi-user data isolation, ensuring each user operates within their independent environment. This includes per-user settings for operation mode, auto-approve thresholds, AI tone, and context. All dashboard statistics and message queues are filtered by `userId`, preventing data leakage between users. Messages sent by the user themselves are excluded from their approval queues. An admin panel allows for manual Instagram ID assignment and management.
 
+### Global Settings (SaaS Model)
+The system supports a SaaS-style global configuration model where administrators define system-wide defaults that apply to all users:
+- **Global Defaults**: Admin-defined settings stored in the `settings` table with `global_` prefix keys (e.g., `global_operationMode`, `global_autoApproveThreshold`, `global_aiTone`, `global_aiContext`)
+- **User Personalization**: Users can override global defaults with their own settings stored in the `users` table
+- **Inheritance**: When a user has not personalized a setting, they automatically inherit the global default
+- **API Merge Logic**: GET `/api/settings` merges global defaults with user personalizations, prioritizing user values when set
+- **Admin Panel**: "Configurações Globais" tab in admin panel for managing system-wide defaults
+
 ### Core Features
 - **Dashboard**: Provides key statistics like pending messages, approved responses, auto-sent messages, and average AI confidence.
 - **Approval Queue**: Features a split-view modal for efficient human review and approval of AI-generated responses, with message cards displaying confidence indicators.
 - **History**: A tabular view of all processed messages.
-- **Settings**: Configurable sections for Instagram connection, operation modes (Manual, Semi-Automatic), and AI settings.
+- **Settings**: Configurable sections for Instagram connection, operation modes (Manual, Semi-Automatic), and AI settings. Users can see which settings are personalized vs using global defaults.
 - **AI Learning**: Incorporates human corrections to continuously improve AI response quality.
 - **Media Support**: Handles various media types (photos, videos, audio, GIFs, reels, stickers, drawings) in DMs.
 - **Comment Context**: Comments are grouped by post, displaying the original post's thumbnail, caption, and full comment thread. Replies to comments show parent comment details.
