@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, Filter, RefreshCw, MessageSquare, AtSign } from "lucide-react";
+import { Search, Filter, RefreshCw, MessageSquare, AtSign, LayoutGrid, List } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,11 +12,20 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MessageCard } from "@/components/message-card";
+import { PostCommentGroup } from "@/components/post-comment-group";
 import { ApprovalModal } from "@/components/approval-modal";
 import { EmptyState } from "@/components/empty-state";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { MessageWithResponse } from "@shared/schema";
+
+interface PostGroup {
+  postId: string;
+  postCaption: string | null;
+  postThumbnailUrl: string | null;
+  postPermalink: string | null;
+  comments: MessageWithResponse[];
+}
 
 export default function Queue() {
   const [selectedMessage, setSelectedMessage] =
@@ -24,6 +33,7 @@ export default function Queue() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "dm" | "comment">("all");
+  const [viewMode, setViewMode] = useState<"grouped" | "list">("grouped");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -183,6 +193,51 @@ export default function Queue() {
     return matchesSearch && matchesType;
   });
 
+  const { postGroups, dmMessages, ungroupedComments } = useMemo(() => {
+    if (!filteredMessages) {
+      return { postGroups: [], dmMessages: [], ungroupedComments: [] };
+    }
+
+    const dms = filteredMessages.filter((msg) => msg.type === "dm");
+    const comments = filteredMessages.filter((msg) => msg.type === "comment");
+    
+    const groupedByPost = new Map<string, PostGroup>();
+    const ungrouped: MessageWithResponse[] = [];
+
+    comments.forEach((comment) => {
+      if (comment.postId) {
+        if (!groupedByPost.has(comment.postId)) {
+          groupedByPost.set(comment.postId, {
+            postId: comment.postId,
+            postCaption: comment.postCaption || null,
+            postThumbnailUrl: comment.postThumbnailUrl || null,
+            postPermalink: comment.postPermalink || null,
+            comments: [],
+          });
+        }
+        const group = groupedByPost.get(comment.postId)!;
+        group.comments.push(comment);
+        if (!group.postCaption && comment.postCaption) {
+          group.postCaption = comment.postCaption;
+        }
+        if (!group.postThumbnailUrl && comment.postThumbnailUrl) {
+          group.postThumbnailUrl = comment.postThumbnailUrl;
+        }
+        if (!group.postPermalink && comment.postPermalink) {
+          group.postPermalink = comment.postPermalink;
+        }
+      } else {
+        ungrouped.push(comment);
+      }
+    });
+
+    return {
+      postGroups: Array.from(groupedByPost.values()),
+      dmMessages: dms,
+      ungroupedComments: ungrouped,
+    };
+  }, [filteredMessages]);
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -238,6 +293,29 @@ export default function Queue() {
             </SelectItem>
           </SelectContent>
         </Select>
+        
+        <div className="flex items-center border rounded-md">
+          <Button
+            variant={viewMode === "grouped" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("grouped")}
+            className="rounded-r-none"
+            data-testid="button-view-grouped"
+          >
+            <LayoutGrid className="h-4 w-4 mr-1" />
+            Agrupado
+          </Button>
+          <Button
+            variant={viewMode === "list" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("list")}
+            className="rounded-l-none"
+            data-testid="button-view-list"
+          >
+            <List className="h-4 w-4 mr-1" />
+            Lista
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -254,14 +332,73 @@ export default function Queue() {
           ))}
         </div>
       ) : filteredMessages && filteredMessages.length > 0 ? (
-        <div className="space-y-3">
-          {filteredMessages.map((message) => (
-            <MessageCard
-              key={message.id}
-              message={message}
-              onView={handleViewMessage}
-            />
-          ))}
+        <div className="space-y-4">
+          {viewMode === "grouped" ? (
+            <>
+              {/* Grouped comments by post */}
+              {postGroups.length > 0 && (
+                <div className="space-y-4">
+                  <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <AtSign className="h-4 w-4" />
+                    Comentários por publicação ({postGroups.reduce((acc, g) => acc + g.comments.length, 0)})
+                  </h2>
+                  {postGroups.map((group) => (
+                    <PostCommentGroup
+                      key={group.postId}
+                      postId={group.postId}
+                      postCaption={group.postCaption}
+                      postThumbnailUrl={group.postThumbnailUrl}
+                      postPermalink={group.postPermalink}
+                      comments={group.comments}
+                      onViewMessage={handleViewMessage}
+                    />
+                  ))}
+                </div>
+              )}
+              
+              {/* Ungrouped comments (no postId) */}
+              {ungroupedComments.length > 0 && (
+                <div className="space-y-3">
+                  <h2 className="text-sm font-medium text-muted-foreground">
+                    Comentários sem post identificado ({ungroupedComments.length})
+                  </h2>
+                  {ungroupedComments.map((message) => (
+                    <MessageCard
+                      key={message.id}
+                      message={message}
+                      onView={handleViewMessage}
+                    />
+                  ))}
+                </div>
+              )}
+              
+              {/* DMs */}
+              {dmMessages.length > 0 && (
+                <div className="space-y-3">
+                  <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4" />
+                    Mensagens Diretas ({dmMessages.length})
+                  </h2>
+                  {dmMessages.map((message) => (
+                    <MessageCard
+                      key={message.id}
+                      message={message}
+                      onView={handleViewMessage}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            /* List view - original behavior */
+            filteredMessages.map((message) => (
+              <MessageCard
+                key={message.id}
+                message={message}
+                onView={handleViewMessage}
+              />
+            ))
+          )}
         </div>
       ) : (
         <EmptyState
