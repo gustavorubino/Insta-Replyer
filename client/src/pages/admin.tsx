@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users,
@@ -17,6 +17,8 @@ import {
   AlertCircle,
   AlertTriangle,
   Edit,
+  Globe,
+  Save,
 } from "lucide-react";
 import {
   Card,
@@ -48,6 +50,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -80,6 +92,13 @@ interface UserStats {
   lastActivity: string | null;
 }
 
+interface GlobalSettings {
+  operationMode: string;
+  confidenceThreshold: number;
+  systemPrompt: string;
+  aiTone: string;
+}
+
 export default function Admin() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -110,6 +129,50 @@ export default function Admin() {
     enabled: !!user?.isAdmin,
     refetchInterval: 30000,
   });
+
+  const { data: globalSettings, isLoading: isLoadingGlobalSettings } = useQuery<GlobalSettings>({
+    queryKey: ["/api/admin/global-settings"],
+    enabled: !!user?.isAdmin,
+  });
+
+  const [localGlobalSettings, setLocalGlobalSettings] = useState<GlobalSettings | null>(null);
+
+  useEffect(() => {
+    if (globalSettings) {
+      setLocalGlobalSettings(globalSettings);
+    }
+  }, [globalSettings]);
+
+  const saveGlobalSettingsMutation = useMutation({
+    mutationFn: async (settings: Partial<GlobalSettings>) => {
+      return apiRequest("PATCH", "/api/admin/global-settings", settings);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/global-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({
+        title: "Sucesso",
+        description: "Configurações globais salvas com sucesso",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Erro",
+        description: "Não foi possível salvar as configurações globais",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const hasGlobalSettingsChanges = localGlobalSettings && globalSettings
+    ? JSON.stringify(localGlobalSettings) !== JSON.stringify(globalSettings)
+    : false;
+
+  const handleSaveGlobalSettings = () => {
+    if (localGlobalSettings) {
+      saveGlobalSettingsMutation.mutate(localGlobalSettings);
+    }
+  };
 
   const toggleAdminMutation = useMutation({
     mutationFn: async ({ userId, isAdmin }: { userId: string; isAdmin: boolean }) => {
@@ -325,7 +388,7 @@ export default function Admin() {
       </div>
 
       <Tabs defaultValue="users" className="space-y-6">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="users" data-testid="tab-users">
             <Users className="h-4 w-4 mr-2" />
             Usuários
@@ -333,6 +396,10 @@ export default function Admin() {
           <TabsTrigger value="instagram" data-testid="tab-instagram">
             <Instagram className="h-4 w-4 mr-2" />
             Contas Instagram
+          </TabsTrigger>
+          <TabsTrigger value="global-settings" data-testid="tab-global-settings">
+            <Globe className="h-4 w-4 mr-2" />
+            Configurações Globais
           </TabsTrigger>
           <TabsTrigger value="maintenance" data-testid="tab-maintenance">
             <Settings className="h-4 w-4 mr-2" />
@@ -744,6 +811,153 @@ export default function Admin() {
                   </TableBody>
                 </Table>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="global-settings" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="h-5 w-5" />
+                Configurações Globais
+              </CardTitle>
+              <CardDescription>
+                Defina as configurações padrão que se aplicam a todos os usuários.
+                Usuários podem personalizar suas próprias configurações, mas herdarão estes valores padrão.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {isLoadingGlobalSettings ? (
+                <div className="flex items-center justify-center py-8">
+                  <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : localGlobalSettings ? (
+                <>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="global-operation-mode">Modo de Operação Padrão</Label>
+                      <Select
+                        value={localGlobalSettings.operationMode}
+                        onValueChange={(value) =>
+                          setLocalGlobalSettings({ ...localGlobalSettings, operationMode: value })
+                        }
+                      >
+                        <SelectTrigger id="global-operation-mode" data-testid="select-global-operation-mode">
+                          <SelectValue placeholder="Selecione o modo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="manual">Manual - Revisar todas as respostas</SelectItem>
+                          <SelectItem value="semi_auto">Semi-automático - Auto-enviar alta confiança</SelectItem>
+                          <SelectItem value="auto">Automático - Enviar todas automaticamente</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Define como as respostas são processadas por padrão para novos usuários.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Limiar de Confiança Padrão: {localGlobalSettings.confidenceThreshold}%</Label>
+                      <Slider
+                        value={[localGlobalSettings.confidenceThreshold]}
+                        onValueChange={(value) =>
+                          setLocalGlobalSettings({ ...localGlobalSettings, confidenceThreshold: value[0] })
+                        }
+                        min={50}
+                        max={100}
+                        step={5}
+                        className="w-full"
+                        data-testid="slider-global-confidence"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        No modo semi-automático, respostas com confiança acima deste valor serão enviadas automaticamente.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="global-ai-tone">Tom da IA Padrão</Label>
+                      <Select
+                        value={localGlobalSettings.aiTone || "professional"}
+                        onValueChange={(value) =>
+                          setLocalGlobalSettings({ ...localGlobalSettings, aiTone: value })
+                        }
+                      >
+                        <SelectTrigger id="global-ai-tone" data-testid="select-global-ai-tone">
+                          <SelectValue placeholder="Selecione o tom" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="professional">Profissional</SelectItem>
+                          <SelectItem value="friendly">Amigável</SelectItem>
+                          <SelectItem value="casual">Casual</SelectItem>
+                          <SelectItem value="formal">Formal</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Define o tom padrão das respostas geradas pela IA.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="global-system-prompt">Prompt do Sistema Padrão</Label>
+                      <Textarea
+                        id="global-system-prompt"
+                        value={localGlobalSettings.systemPrompt}
+                        onChange={(e) =>
+                          setLocalGlobalSettings({ ...localGlobalSettings, systemPrompt: e.target.value })
+                        }
+                        placeholder="Ex: Você é um assistente de atendimento ao cliente amigável e prestativo..."
+                        className="min-h-[120px]"
+                        data-testid="textarea-global-system-prompt"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Instruções gerais para a IA sobre como responder mensagens. Usuários podem personalizar este prompt.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-4 border-t">
+                    <Button
+                      onClick={handleSaveGlobalSettings}
+                      disabled={!hasGlobalSettingsChanges || saveGlobalSettingsMutation.isPending}
+                      data-testid="button-save-global-settings"
+                    >
+                      {saveGlobalSettingsMutation.isPending ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                          Salvando...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-4 w-4 mr-2" />
+                          Salvar Configurações Globais
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  Erro ao carregar configurações globais
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Sobre Configurações Globais</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <h4 className="font-medium">Como funciona?</h4>
+                <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
+                  <li>As configurações globais são os valores padrão para todos os usuários</li>
+                  <li>Quando um usuário não personalizou uma configuração, ele usa o valor global</li>
+                  <li>Se um usuário personalizar sua configuração, ela prevalece sobre a global</li>
+                  <li>Alterar a configuração global afeta todos os usuários que não personalizaram</li>
+                </ul>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
