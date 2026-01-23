@@ -13,7 +13,7 @@ import { refreshInstagramToken } from "./utils/token-refresh";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { extractFromUrl, extractFromPdf, extractFromText } from "./knowledge-extractor";
-import { ObjectStorageService } from "./replit_integrations/object_storage";
+import { ObjectStorageService, registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 
 // Store last 50 webhooks received for debugging (in-memory)
 interface WebhookProcessingResult {
@@ -311,6 +311,9 @@ export async function registerRoutes(
   // Setup authentication FIRST before other routes
   await setupAuth(app);
   registerAuthRoutes(app);
+  
+  // Register Object Storage routes for file uploads
+  registerObjectStorageRoutes(app);
 
   // Cleanup expired OAuth states and pending webhooks on startup and periodically (every hour)
   (async () => {
