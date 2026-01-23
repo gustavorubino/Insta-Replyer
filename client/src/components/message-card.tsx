@@ -118,17 +118,36 @@ export function MessageCard({ message, onView }: MessageCardProps) {
               <span className="text-xs text-muted-foreground">
                 @{message.senderUsername}
               </span>
-              <Badge
-                variant="secondary"
-                className="h-5 px-1.5"
-              >
-                {message.type === "dm" ? (
-                  <MessageSquare className="h-3 w-3 mr-1" />
-                ) : (
-                  <AtSign className="h-3 w-3 mr-1" />
-                )}
-                {message.type === "dm" ? "DM" : "Comentário"}
-              </Badge>
+              {message.type === "comment" && message.postPermalink ? (
+                <a
+                  href={message.postPermalink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex"
+                  data-testid={`link-instagram-comment-${message.id}`}
+                >
+                  <Badge
+                    variant="secondary"
+                    className="h-5 px-1.5 cursor-pointer"
+                  >
+                    <AtSign className="h-3 w-3 mr-1" />
+                    Comentário
+                  </Badge>
+                </a>
+              ) : (
+                <Badge
+                  variant="secondary"
+                  className="h-5 px-1.5"
+                >
+                  {message.type === "dm" ? (
+                    <MessageSquare className="h-3 w-3 mr-1" />
+                  ) : (
+                    <AtSign className="h-3 w-3 mr-1" />
+                  )}
+                  {message.type === "dm" ? "DM" : "Comentário"}
+                </Badge>
+              )}
             </div>
             
             {/* Media thumbnail */}
