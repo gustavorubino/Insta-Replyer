@@ -3301,6 +3301,65 @@ export async function registerRoutes(
     }
   });
 
+  // Admin endpoint to manually set Instagram IDs for a user
+  // Use this when webhook IDs differ from OAuth IDs
+  app.post("/api/admin/set-instagram-id/:userId", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const targetUserId = req.params.userId;
+      const { instagramAccountId, instagramRecipientId } = req.body;
+
+      if (!instagramAccountId && !instagramRecipientId) {
+        return res.status(400).json({ 
+          error: "Provide at least one ID to set",
+          usage: {
+            instagramAccountId: "The ID used for comments webhooks (entry.id)",
+            instagramRecipientId: "The ID used for DM webhooks (recipient.id)"
+          }
+        });
+      }
+
+      const allUsers = await authStorage.getAllUsers?.() || [];
+      const targetUser = allUsers.find((u: any) => u.id === targetUserId);
+
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const updates: any = {};
+      if (instagramAccountId) updates.instagramAccountId = instagramAccountId;
+      if (instagramRecipientId) updates.instagramRecipientId = instagramRecipientId;
+
+      await authStorage.updateUser(targetUserId, updates);
+
+      console.log(`[Admin] Manually set Instagram IDs for user ${targetUserId}:`);
+      if (instagramAccountId) console.log(`  instagramAccountId: ${targetUser.instagramAccountId} -> ${instagramAccountId}`);
+      if (instagramRecipientId) console.log(`  instagramRecipientId: ${targetUser.instagramRecipientId} -> ${instagramRecipientId}`);
+
+      res.json({
+        success: true,
+        message: "Instagram IDs updated successfully",
+        userId: targetUserId,
+        email: targetUser.email,
+        previous: {
+          instagramAccountId: targetUser.instagramAccountId,
+          instagramRecipientId: targetUser.instagramRecipientId
+        },
+        current: {
+          instagramAccountId: instagramAccountId || targetUser.instagramAccountId,
+          instagramRecipientId: instagramRecipientId || targetUser.instagramRecipientId
+        }
+      });
+    } catch (error) {
+      console.error("Error setting Instagram IDs:", error);
+      res.status(500).json({ error: "Failed to set Instagram IDs" });
+    }
+  });
+
   // Diagnostic endpoint for troubleshooting webhook issues
   app.get("/api/admin/diagnostics", isAuthenticated, async (req, res) => {
     try {
