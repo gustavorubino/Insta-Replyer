@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Smile,
   AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 import {
   Dialog,
@@ -163,14 +164,28 @@ export function ApprovalModal({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 overflow-hidden">
           <div className="flex flex-col overflow-hidden">
-            <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
-              {message.type === "dm" ? (
-                <MessageSquare className="h-4 w-4" />
-              ) : (
-                <AtSign className="h-4 w-4" />
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium flex items-center gap-2">
+                {message.type === "dm" ? (
+                  <MessageSquare className="h-4 w-4" />
+                ) : (
+                  <AtSign className="h-4 w-4" />
+                )}
+                {message.type === "dm" ? "Mensagem Direta" : "Comentário no Post"}
+              </h3>
+              {message.type === "comment" && message.postPermalink && (
+                <a
+                  href={message.postPermalink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  data-testid="link-view-post-context"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Ver post no Instagram
+                </a>
               )}
-              Mensagem Original
-            </h3>
+            </div>
             <div className="flex-1 rounded-lg border bg-muted/30 p-4 overflow-auto">
               <div className="flex items-start gap-3">
                 <Avatar className="h-10 w-10 border">

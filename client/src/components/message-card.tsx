@@ -1,10 +1,11 @@
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { MessageSquare, AtSign, Eye, Image, Video, Mic, FileImage, Play } from "lucide-react";
+import { MessageSquare, AtSign, Eye, Image, Video, Mic, FileImage, Play, ExternalLink } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConfidenceBadge } from "@/components/confidence-badge";
 import type { MessageWithResponse } from "@shared/schema";
 
@@ -119,22 +120,30 @@ export function MessageCard({ message, onView }: MessageCardProps) {
                 @{message.senderUsername}
               </span>
               {message.type === "comment" && message.postPermalink ? (
-                <a
-                  href={message.postPermalink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex"
-                  data-testid={`link-instagram-comment-${message.id}`}
-                >
-                  <Badge
-                    variant="secondary"
-                    className="h-5 px-1.5 cursor-pointer"
-                  >
-                    <AtSign className="h-3 w-3 mr-1" />
-                    Comentário
-                  </Badge>
-                </a>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <a
+                      href={message.postPermalink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex"
+                      data-testid={`link-instagram-comment-${message.id}`}
+                    >
+                      <Badge
+                        variant="secondary"
+                        className="h-5 px-1.5 cursor-pointer"
+                      >
+                        <AtSign className="h-3 w-3 mr-1" />
+                        Comentário
+                        <ExternalLink className="h-2.5 w-2.5 ml-1 opacity-60" />
+                      </Badge>
+                    </a>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Abrir post no Instagram</p>
+                  </TooltipContent>
+                </Tooltip>
               ) : (
                 <Badge
                   variant="secondary"
