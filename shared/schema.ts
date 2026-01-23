@@ -21,6 +21,8 @@ export const instagramMessages = pgTable("instagram_messages", {
   mediaType: text("media_type"), // 'image', 'video', 'audio', 'gif', 'reel', 'story_mention', etc.
   postId: text("post_id"), // For comments, reference to the post
   postPermalink: text("post_permalink"), // For comments, the URL to the post (e.g., https://www.instagram.com/p/ABC123/)
+  postCaption: text("post_caption"), // For comments, the caption/text of the original post
+  postThumbnailUrl: text("post_thumbnail_url"), // For comments, the thumbnail/image URL of the post
   parentCommentId: text("parent_comment_id"), // For reply comments, the ID of the parent comment
   parentCommentText: text("parent_comment_text"), // For reply comments, the text of the parent comment
   parentCommentUsername: text("parent_comment_username"), // For reply comments, the username of the parent comment author

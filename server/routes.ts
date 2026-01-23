@@ -2637,25 +2637,34 @@ export async function registerRoutes(
       // Log final result
       console.log(`[Profile Fetch] Resultado final para @${username}: ${senderAvatar ? 'foto encontrada' : 'sem foto'}`);
 
-      // Try to get the permalink of the post for direct linking to Instagram
+      // Try to get the post details (permalink, caption, thumbnail) for context
       let postPermalink: string | null = null;
+      let postCaption: string | null = null;
+      let postThumbnailUrl: string | null = null;
       if (mediaId && instagramUser.instagramAccessToken) {
         try {
-          console.log(`[COMMENT-WEBHOOK] Buscando permalink do post ${mediaId}...`);
+          console.log(`[COMMENT-WEBHOOK] Buscando detalhes do post ${mediaId}...`);
           const encToken = instagramUser.instagramAccessToken;
           const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
-          const permalinkUrl = `https://graph.instagram.com/v21.0/${mediaId}?fields=permalink&access_token=${encodeURIComponent(accessToken)}`;
-          const permalinkRes = await fetch(permalinkUrl);
-          const permalinkData = await permalinkRes.json() as any;
+          // Request permalink, caption, and thumbnail/media URL
+          const mediaUrl = `https://graph.instagram.com/v21.0/${mediaId}?fields=permalink,caption,thumbnail_url,media_url,media_type&access_token=${encodeURIComponent(accessToken)}`;
+          const mediaRes = await fetch(mediaUrl);
+          const mediaData = await mediaRes.json() as any;
           
-          if (permalinkRes.ok && permalinkData.permalink) {
-            postPermalink = permalinkData.permalink;
-            console.log(`[COMMENT-WEBHOOK] ✅ Permalink encontrado: ${postPermalink}`);
-          } else if (permalinkData?.error) {
-            console.log(`[COMMENT-WEBHOOK] ⚠️ Erro ao buscar permalink: ${permalinkData.error.message}`);
+          if (mediaRes.ok && mediaData) {
+            postPermalink = mediaData.permalink || null;
+            postCaption = mediaData.caption || null;
+            // Use thumbnail_url for videos, media_url for images
+            postThumbnailUrl = mediaData.thumbnail_url || mediaData.media_url || null;
+            console.log(`[COMMENT-WEBHOOK] ✅ Detalhes do post encontrados:`);
+            console.log(`    - Permalink: ${postPermalink}`);
+            console.log(`    - Legenda: ${postCaption?.substring(0, 50)}${(postCaption?.length || 0) > 50 ? '...' : ''}`);
+            console.log(`    - Thumbnail: ${postThumbnailUrl ? 'disponível' : 'não disponível'}`);
+          } else if (mediaData?.error) {
+            console.log(`[COMMENT-WEBHOOK] ⚠️ Erro ao buscar detalhes do post: ${mediaData.error.message}`);
           }
         } catch (e) {
-          console.log(`[COMMENT-WEBHOOK] ⚠️ Erro ao buscar permalink:`, e);
+          console.log(`[COMMENT-WEBHOOK] ⚠️ Erro ao buscar detalhes do post:`, e);
         }
       }
 
@@ -2706,6 +2715,8 @@ export async function registerRoutes(
         content: text,
         postId: mediaId || null,
         postPermalink: postPermalink,
+        postCaption: postCaption,
+        postThumbnailUrl: postThumbnailUrl,
         parentCommentId: parentCommentId,
         parentCommentText: parentCommentText,
         parentCommentUsername: parentCommentUsername,
