@@ -53,6 +53,7 @@ interface SettingsData {
   confidenceThreshold: number;
   systemPrompt: string;
   autoReplyEnabled: boolean;
+  aiTone?: "professional" | "friendly" | "casual";
 }
 
 export default function Settings() {
@@ -670,6 +671,89 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="ai" className="space-y-4">
+          {/* Status do Treinamento da IA */}
+          <Card className="border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                <CardTitle className="text-green-800 dark:text-green-300">Status do Treinamento da IA</CardTitle>
+              </div>
+              <CardDescription>
+                Resumo das configurações que a IA está utilizando para gerar respostas.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-background border">
+                  <Brain className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">Prompt do Sistema</p>
+                    <p className="text-xs text-muted-foreground">
+                      {localSettings.systemPrompt?.trim() 
+                        ? `${localSettings.systemPrompt.length} caracteres configurados`
+                        : "Não configurado"}
+                    </p>
+                  </div>
+                  {localSettings.systemPrompt?.trim() ? (
+                    <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0" />
+                  )}
+                </div>
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-background border">
+                  <Database className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">Base de Conhecimento</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(() => {
+                        const linksCompleted = knowledgeLinks.filter((l: any) => l.status === "completed").length;
+                        const filesCompleted = knowledgeFiles.filter((f: any) => f.status === "completed").length;
+                        if (linksCompleted === 0 && filesCompleted === 0) {
+                          return "Nenhum conteúdo processado";
+                        }
+                        const parts = [];
+                        if (linksCompleted > 0) parts.push(`${linksCompleted} link${linksCompleted > 1 ? 's' : ''}`);
+                        if (filesCompleted > 0) parts.push(`${filesCompleted} arquivo${filesCompleted > 1 ? 's' : ''}`);
+                        return parts.join(' + ') + ' processado' + (linksCompleted + filesCompleted > 1 ? 's' : '');
+                      })()}
+                    </p>
+                  </div>
+                  {knowledgeLinks.filter((l: any) => l.status === "completed").length > 0 || 
+                   knowledgeFiles.filter((f: any) => f.status === "completed").length > 0 ? (
+                    <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0" />
+                  )}
+                </div>
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-background border">
+                  <Bot className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">Tom da IA</p>
+                    <p className="text-xs text-muted-foreground">
+                      {localSettings.aiTone === "professional" && "Profissional"}
+                      {localSettings.aiTone === "friendly" && "Amigável"}
+                      {localSettings.aiTone === "casual" && "Casual"}
+                      {!localSettings.aiTone && "Padrão"}
+                    </p>
+                  </div>
+                  <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+                </div>
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-background border">
+                  <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">Modo de Operação</p>
+                    <p className="text-xs text-muted-foreground">
+                      {localSettings.operationMode === "manual" && "Manual (100% aprovação)"}
+                      {localSettings.operationMode === "semi_auto" && `Semi-Automático (≥${localSettings.confidenceThreshold}% auto)`}
+                      {localSettings.operationMode === "auto" && "Automático (todas respostas)"}
+                    </p>
+                  </div>
+                  <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>{t.settings.ai.systemPrompt}</CardTitle>
@@ -693,25 +777,6 @@ export default function Settings() {
               <p className="text-xs text-muted-foreground">
                 {t.settings.ai.systemPromptHelper}
               </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{t.settings.ai.autoLearning}</CardTitle>
-              <CardDescription>
-                {t.settings.ai.autoLearningDesc}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-sm text-muted-foreground space-y-2">
-                <p>
-                  {t.settings.ai.autoLearningInfo1}
-                </p>
-                <p>
-                  {t.settings.ai.autoLearningInfo2}
-                </p>
-              </div>
             </CardContent>
           </Card>
 
@@ -856,6 +921,25 @@ export default function Settings() {
                     ))}
                   </div>
                 )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{t.settings.ai.autoLearning}</CardTitle>
+              <CardDescription>
+                {t.settings.ai.autoLearningDesc}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-sm text-muted-foreground space-y-2">
+                <p>
+                  {t.settings.ai.autoLearningInfo1}
+                </p>
+                <p>
+                  {t.settings.ai.autoLearningInfo2}
+                </p>
               </div>
             </CardContent>
           </Card>
