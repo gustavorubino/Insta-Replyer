@@ -3958,9 +3958,27 @@ export async function registerRoutes(
         return res.status(400).json({ error: "objectPath is required" });
       }
 
+      // Normalize file type - extract from MIME type or file extension
+      let normalizedFileType = fileType.toLowerCase();
+      
+      // Handle MIME types like "application/pdf" or "text/plain"
+      if (normalizedFileType.includes("/")) {
+        if (normalizedFileType === "application/pdf") {
+          normalizedFileType = "pdf";
+        } else if (normalizedFileType === "text/plain") {
+          normalizedFileType = "txt";
+        } else {
+          // Try to extract extension from filename
+          const ext = fileName.split(".").pop()?.toLowerCase();
+          if (ext) {
+            normalizedFileType = ext;
+          }
+        }
+      }
+      
       // Validate file type
       const allowedTypes = ["pdf", "txt"];
-      if (!allowedTypes.includes(fileType.toLowerCase())) {
+      if (!allowedTypes.includes(normalizedFileType)) {
         return res.status(400).json({ error: "Invalid file type. Allowed: pdf, txt" });
       }
 
@@ -3968,7 +3986,7 @@ export async function registerRoutes(
       const file = await storage.createKnowledgeFile({
         userId,
         fileName,
-        fileType: fileType.toLowerCase(),
+        fileType: normalizedFileType,
         objectPath,
         status: "pending",
       });
