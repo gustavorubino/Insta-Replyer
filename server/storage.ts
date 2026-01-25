@@ -36,6 +36,7 @@ export interface IStorage {
   getMessagesByUsername(username: string): Promise<InstagramMessage[]>;
   createMessage(message: InsertInstagramMessage): Promise<InstagramMessage>;
   updateMessageStatus(id: number, status: string): Promise<void>;
+  updateMessage(id: number, updates: Partial<InsertInstagramMessage>): Promise<void>;
 
   getAiResponse(messageId: number): Promise<AiResponse | undefined>;
   createAiResponse(response: InsertAiResponse): Promise<AiResponse>;
@@ -335,6 +336,13 @@ export class DatabaseStorage implements IStorage {
     await db
       .update(instagramMessages)
       .set({ status, processedAt: new Date() })
+      .where(eq(instagramMessages.id, id));
+  }
+
+  async updateMessage(id: number, updates: Partial<InsertInstagramMessage>): Promise<void> {
+    await db
+      .update(instagramMessages)
+      .set(updates)
       .where(eq(instagramMessages.id, id));
   }
 

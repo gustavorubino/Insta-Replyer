@@ -1819,7 +1819,7 @@ export async function registerRoutes(
 
       // Fetch recent media (posts) to get comments
       try {
-        const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,comments_count,permalink&access_token=${accessToken}&limit=10`;
+        const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,comments_count,permalink,media_url,thumbnail_url,media_type&access_token=${accessToken}&limit=10`;
         console.log("Fetching media from:", mediaUrl.replace(accessToken, "TOKEN_HIDDEN"));
         const mediaResponse = await fetch(mediaUrl);
         const mediaData = await mediaResponse.json() as any;
@@ -1839,6 +1839,11 @@ export async function registerRoutes(
                   for (const comment of comments) {
                     try {
                       const existingMessage = await storage.getMessageByInstagramId(comment.id);
+
+                      const postCaption = post.caption || null;
+                      // Use thumbnail_url for videos, media_url for images
+                      const postThumbnailUrl = post.thumbnail_url || post.media_url || null;
+
                       if (!existingMessage) {
                         // Extract username from different possible fields
                         const username = comment.username || comment.from?.username || "instagram_user";
@@ -1855,6 +1860,8 @@ export async function registerRoutes(
                           content: comment.text,
                           postId: post.id,
                           postPermalink: post.permalink || null,
+                          postCaption,
+                          postThumbnailUrl,
                           status: "pending",
                         });
 
@@ -1877,6 +1884,17 @@ export async function registerRoutes(
                         }
 
                         results.comments++;
+                      } else {
+                        // If message exists but is missing post info, update it
+                        if ((!existingMessage.postCaption && postCaption) ||
+                            (!existingMessage.postThumbnailUrl && postThumbnailUrl)) {
+                          console.log(`Updating existing message ${existingMessage.id} with post details`);
+                          await storage.updateMessage(existingMessage.id, {
+                            postCaption: postCaption || existingMessage.postCaption,
+                            postThumbnailUrl: postThumbnailUrl || existingMessage.postThumbnailUrl,
+                            postPermalink: post.permalink || existingMessage.postPermalink
+                          });
+                        }
                       }
                     } catch (commentError: any) {
                       console.error("Error processing comment:", commentError);
