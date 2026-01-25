@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MessageCard } from "@/components/message-card";
 import { PostCommentGroup } from "@/components/post-comment-group";
@@ -25,6 +26,15 @@ interface PostGroup {
   postThumbnailUrl: string | null;
   postPermalink: string | null;
   comments: MessageWithResponse[];
+}
+
+interface DmConversationGroup {
+  senderUsername: string;
+  senderName: string;
+  senderAvatar: string | null;
+  messages: MessageWithResponse[];
+  lastMessage: MessageWithResponse;
+  messageCount: number;
 }
 
 interface QueueProps {
@@ -202,13 +212,47 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
     return matchesSearch && matchesType;
   });
 
-  const { postGroups, dmMessages, ungroupedComments } = useMemo(() => {
+  const { postGroups, dmMessages, dmConversations, ungroupedComments } = useMemo(() => {
     if (!filteredMessages) {
-      return { postGroups: [], dmMessages: [], ungroupedComments: [] };
+      return { postGroups: [], dmMessages: [], dmConversations: [], ungroupedComments: [] };
     }
 
     const dms = filteredMessages.filter((msg) => msg.type === "dm");
     const comments = filteredMessages.filter((msg) => msg.type === "comment");
+
+    const groupedDms = new Map<string, DmConversationGroup>();
+    dms.forEach((message) => {
+      const key = message.senderUsername || message.senderId || `unknown-${message.id}`;
+      if (!groupedDms.has(key)) {
+        groupedDms.set(key, {
+          senderUsername: message.senderUsername,
+          senderName: message.senderName,
+          senderAvatar: message.senderAvatar,
+          messages: [],
+          lastMessage: message,
+          messageCount: 0,
+        });
+      }
+      const group = groupedDms.get(key)!;
+      group.messages.push(message);
+      group.messageCount++;
+      if (new Date(message.createdAt) > new Date(group.lastMessage.createdAt)) {
+        group.lastMessage = message;
+      }
+    });
+
+    const dmGroups = Array.from(groupedDms.values());
+    dmGroups.sort(
+      (a, b) =>
+        new Date(b.lastMessage.createdAt).getTime() -
+        new Date(a.lastMessage.createdAt).getTime(),
+    );
+    dmGroups.forEach((group) => {
+      group.messages.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    });
     
     const groupedByPost = new Map<string, PostGroup>();
     const ungrouped: MessageWithResponse[] = [];
@@ -243,9 +287,19 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
     return {
       postGroups: Array.from(groupedByPost.values()),
       dmMessages: dms,
+      dmConversations: dmGroups,
       ungroupedComments: ungrouped,
     };
   }, [filteredMessages]);
+
+  const getInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -357,7 +411,9 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
                       <div>
                         <h2 className="text-base font-semibold flex items-center gap-2">
                           Mensagens Diretas
-                          <span className="text-sm font-normal text-muted-foreground">({dmMessages.length})</span>
+                          <span className="text-sm font-normal text-muted-foreground">
+                            ({dmMessages.length})
+                          </span>
                         </h2>
                         <p className="text-sm text-muted-foreground">
                           Mensagens privadas recebidas no Instagram Direct
@@ -365,13 +421,40 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
                       </div>
                     </div>
                   </div>
-                  <div className="space-y-3">
-                    {dmMessages.map((message) => (
-                      <MessageCard
-                        key={message.id}
-                        message={message}
-                        onView={handleViewMessage}
-                      />
+                  <div className="space-y-4">
+                    {dmConversations.map((conversation) => (
+                      <div
+                        key={conversation.senderUsername || conversation.senderName}
+                        className="space-y-3 rounded-lg border p-4"
+                        data-testid={`dm-group-${conversation.senderUsername || conversation.senderName}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-9 w-9 border">
+                            <AvatarImage src={conversation.senderAvatar || undefined} />
+                            <AvatarFallback>
+                              {getInitials(conversation.senderName)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="text-sm font-semibold">
+                              {conversation.senderName}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              @{conversation.senderUsername || "usuario"} · {conversation.messageCount}{" "}
+                              mensagem{conversation.messageCount === 1 ? "" : "s"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="space-y-3">
+                          {conversation.messages.map((message) => (
+                            <MessageCard
+                              key={message.id}
+                              message={message}
+                              onView={handleViewMessage}
+                            />
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
