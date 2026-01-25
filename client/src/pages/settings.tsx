@@ -202,6 +202,46 @@ export default function Settings() {
     },
   });
 
+  const syncMessagesMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/instagram/sync");
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/messages/pending"] });
+
+      const added = (data.synced?.messages || 0) + (data.synced?.comments || 0);
+
+      if (added > 0) {
+        toast({
+          title: "Sincronização concluída",
+          description: `${added} novas mensagens encontradas.`,
+        });
+      } else {
+        toast({
+          title: "Sincronização concluída",
+          description: "Nenhuma mensagem nova encontrada. Mensagens existentes foram atualizadas.",
+        });
+      }
+
+      if (data.errors && data.errors.length > 0) {
+        toast({
+          title: "Aviso",
+          description: "Alguns itens não puderam ser sincronizados.",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: () => {
+      toast({
+        title: t.common.error,
+        description: "Erro ao sincronizar mensagens.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const addLinkMutation = useMutation({
     mutationFn: async (url: string) => {
       await apiRequest("POST", "/api/knowledge/links", { url });
@@ -449,6 +489,17 @@ export default function Settings() {
                         title={t.settings.connection.refreshProfile}
                       >
                         <RefreshCw className={`h-4 w-4 ${refreshProfileMutation.isPending ? 'animate-spin' : ''}`} />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => syncMessagesMutation.mutate()}
+                        disabled={syncMessagesMutation.isPending}
+                        data-testid="button-sync-messages"
+                        title="Sincronizar mensagens"
+                      >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${syncMessagesMutation.isPending ? 'animate-spin' : ''}`} />
+                        Sincronizar
                       </Button>
                       <Button 
                         variant="outline" 
