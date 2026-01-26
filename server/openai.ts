@@ -36,6 +36,14 @@ export interface CommentContext {
   parentCommentUsername?: string | null;
 }
 
+// Conversation history entry for DMs
+export interface ConversationHistoryEntry {
+  senderName: string;
+  content: string;
+  response?: string | null;
+  timestamp: Date;
+}
+
 function isRateLimitError(error: unknown): boolean {
   const errorMsg = error instanceof Error ? error.message : String(error);
   return (
@@ -159,7 +167,8 @@ export async function generateAIResponse(
   messageType: "dm" | "comment",
   senderName: string,
   userId?: string,
-  commentContext?: CommentContext
+  commentContext?: CommentContext,
+  conversationHistory?: ConversationHistoryEntry[]
 ): Promise<GenerateResponseResult> {
   const systemPromptSetting = await storage.getSetting("systemPrompt");
   const systemPrompt = systemPromptSetting?.value || getDefaultSystemPrompt();
@@ -178,6 +187,36 @@ export async function generateAIResponse(
     } catch (err) {
       console.error("[OpenAI] Error loading knowledge context:", err);
     }
+  }
+
+  // Build conversation history section for DMs
+  let conversationHistorySection = "";
+  if (messageType === "dm" && conversationHistory && conversationHistory.length > 0) {
+    const historyLines = conversationHistory
+      .slice()
+      .reverse()
+      .map(entry => {
+        const lines = [`[${entry.senderName}]: ${entry.content}`];
+        if (entry.response) {
+          lines.push(`[Você]: ${entry.response}`);
+        }
+        return lines.join("\n");
+      })
+      .join("\n");
+
+    conversationHistorySection = `
+═══════════════════════════════════════════════════════
+HISTÓRICO DA CONVERSA (mensagens anteriores com esta pessoa):
+${historyLines}
+═══════════════════════════════════════════════════════
+
+IMPORTANTE: Analise o histórico acima para:
+1. Entender se é uma conversa em andamento ou nova
+2. Não repetir informações já fornecidas
+3. Manter consistência nas respostas
+4. Lembrar do contexto do que já foi discutido
+
+`;
   }
 
   // Build context section for comments
@@ -216,7 +255,7 @@ IMPORTANTE: Analise o contexto acima para entender:
 
 ${knowledgeContext ? `\n${knowledgeContext}\n` : ""}
 ${learningContext}
-${postContextSection}
+${postContextSection}${conversationHistorySection}
 Agora, gere uma resposta para a seguinte mensagem:
 
 Tipo: ${messageType === "dm" ? "Mensagem Direta (DM)" : "Comentário"}
