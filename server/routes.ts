@@ -2815,6 +2815,7 @@ export async function registerRoutes(
 
       // Try to fetch profile picture using multiple strategies
       let senderAvatar: string | undefined;
+      let senderFollowersCount: number | undefined;
       
       // Strategy 1: Look up cached avatar from previous messages by the same username
       // This is the most reliable method since we may already have the avatar from a DM
@@ -2866,18 +2867,25 @@ export async function registerRoutes(
       }
       
       // Strategy 3: Use Business Discovery API by username (works for public business/creator accounts)
-      if (!senderAvatar && username && username !== "instagram_user" && instagramUser.instagramAccessToken) {
+      // Also tries to fetch follower count
+      if ((!senderAvatar || !senderFollowersCount) && username && username !== "instagram_user" && instagramUser.instagramAccessToken) {
         try {
           console.log(`[Profile Fetch] Tentando Business Discovery para @${username}...`);
           const encToken = instagramUser.instagramAccessToken;
           const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
-          const discoveryUrl = `https://graph.instagram.com/v21.0/${instagramUser.instagramAccountId}?fields=business_discovery.username(${username}){profile_picture_url,name,username}&access_token=${encodeURIComponent(accessToken)}`;
+          const discoveryUrl = `https://graph.instagram.com/v21.0/${instagramUser.instagramAccountId}?fields=business_discovery.username(${username}){profile_picture_url,name,username,followers_count}&access_token=${encodeURIComponent(accessToken)}`;
           const discoveryRes = await fetch(discoveryUrl);
           const discoveryData = await discoveryRes.json();
           
-          if (discoveryRes.ok && discoveryData?.business_discovery?.profile_picture_url) {
-            senderAvatar = discoveryData.business_discovery.profile_picture_url;
-            console.log(`[Profile Fetch] SUCCESS via Business Discovery para @${username}`);
+          if (discoveryRes.ok && discoveryData?.business_discovery) {
+            if (discoveryData.business_discovery.profile_picture_url && !senderAvatar) {
+              senderAvatar = discoveryData.business_discovery.profile_picture_url;
+              console.log(`[Profile Fetch] SUCCESS via Business Discovery para @${username} (avatar)`);
+            }
+            if (discoveryData.business_discovery.followers_count !== undefined) {
+              senderFollowersCount = discoveryData.business_discovery.followers_count;
+              console.log(`[Profile Fetch] SUCCESS via Business Discovery para @${username} (followers: ${senderFollowersCount})`);
+            }
           } else if (discoveryData?.error) {
             console.log(`[Profile Fetch] Business Discovery falhou para @${username}: ${discoveryData.error.message}`);
           }
@@ -2975,6 +2983,7 @@ export async function registerRoutes(
         senderName: displayName,
         senderUsername: username,
         senderAvatar: senderAvatar,
+        senderFollowersCount: senderFollowersCount,
         senderId: fromUserId || null,
         content: text,
         postId: mediaId || null,
@@ -3076,7 +3085,7 @@ export async function registerRoutes(
   }
 
   // Helper function to fetch Instagram user info via Graph API
-  async function fetchInstagramUserInfo(senderId: string, accessToken: string, recipientId?: string): Promise<{ name: string; username: string; avatar?: string }> {
+  async function fetchInstagramUserInfo(senderId: string, accessToken: string, recipientId?: string): Promise<{ name: string; username: string; avatar?: string; followersCount?: number }> {
     try {
       console.log(`Fetching user info for sender ${senderId}, token length: ${accessToken.length}`);
       
@@ -3122,19 +3131,28 @@ export async function registerRoutes(
               if (participant?.username || participant?.name) {
                 let avatarUrl = participant.profile_pic;
                 
-                // Try Business Discovery API to get profile picture (works for Business/Creator accounts)
-                if (!avatarUrl && participant.username && recipientId) {
+                // Try Business Discovery API to get profile picture and followers (works for Business/Creator accounts)
+                let followersCount: number | undefined;
+
+                if (participant.username && recipientId) {
                   try {
                     console.log(`Trying Business Discovery API for @${participant.username}...`);
                     // Use Instagram Graph API endpoint (not Facebook) with the access token
-                    const discoveryUrl = `https://graph.instagram.com/v21.0/${recipientId}?fields=business_discovery.username(${participant.username}){profile_pic,name,username}&access_token=${accessToken}`;
+                    const discoveryUrl = `https://graph.instagram.com/v21.0/${recipientId}?fields=business_discovery.username(${participant.username}){profile_pic,name,username,followers_count}&access_token=${accessToken}`;
                     console.log(`Business Discovery URL (truncated token): ${discoveryUrl.replace(accessToken, accessToken.slice(0, 20) + '...')}`);
                     const discoveryRes = await fetch(discoveryUrl);
                     const discoveryData = await discoveryRes.json();
                     console.log(`Business Discovery response:`, JSON.stringify(discoveryData));
-                    if (discoveryRes.ok && discoveryData?.business_discovery?.profile_pic) {
-                      avatarUrl = discoveryData.business_discovery.profile_pic;
-                      console.log(`Business Discovery SUCCESS - got profile picture!`);
+
+                    if (discoveryRes.ok && discoveryData?.business_discovery) {
+                      if (discoveryData.business_discovery.profile_pic && !avatarUrl) {
+                        avatarUrl = discoveryData.business_discovery.profile_pic;
+                        console.log(`Business Discovery SUCCESS - got profile picture!`);
+                      }
+                      if (discoveryData.business_discovery.followers_count !== undefined) {
+                        followersCount = discoveryData.business_discovery.followers_count;
+                        console.log(`Business Discovery SUCCESS - got followers count: ${followersCount}`);
+                      }
                     } else if (discoveryData?.error) {
                       console.log(`Business Discovery failed:`, discoveryData.error.message);
                     }
@@ -3147,6 +3165,7 @@ export async function registerRoutes(
                   name: participant.name || participant.username,
                   username: participant.username || senderId,
                   avatar: avatarUrl || undefined,
+                  followersCount,
                 };
               }
             }
@@ -3576,7 +3595,10 @@ export async function registerRoutes(
         if (!senderAvatar && userInfo.avatar) {
           senderAvatar = userInfo.avatar;
         }
-        console.log(`Resolved sender info: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}`);
+        // Use followers count if available
+        let senderFollowersCount = userInfo.followersCount;
+
+        console.log(`Resolved sender info: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}, followers: ${senderFollowersCount || 'N/A'}`);
         
         // OPTIMIZATION: If we got a valid username from API, try to match with registered users
         // This helps when the senderId differs from stored IDs but username matches
@@ -3680,6 +3702,7 @@ export async function registerRoutes(
         senderName: senderName,
         senderUsername: senderUsername,
         senderAvatar: senderAvatar || null,
+        senderFollowersCount: senderFollowersCount,
         senderId: senderId, // Save IGSID for replying
         content: text || null,
         mediaUrl: mediaUrl,
