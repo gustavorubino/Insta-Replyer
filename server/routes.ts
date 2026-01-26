@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { generateAIResponse, regenerateResponse } from "./openai";
+import { generateAIResponse, regenerateResponse, type ConversationHistoryEntry } from "./openai";
 import { getOpenAIConfig } from "./utils/openai-config";
 import { createMessageApiSchema } from "@shared/schema";
 import { z } from "zod";
@@ -1069,12 +1069,27 @@ export async function registerRoutes(
         parentCommentUsername: message.parentCommentUsername,
       } : undefined;
       
+      // Fetch conversation history for DMs
+      let conversationHistory: ConversationHistoryEntry[] | undefined;
+      if (message.type === "dm" && message.senderId) {
+        const historyMessages = await storage.getConversationHistory(message.senderId, userId, 10);
+        conversationHistory = historyMessages
+          .filter(m => m.id !== message.id)
+          .map(m => ({
+            senderName: m.senderName,
+            content: m.content || "",
+            response: m.aiResponse?.finalResponse || m.aiResponse?.suggestedResponse,
+            timestamp: m.createdAt,
+          }));
+      }
+      
       const aiResult = await generateAIResponse(
         getMessageContentForAI(message),
         message.type as "dm" | "comment",
         message.senderName,
         userId,
-        commentContext
+        commentContext,
+        conversationHistory
       );
 
       const aiResponse = await storage.createAiResponse({
@@ -3618,8 +3633,19 @@ export async function registerRoutes(
         mediaType: mediaType,
       });
 
-      // Generate AI response
-      const aiResult = await generateAIResponse(contentForAI, "dm", senderName, instagramUser.id);
+      // Fetch conversation history for context
+      const historyMessages = await storage.getConversationHistory(senderId, instagramUser.id, 10);
+      const conversationHistory: ConversationHistoryEntry[] = historyMessages
+        .filter(m => m.id !== newMessage.id) // Exclude the current message
+        .map(m => ({
+          senderName: m.senderName,
+          content: m.content || "",
+          response: m.aiResponse?.finalResponse || m.aiResponse?.suggestedResponse,
+          timestamp: m.createdAt,
+        }));
+
+      // Generate AI response with conversation history
+      const aiResult = await generateAIResponse(contentForAI, "dm", senderName, instagramUser.id, undefined, conversationHistory);
       await storage.createAiResponse({
         messageId: newMessage.id,
         suggestedResponse: aiResult.suggestedResponse,
