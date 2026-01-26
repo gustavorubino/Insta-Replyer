@@ -1061,12 +1061,20 @@ export async function registerRoutes(
       // Always use the authenticated user's ID - prevent spoofing
       const message = await storage.createMessage({ ...validatedData, userId });
 
-      // Generate AI response
+      // Generate AI response with context for comments
+      const commentContext = message.type === "comment" ? {
+        postCaption: message.postCaption,
+        postPermalink: message.postPermalink,
+        parentCommentText: message.parentCommentText,
+        parentCommentUsername: message.parentCommentUsername,
+      } : undefined;
+      
       const aiResult = await generateAIResponse(
         getMessageContentForAI(message),
         message.type as "dm" | "comment",
         message.senderName,
-        userId
+        userId,
+        commentContext
       );
 
       const aiResponse = await storage.createAiResponse({
@@ -1870,7 +1878,11 @@ export async function registerRoutes(
                             comment.text,
                             "comment",
                             comment.username || "Unknown",
-                            userId
+                            userId,
+                            {
+                              postCaption,
+                              postPermalink: post.permalink || null,
+                            }
                           );
 
                           await storage.createAiResponse({
@@ -2901,9 +2913,15 @@ export async function registerRoutes(
       console.log("  - User ID:", instagramUser.id);
       console.log("  - Type:", "comment");
 
-      // Generate AI response
+      // Generate AI response with post context
       console.log("[COMMENT-WEBHOOK] Gerando resposta IA...");
-      const aiResult = await generateAIResponse(text, "comment", displayName, instagramUser.id);
+      console.log("[COMMENT-WEBHOOK] Contexto da publicação:", { postCaption: postCaption?.substring(0, 100), parentCommentText, parentCommentUsername });
+      const aiResult = await generateAIResponse(text, "comment", displayName, instagramUser.id, {
+        postCaption,
+        postPermalink,
+        parentCommentText,
+        parentCommentUsername,
+      });
       await storage.createAiResponse({
         messageId: newMessage.id,
         suggestedResponse: aiResult.suggestedResponse,
