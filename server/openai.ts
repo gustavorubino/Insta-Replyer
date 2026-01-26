@@ -48,6 +48,9 @@ export interface CommentContext {
   postCaption?: string | null;
   postPermalink?: string | null;
   postThumbnailUrl?: string | null; // Image/video thumbnail for vision analysis
+  postVideoUrl?: string | null; // Video URL for audio transcription
+  postMediaType?: string | null; // 'image', 'video', 'carousel'
+  postVideoTranscription?: string | null; // Cached transcription of video audio
   parentCommentText?: string | null;
   parentCommentUsername?: string | null;
 }
@@ -235,10 +238,12 @@ IMPORTANTE: Analise o histórico acima para:
 `;
   }
 
-  // Build context section for comments (with vision support)
+  // Build context section for comments (with vision and transcription support)
   let postContextSection = "";
   let hasPostImage = false;
+  let hasTranscription = false;
   const postImageUrl = commentContext?.postThumbnailUrl;
+  const postTranscription = commentContext?.postVideoTranscription;
   
   if (messageType === "comment" && commentContext) {
     const parts: string[] = [];
@@ -249,17 +254,38 @@ IMPORTANTE: Analise o histórico acima para:
       console.log(`[OpenAI] Vision enabled - will analyze post image: ${postImageUrl.substring(0, 100)}...`);
     }
     
+    if (postTranscription) {
+      hasTranscription = true;
+      parts.push(`\nTRANSCRIÇÃO DO ÁUDIO DO VÍDEO:`);
+      parts.push(`"${postTranscription}"`);
+      console.log(`[OpenAI] Video transcription included, length: ${postTranscription.length} chars`);
+    }
+    
     if (commentContext.postCaption) {
-      parts.push(`LEGENDA DA PUBLICAÇÃO: "${commentContext.postCaption}"`);
+      parts.push(`\nLEGENDA DA PUBLICAÇÃO: "${commentContext.postCaption}"`);
     }
     
     if (commentContext.parentCommentText && commentContext.parentCommentUsername) {
-      parts.push(`COMENTÁRIO PAI (ao qual esta pessoa está respondendo):`);
+      parts.push(`\nCOMENTÁRIO PAI (ao qual esta pessoa está respondendo):`);
       parts.push(`  - Autor: @${commentContext.parentCommentUsername}`);
       parts.push(`  - Texto: "${commentContext.parentCommentText}"`);
     }
     
     if (parts.length > 0) {
+      const contextPoints: string[] = [];
+      if (hasPostImage) {
+        contextPoints.push("Observe a IMAGEM da publicação para entender o contexto visual completo");
+      }
+      if (hasTranscription) {
+        contextPoints.push("Leia a TRANSCRIÇÃO do áudio do vídeo para entender o que foi falado");
+      }
+      contextPoints.push("Se é uma resposta a outro comentário, entenda o contexto da conversa");
+      contextPoints.push("Identifique se a pessoa está sendo sarcástica, irônica ou genuína");
+      contextPoints.push("Considere o tom da mensagem antes de responder");
+      if (hasPostImage) {
+        contextPoints.push("Se for um meme ou imagem com texto, considere o humor/ironia visual");
+      }
+      
       postContextSection = `
 ═══════════════════════════════════════════════════════
 CONTEXTO DA PUBLICAÇÃO (LEIA COM ATENÇÃO):
@@ -267,11 +293,7 @@ ${parts.join("\n")}
 ═══════════════════════════════════════════════════════
 
 IMPORTANTE: Analise o contexto acima para entender:
-1. ${hasPostImage ? "Observe a IMAGEM da publicação para entender o contexto visual completo" : "Sobre o que é a publicação (leia a legenda)"}
-2. Se é uma resposta a outro comentário, entenda o contexto da conversa
-3. Identifique se a pessoa está sendo sarcástica, irônica ou genuína
-4. Considere o tom da mensagem antes de responder
-${hasPostImage ? "5. Se for um meme ou imagem com texto, considere o humor/ironia visual" : ""}
+${contextPoints.map((p, i) => `${i + 1}. ${p}`).join("\n")}
 
 `;
     }
@@ -466,7 +488,9 @@ IMPORTANTE: Analise o histórico acima para:
   // Build context section for comments (with vision support for regenerate)
   let postContextSection = "";
   let hasPostImageRegen = false;
+  let hasTranscriptionRegen = false;
   const postImageUrlRegen = commentContext?.postThumbnailUrl;
+  const postTranscriptionRegen = commentContext?.postVideoTranscription;
   
   if (messageType === "comment" && commentContext) {
     const parts: string[] = [];
@@ -476,17 +500,37 @@ IMPORTANTE: Analise o histórico acima para:
       parts.push(`IMAGEM DA PUBLICAÇÃO: [Anexada abaixo - analise visualmente o conteúdo]`);
     }
     
+    if (postTranscriptionRegen) {
+      hasTranscriptionRegen = true;
+      parts.push(`\nTRANSCRIÇÃO DO ÁUDIO DO VÍDEO:`);
+      parts.push(`"${postTranscriptionRegen}"`);
+    }
+    
     if (commentContext.postCaption) {
-      parts.push(`LEGENDA DA PUBLICAÇÃO: "${commentContext.postCaption}"`);
+      parts.push(`\nLEGENDA DA PUBLICAÇÃO: "${commentContext.postCaption}"`);
     }
     
     if (commentContext.parentCommentText && commentContext.parentCommentUsername) {
-      parts.push(`COMENTÁRIO PAI (ao qual esta pessoa está respondendo):`);
+      parts.push(`\nCOMENTÁRIO PAI (ao qual esta pessoa está respondendo):`);
       parts.push(`  - Autor: @${commentContext.parentCommentUsername}`);
       parts.push(`  - Texto: "${commentContext.parentCommentText}"`);
     }
     
     if (parts.length > 0) {
+      const contextPointsRegen: string[] = [];
+      if (hasPostImageRegen) {
+        contextPointsRegen.push("Observe a IMAGEM da publicação para entender o contexto visual");
+      }
+      if (hasTranscriptionRegen) {
+        contextPointsRegen.push("Leia a TRANSCRIÇÃO do áudio do vídeo para entender o que foi falado");
+      }
+      contextPointsRegen.push("Se é uma resposta a outro comentário, entenda o contexto da conversa");
+      contextPointsRegen.push("Identifique se a pessoa está sendo sarcástica, irônica ou genuína");
+      contextPointsRegen.push("Considere o tom da mensagem antes de responder");
+      if (hasPostImageRegen) {
+        contextPointsRegen.push("Se for um meme ou imagem com texto, considere o humor/ironia visual");
+      }
+      
       postContextSection = `
 ═══════════════════════════════════════════════════════
 CONTEXTO DA PUBLICAÇÃO (LEIA COM ATENÇÃO):
@@ -494,11 +538,7 @@ ${parts.join("\n")}
 ═══════════════════════════════════════════════════════
 
 IMPORTANTE: Analise o contexto acima para entender:
-1. ${hasPostImageRegen ? "Observe a IMAGEM da publicação para entender o contexto visual" : "Sobre o que é a publicação (leia a legenda)"}
-2. Se é uma resposta a outro comentário, entenda o contexto da conversa
-3. Identifique se a pessoa está sendo sarcástica, irônica ou genuína
-4. Considere o tom da mensagem antes de responder
-${hasPostImageRegen ? "5. Se for um meme ou imagem com texto, considere o humor/ironia visual" : ""}
+${contextPointsRegen.map((p, i) => `${i + 1}. ${p}`).join("\n")}
 
 `;
     }

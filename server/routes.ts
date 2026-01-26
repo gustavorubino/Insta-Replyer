@@ -1103,6 +1103,9 @@ export async function registerRoutes(
         postCaption: message.postCaption,
         postPermalink: message.postPermalink,
         postThumbnailUrl: message.postThumbnailUrl, // Include for AI vision analysis
+        postVideoUrl: message.postVideoUrl, // Include for audio transcription
+        postMediaType: message.postMediaType, // 'image', 'video', 'carousel'
+        postVideoTranscription: message.postVideoTranscription, // Cached transcription
         parentCommentText: message.parentCommentText,
         parentCommentUsername: message.parentCommentUsername,
       } : undefined;
@@ -1314,11 +1317,14 @@ export async function registerRoutes(
 
       const previousResponse = message.aiResponse?.suggestedResponse || "";
 
-      // Build context for comments (including image for vision)
+      // Build context for comments (including image for vision and transcription)
       const commentContext = message.type === "comment" ? {
         postCaption: message.postCaption,
         postPermalink: message.postPermalink,
         postThumbnailUrl: message.postThumbnailUrl, // Include for AI vision analysis
+        postVideoUrl: message.postVideoUrl, // Include for audio transcription
+        postMediaType: message.postMediaType, // 'image', 'video', 'carousel'
+        postVideoTranscription: message.postVideoTranscription, // Cached transcription
         parentCommentText: message.parentCommentText,
         parentCommentUsername: message.parentCommentUsername,
       } : undefined;
@@ -2912,10 +2918,12 @@ export async function registerRoutes(
       // Log final result
       console.log(`[Profile Fetch] Resultado final para @${username}: ${senderAvatar ? 'foto encontrada' : 'sem foto'}`);
 
-      // Try to get the post details (permalink, caption, thumbnail) for context
+      // Try to get the post details (permalink, caption, thumbnail, video) for context
       let postPermalink: string | null = null;
       let postCaption: string | null = null;
       let postThumbnailUrl: string | null = null;
+      let postVideoUrl: string | null = null;
+      let postMediaType: string | null = null;
       if (mediaId && instagramUser.instagramAccessToken) {
         try {
           console.log(`[COMMENT-WEBHOOK] Buscando detalhes do post ${mediaId}...`);
@@ -2929,12 +2937,22 @@ export async function registerRoutes(
           if (mediaRes.ok && mediaData) {
             postPermalink = mediaData.permalink || null;
             postCaption = mediaData.caption || null;
+            postMediaType = mediaData.media_type?.toLowerCase() || null;
+            
             // Use thumbnail_url for videos, media_url for images
             postThumbnailUrl = mediaData.thumbnail_url || mediaData.media_url || null;
+            
+            // For videos, also store the video URL for transcription
+            if (postMediaType === 'video' && mediaData.media_url) {
+              postVideoUrl = mediaData.media_url;
+              console.log(`[COMMENT-WEBHOOK] 🎬 Post é um VÍDEO - URL disponível para transcrição`);
+            }
+            
             console.log(`[COMMENT-WEBHOOK] ✅ Detalhes do post encontrados:`);
             console.log(`    - Permalink: ${postPermalink}`);
             console.log(`    - Legenda: ${postCaption?.substring(0, 50)}${(postCaption?.length || 0) > 50 ? '...' : ''}`);
             console.log(`    - Thumbnail: ${postThumbnailUrl ? 'disponível' : 'não disponível'}`);
+            console.log(`    - Tipo: ${postMediaType || 'desconhecido'}`);
           } else if (mediaData?.error) {
             console.log(`[COMMENT-WEBHOOK] ⚠️ Erro ao buscar detalhes do post: ${mediaData.error.message}`);
           }
@@ -2993,6 +3011,8 @@ export async function registerRoutes(
         postPermalink: postPermalink,
         postCaption: postCaption,
         postThumbnailUrl: postThumbnailUrl,
+        postVideoUrl: postVideoUrl,
+        postMediaType: postMediaType,
         parentCommentId: parentCommentId,
         parentCommentText: parentCommentText,
         parentCommentUsername: parentCommentUsername,
@@ -3002,13 +3022,40 @@ export async function registerRoutes(
       console.log("  - User ID:", instagramUser.id);
       console.log("  - Type:", "comment");
 
-      // Generate AI response with post context (including image for vision)
+      // Transcribe video audio if available
+      let postVideoTranscription: string | null = null;
+      if (postVideoUrl && postMediaType === 'video') {
+        console.log("[COMMENT-WEBHOOK] 🎤 Iniciando transcrição do áudio do vídeo...");
+        try {
+          const { getOrCreateTranscription } = await import("./transcription");
+          postVideoTranscription = await getOrCreateTranscription(newMessage.id, postVideoUrl, null);
+          if (postVideoTranscription) {
+            console.log(`[COMMENT-WEBHOOK] ✅ Transcrição concluída: ${postVideoTranscription.substring(0, 100)}...`);
+          } else {
+            console.log("[COMMENT-WEBHOOK] ⚠️ Não foi possível transcrever o vídeo (pode não ter áudio)");
+          }
+        } catch (transcriptionError) {
+          console.error("[COMMENT-WEBHOOK] ❌ Erro na transcrição:", transcriptionError);
+        }
+      }
+
+      // Generate AI response with post context (including image for vision and transcription)
       console.log("[COMMENT-WEBHOOK] Gerando resposta IA...");
-      console.log("[COMMENT-WEBHOOK] Contexto da publicação:", { postCaption: postCaption?.substring(0, 100), postThumbnailUrl: postThumbnailUrl?.substring(0, 50), parentCommentText, parentCommentUsername });
+      console.log("[COMMENT-WEBHOOK] Contexto da publicação:", { 
+        postCaption: postCaption?.substring(0, 100), 
+        postThumbnailUrl: postThumbnailUrl?.substring(0, 50), 
+        postMediaType,
+        hasTranscription: !!postVideoTranscription,
+        parentCommentText, 
+        parentCommentUsername 
+      });
       const aiResult = await generateAIResponse(text, "comment", displayName, instagramUser.id, {
         postCaption,
         postPermalink,
         postThumbnailUrl, // Include image URL for AI vision analysis
+        postVideoUrl,
+        postMediaType,
+        postVideoTranscription, // Include video transcription for audio context
         parentCommentText,
         parentCommentUsername,
       });
