@@ -34,6 +34,7 @@ export interface IStorage {
   getMessage(id: number): Promise<MessageWithResponse | undefined>;
   getMessageByInstagramId(instagramId: string): Promise<InstagramMessage | undefined>;
   getMessagesByUsername(username: string): Promise<InstagramMessage[]>;
+  getConversationHistory(senderId: string, userId: string, limit?: number): Promise<MessageWithResponse[]>;
   createMessage(message: InsertInstagramMessage): Promise<InstagramMessage>;
   updateMessageStatus(id: number, status: string): Promise<void>;
   updateMessage(id: number, updates: Partial<InsertInstagramMessage>): Promise<void>;
@@ -322,6 +323,30 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(instagramMessages.createdAt))
       .limit(10);
     return messages;
+  }
+
+  async getConversationHistory(senderId: string, userId: string, limit: number = 10): Promise<MessageWithResponse[]> {
+    const messages = await db
+      .select({
+        message: instagramMessages,
+        aiResponse: aiResponses,
+      })
+      .from(instagramMessages)
+      .leftJoin(aiResponses, eq(instagramMessages.id, aiResponses.messageId))
+      .where(
+        and(
+          eq(instagramMessages.senderId, senderId),
+          eq(instagramMessages.userId, userId),
+          eq(instagramMessages.type, "dm")
+        )
+      )
+      .orderBy(desc(instagramMessages.createdAt))
+      .limit(limit);
+
+    return messages.map((row) => ({
+      ...row.message,
+      aiResponse: row.aiResponse || undefined,
+    }));
   }
 
   async createMessage(message: InsertInstagramMessage): Promise<InstagramMessage> {
