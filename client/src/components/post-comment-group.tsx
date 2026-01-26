@@ -109,7 +109,7 @@ export function PostCommentGroup({
                   <MessageCircle className="h-3 w-3 mr-1" />
                   {comments.length} {comments.length === 1 ? 'comentário' : 'comentários'}
                 </Badge>
-                {postPermalink && (
+                {postPermalink && (postPermalink.includes("/p/") || postPermalink.includes("/reel/") || postPermalink.includes("/tv/")) && (
                   <a
                     href={postPermalink}
                     target="_blank"

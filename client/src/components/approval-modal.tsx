@@ -174,7 +174,7 @@ export function ApprovalModal({
                 )}
                 {message.type === "dm" ? "Mensagem Direta" : "Comentário no Post"}
               </h3>
-              {message.type === "comment" && message.postPermalink && (
+              {message.type === "comment" && message.postPermalink && (message.postPermalink.includes("/p/") || message.postPermalink.includes("/reel/") || message.postPermalink.includes("/tv/")) && (
                 <a
                   href={message.postPermalink}
                   target="_blank"
@@ -317,6 +317,8 @@ export function ApprovalModal({
                   placeholder={hasAIError ? "Escreva sua resposta aqui..." : "Resposta sugerida pela IA..."}
                   className="h-full min-h-[200px] resize-none"
                   disabled={!isEditing && !isLoading}
+                  spellCheck={true}
+                  lang="pt-BR"
                   data-testid="textarea-response"
                 />
                 {wasEdited && (
