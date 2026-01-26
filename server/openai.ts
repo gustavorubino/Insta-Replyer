@@ -332,7 +332,8 @@ export async function regenerateResponse(
   messageType: "dm" | "comment",
   senderName: string,
   previousSuggestion: string,
-  userId?: string
+  userId?: string,
+  commentContext?: CommentContext
 ): Promise<GenerateResponseResult> {
   const systemPromptSetting = await storage.getSetting("systemPrompt");
   const systemPrompt = systemPromptSetting?.value || getDefaultSystemPrompt();
@@ -347,9 +348,41 @@ export async function regenerateResponse(
     }
   }
 
+  // Build context section for comments
+  let postContextSection = "";
+  if (messageType === "comment" && commentContext) {
+    const parts: string[] = [];
+    
+    if (commentContext.postCaption) {
+      parts.push(`LEGENDA DA PUBLICAÇÃO: "${commentContext.postCaption}"`);
+    }
+    
+    if (commentContext.parentCommentText && commentContext.parentCommentUsername) {
+      parts.push(`COMENTÁRIO PAI (ao qual esta pessoa está respondendo):`);
+      parts.push(`  - Autor: @${commentContext.parentCommentUsername}`);
+      parts.push(`  - Texto: "${commentContext.parentCommentText}"`);
+    }
+    
+    if (parts.length > 0) {
+      postContextSection = `
+═══════════════════════════════════════════════════════
+CONTEXTO DA PUBLICAÇÃO (LEIA COM ATENÇÃO):
+${parts.join("\n")}
+═══════════════════════════════════════════════════════
+
+IMPORTANTE: Analise o contexto acima para entender:
+1. Sobre o que é a publicação (leia a legenda)
+2. Se é uma resposta a outro comentário, entenda o contexto da conversa
+3. Identifique se a pessoa está sendo sarcástica, irônica ou genuína
+4. Considere o tom da mensagem antes de responder
+
+`;
+    }
+  }
+
   const prompt = `${systemPrompt}
 ${knowledgeContext ? `\n${knowledgeContext}\n` : ""}
-
+${postContextSection}
 A resposta anterior foi rejeitada ou o usuário pediu uma nova sugestão.
 
 Resposta anterior (que não foi aprovada): "${previousSuggestion}"

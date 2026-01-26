@@ -1260,12 +1260,21 @@ export async function registerRoutes(
 
       const previousResponse = message.aiResponse?.suggestedResponse || "";
 
+      // Build context for comments
+      const commentContext = message.type === "comment" ? {
+        postCaption: message.postCaption,
+        postPermalink: message.postPermalink,
+        parentCommentText: message.parentCommentText,
+        parentCommentUsername: message.parentCommentUsername,
+      } : undefined;
+
       const aiResult = await regenerateResponse(
         getMessageContentForAI(message),
         message.type as "dm" | "comment",
         message.senderName,
         previousResponse,
-        userId
+        userId,
+        commentContext
       );
 
       // Check if AI generation failed
