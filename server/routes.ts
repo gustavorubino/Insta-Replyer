@@ -1857,6 +1857,7 @@ export async function registerRoutes(
                           type: "comment",
                           senderName: displayName,
                           senderUsername: username,
+                          senderAvatar: comment.from?.profile_picture_url,
                           content: comment.text,
                           postId: post.id,
                           postPermalink: post.permalink || null,
@@ -1904,7 +1905,7 @@ export async function registerRoutes(
                 };
 
                 // Fetch comments with pagination support - include 'from' field for user info
-                let commentsUrl: string | null = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from&access_token=${accessToken}&limit=50`;
+                let commentsUrl: string | null = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from{id,username,name,profile_picture_url}&access_token=${accessToken}&limit=50`;
                 let pageCount = 0;
                 const maxPages = 3; // Limit to 3 pages per post to avoid timeout
                 
@@ -2685,8 +2686,8 @@ export async function registerRoutes(
       console.log("  - Instagram Username:", instagramUser.instagramUsername);
       console.log("  - isAdmin:", instagramUser.isAdmin);
 
-      const username = fromUser?.username || "instagram_user";
-      const displayName = fromUser?.name || fromUser?.username || "Usuário do Instagram";
+      let username = fromUser?.username || "instagram_user";
+      let displayName = fromUser?.name || fromUser?.username || "Usuário do Instagram";
 
       // Ignore comments from the account owner (these are our own replies)
       const fromUserId = fromUser?.id;
@@ -2744,31 +2745,41 @@ export async function registerRoutes(
       }
       
       // Strategy 2: Try direct IGSID lookup (if fromUserId is available)
-      if (!senderAvatar && fromUserId && instagramUser.instagramAccessToken) {
+      if (fromUserId && instagramUser.instagramAccessToken) {
         try {
           console.log(`[Profile Fetch] Tentando busca direta por IGSID ${fromUserId}...`);
           const encToken = instagramUser.instagramAccessToken;
           const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
           
           // Try Instagram Graph API direct lookup
-          const directUrl = `https://graph.instagram.com/v21.0/${fromUserId}?fields=profile_pic,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`;
+          const directUrl = `https://graph.instagram.com/v21.0/${fromUserId}?fields=profile_pic,profile_picture_url,name,username&access_token=${encodeURIComponent(accessToken)}`;
           const directRes = await fetch(directUrl);
           const directData = await directRes.json() as any;
           
-          if (directRes.ok && (directData.profile_pic || directData.profile_picture_url)) {
-            senderAvatar = directData.profile_pic || directData.profile_picture_url;
-            console.log(`[Profile Fetch] SUCCESS via IGSID direto para ${fromUserId}`);
+          if (directRes.ok && !directData.error) {
+            if (directData.profile_pic || directData.profile_picture_url) {
+              senderAvatar = directData.profile_pic || directData.profile_picture_url;
+            }
+            if (directData.name) {
+              displayName = directData.name;
+            }
+            if (directData.username) {
+              username = directData.username;
+            }
+            console.log(`[Profile Fetch] SUCCESS via IGSID direto para ${fromUserId}. Name: ${displayName}`);
           } else if (directData?.error) {
             console.log(`[Profile Fetch] IGSID direto falhou: ${directData.error.message}`);
             
             // Fallback: Try Facebook Graph API
-            const fbUrl = `https://graph.facebook.com/v21.0/${fromUserId}?fields=profile_pic&access_token=${encodeURIComponent(accessToken)}`;
+            const fbUrl = `https://graph.facebook.com/v21.0/${fromUserId}?fields=profile_pic,name,username&access_token=${encodeURIComponent(accessToken)}`;
             const fbRes = await fetch(fbUrl);
             const fbData = await fbRes.json() as any;
             
-            if (fbRes.ok && fbData.profile_pic) {
-              senderAvatar = fbData.profile_pic;
-              console.log(`[Profile Fetch] SUCCESS via Facebook Graph API para ${fromUserId}`);
+            if (fbRes.ok && !fbData.error) {
+              if (fbData.profile_pic) senderAvatar = fbData.profile_pic;
+              if (fbData.name) displayName = fbData.name;
+              if (fbData.username) username = fbData.username;
+              console.log(`[Profile Fetch] SUCCESS via Facebook Graph API para ${fromUserId}. Name: ${displayName}`);
             }
           }
         } catch (e) {
@@ -2777,7 +2788,7 @@ export async function registerRoutes(
       }
       
       // Strategy 3: Use Business Discovery API by username (works for public business/creator accounts)
-      if (!senderAvatar && username && username !== "instagram_user" && instagramUser.instagramAccessToken) {
+      if ((!senderAvatar || displayName === "Usuário do Instagram") && username && username !== "instagram_user" && instagramUser.instagramAccessToken) {
         try {
           console.log(`[Profile Fetch] Tentando Business Discovery para @${username}...`);
           const encToken = instagramUser.instagramAccessToken;
@@ -2786,9 +2797,11 @@ export async function registerRoutes(
           const discoveryRes = await fetch(discoveryUrl);
           const discoveryData = await discoveryRes.json();
           
-          if (discoveryRes.ok && discoveryData?.business_discovery?.profile_picture_url) {
-            senderAvatar = discoveryData.business_discovery.profile_picture_url;
-            console.log(`[Profile Fetch] SUCCESS via Business Discovery para @${username}`);
+          if (discoveryRes.ok && discoveryData?.business_discovery) {
+            const bd = discoveryData.business_discovery;
+            if (bd.profile_picture_url) senderAvatar = bd.profile_picture_url;
+            if (bd.name) displayName = bd.name;
+            console.log(`[Profile Fetch] SUCCESS via Business Discovery para @${username}. Name: ${displayName}`);
           } else if (discoveryData?.error) {
             console.log(`[Profile Fetch] Business Discovery falhou para @${username}: ${discoveryData.error.message}`);
           }
