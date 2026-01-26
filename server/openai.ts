@@ -1,10 +1,25 @@
 import { storage } from "./storage";
 import { getOpenAIConfig } from "./utils/openai-config";
 
-// Types for OpenAI API
+// Types for OpenAI API - supports both text and vision
+type TextContent = {
+  type: "text";
+  text: string;
+};
+
+type ImageContent = {
+  type: "image_url";
+  image_url: {
+    url: string;
+    detail?: "low" | "high" | "auto";
+  };
+};
+
+type MessageContent = string | (TextContent | ImageContent)[];
+
 type ChatCompletionMessageParam = {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: MessageContent;
 };
 
 interface OpenAIResponse {
@@ -32,6 +47,7 @@ interface GenerateResponseResult {
 export interface CommentContext {
   postCaption?: string | null;
   postPermalink?: string | null;
+  postThumbnailUrl?: string | null; // Image/video thumbnail for vision analysis
   parentCommentText?: string | null;
   parentCommentUsername?: string | null;
 }
@@ -219,10 +235,19 @@ IMPORTANTE: Analise o histórico acima para:
 `;
   }
 
-  // Build context section for comments
+  // Build context section for comments (with vision support)
   let postContextSection = "";
+  let hasPostImage = false;
+  const postImageUrl = commentContext?.postThumbnailUrl;
+  
   if (messageType === "comment" && commentContext) {
     const parts: string[] = [];
+    
+    if (postImageUrl) {
+      hasPostImage = true;
+      parts.push(`IMAGEM DA PUBLICAÇÃO: [Anexada abaixo - analise visualmente o conteúdo]`);
+      console.log(`[OpenAI] Vision enabled - will analyze post image: ${postImageUrl.substring(0, 100)}...`);
+    }
     
     if (commentContext.postCaption) {
       parts.push(`LEGENDA DA PUBLICAÇÃO: "${commentContext.postCaption}"`);
@@ -242,10 +267,11 @@ ${parts.join("\n")}
 ═══════════════════════════════════════════════════════
 
 IMPORTANTE: Analise o contexto acima para entender:
-1. Sobre o que é a publicação (leia a legenda)
+1. ${hasPostImage ? "Observe a IMAGEM da publicação para entender o contexto visual completo" : "Sobre o que é a publicação (leia a legenda)"}
 2. Se é uma resposta a outro comentário, entenda o contexto da conversa
 3. Identifique se a pessoa está sendo sarcástica, irônica ou genuína
 4. Considere o tom da mensagem antes de responder
+${hasPostImage ? "5. Se for um meme ou imagem com texto, considere o humor/ironia visual" : ""}
 
 `;
     }
@@ -276,9 +302,28 @@ A confiança deve ser um número entre 0 e 1, onde:
 - Abaixo de 0.5: Muito incerto, precisa de revisão humana`;
 
   try {
+    // Build user message content - with or without image for vision
+    let userContent: MessageContent;
+    if (hasPostImage && postImageUrl) {
+      // Vision mode: include image in the message
+      userContent = [
+        { type: "text", text: prompt },
+        { 
+          type: "image_url", 
+          image_url: { 
+            url: postImageUrl,
+            detail: "low" // Use low detail for faster processing and lower cost
+          } 
+        }
+      ];
+      console.log("[OpenAI] Sending request with vision (image attached)");
+    } else {
+      userContent = prompt;
+    }
+
     const content = await callOpenAI([
-      { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." },
-      { role: "user", content: prompt },
+      { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (hasPostImage ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
+      { role: "user", content: userContent },
     ]);
 
     let parsed;
@@ -418,10 +463,18 @@ IMPORTANTE: Analise o histórico acima para:
 `;
   }
 
-  // Build context section for comments
+  // Build context section for comments (with vision support for regenerate)
   let postContextSection = "";
+  let hasPostImageRegen = false;
+  const postImageUrlRegen = commentContext?.postThumbnailUrl;
+  
   if (messageType === "comment" && commentContext) {
     const parts: string[] = [];
+    
+    if (postImageUrlRegen) {
+      hasPostImageRegen = true;
+      parts.push(`IMAGEM DA PUBLICAÇÃO: [Anexada abaixo - analise visualmente o conteúdo]`);
+    }
     
     if (commentContext.postCaption) {
       parts.push(`LEGENDA DA PUBLICAÇÃO: "${commentContext.postCaption}"`);
@@ -441,10 +494,11 @@ ${parts.join("\n")}
 ═══════════════════════════════════════════════════════
 
 IMPORTANTE: Analise o contexto acima para entender:
-1. Sobre o que é a publicação (leia a legenda)
+1. ${hasPostImageRegen ? "Observe a IMAGEM da publicação para entender o contexto visual" : "Sobre o que é a publicação (leia a legenda)"}
 2. Se é uma resposta a outro comentário, entenda o contexto da conversa
 3. Identifique se a pessoa está sendo sarcástica, irônica ou genuína
 4. Considere o tom da mensagem antes de responder
+${hasPostImageRegen ? "5. Se for um meme ou imagem com texto, considere o humor/ironia visual" : ""}
 
 `;
     }
@@ -471,9 +525,27 @@ Responda em formato JSON com a seguinte estrutura:
 }`;
 
   try {
+    // Build user message content - with or without image for vision (regenerate)
+    let userContentRegen: MessageContent;
+    if (hasPostImageRegen && postImageUrlRegen) {
+      userContentRegen = [
+        { type: "text", text: prompt },
+        { 
+          type: "image_url", 
+          image_url: { 
+            url: postImageUrlRegen,
+            detail: "low"
+          } 
+        }
+      ];
+      console.log("[OpenAI] Regenerate: sending request with vision (image attached)");
+    } else {
+      userContentRegen = prompt;
+    }
+
     const content = await callOpenAI([
-      { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." },
-      { role: "user", content: prompt },
+      { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (hasPostImageRegen ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
+      { role: "user", content: userContentRegen },
     ]);
 
     let parsed;

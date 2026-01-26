@@ -1098,10 +1098,11 @@ export async function registerRoutes(
       // Always use the authenticated user's ID - prevent spoofing
       const message = await storage.createMessage({ ...validatedData, userId });
 
-      // Generate AI response with context for comments
+      // Generate AI response with context for comments (including image for vision)
       const commentContext = message.type === "comment" ? {
         postCaption: message.postCaption,
         postPermalink: message.postPermalink,
+        postThumbnailUrl: message.postThumbnailUrl, // Include for AI vision analysis
         parentCommentText: message.parentCommentText,
         parentCommentUsername: message.parentCommentUsername,
       } : undefined;
@@ -1313,10 +1314,11 @@ export async function registerRoutes(
 
       const previousResponse = message.aiResponse?.suggestedResponse || "";
 
-      // Build context for comments
+      // Build context for comments (including image for vision)
       const commentContext = message.type === "comment" ? {
         postCaption: message.postCaption,
         postPermalink: message.postPermalink,
+        postThumbnailUrl: message.postThumbnailUrl, // Include for AI vision analysis
         parentCommentText: message.parentCommentText,
         parentCommentUsername: message.parentCommentUsername,
       } : undefined;
@@ -1959,6 +1961,7 @@ export async function registerRoutes(
                             {
                               postCaption,
                               postPermalink: post.permalink || null,
+                              postThumbnailUrl, // Include image for AI vision analysis
                             }
                           );
 
@@ -2999,12 +3002,13 @@ export async function registerRoutes(
       console.log("  - User ID:", instagramUser.id);
       console.log("  - Type:", "comment");
 
-      // Generate AI response with post context
+      // Generate AI response with post context (including image for vision)
       console.log("[COMMENT-WEBHOOK] Gerando resposta IA...");
-      console.log("[COMMENT-WEBHOOK] Contexto da publicação:", { postCaption: postCaption?.substring(0, 100), parentCommentText, parentCommentUsername });
+      console.log("[COMMENT-WEBHOOK] Contexto da publicação:", { postCaption: postCaption?.substring(0, 100), postThumbnailUrl: postThumbnailUrl?.substring(0, 50), parentCommentText, parentCommentUsername });
       const aiResult = await generateAIResponse(text, "comment", displayName, instagramUser.id, {
         postCaption,
         postPermalink,
+        postThumbnailUrl, // Include image URL for AI vision analysis
         parentCommentText,
         parentCommentUsername,
       });
