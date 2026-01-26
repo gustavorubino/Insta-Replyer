@@ -97,10 +97,25 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
         });
       }
     },
-    onError: () => {
+    onError: (error: Error) => {
+      let errorMessage = "Não foi possível aprovar a resposta.";
+      try {
+        const match = error.message.match(/\d+:\s*(.+)/);
+        if (match) {
+          const jsonPart = match[1];
+          const parsed = JSON.parse(jsonPart);
+          errorMessage = parsed.error || errorMessage;
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+      } catch {
+        if (error.message) {
+          errorMessage = error.message;
+        }
+      }
       toast({
         title: "Erro",
-        description: "Não foi possível aprovar a resposta.",
+        description: errorMessage,
         variant: "destructive",
       });
     },

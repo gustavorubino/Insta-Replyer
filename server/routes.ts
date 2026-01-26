@@ -212,10 +212,27 @@ async function sendInstagramMessage(
       console.log(`Message sent successfully! ID: ${data.message_id}`);
       return { success: true, messageId: data.message_id };
     } else if (data.error) {
-      console.error(`Instagram API error:`, data.error.message);
-      return { success: false, error: data.error.message };
+      const errorCode = Number(data.error.code) || 0;
+      const errorType = String(data.error.type || '');
+      const errorMsg = String(data.error.message || 'Erro desconhecido');
+      console.error(`Instagram DM API error [${errorCode}]:`, errorMsg);
+      
+      let userFriendlyError = errorMsg;
+      if (errorCode === 100) {
+        userFriendlyError = 'Destinatário inválido ou conversa não permitida.';
+      } else if (errorCode === 190) {
+        userFriendlyError = 'Token do Instagram expirado. Reconecte sua conta nas Configurações.';
+      } else if (errorCode === 10 || errorType === 'OAuthException') {
+        userFriendlyError = 'Permissão negada. Verifique se o app tem permissão para enviar mensagens.';
+      } else if (errorCode === 4) {
+        userFriendlyError = 'Limite de mensagens atingido. Aguarde alguns minutos e tente novamente.';
+      } else if (errorCode === 551) {
+        userFriendlyError = 'Esta pessoa restringiu quem pode enviar mensagens para ela.';
+      }
+      
+      return { success: false, error: userFriendlyError };
     } else {
-      return { success: false, error: 'Unknown error sending message' };
+      return { success: false, error: 'Erro desconhecido ao enviar mensagem' };
     }
   } catch (error) {
     console.error(`Error sending Instagram message:`, error);
@@ -254,10 +271,30 @@ async function replyToInstagramComment(
       console.log(`Comment reply sent successfully! ID: ${data.id}`);
       return { success: true, commentId: data.id };
     } else if (data.error) {
-      console.error(`Instagram API error:`, data.error.message);
-      return { success: false, error: data.error.message };
+      const errorCode = Number(data.error.code) || 0;
+      const errorSubcode = Number(data.error.error_subcode) || 0;
+      const errorType = String(data.error.type || '');
+      const errorMsg = String(data.error.message || 'Erro desconhecido');
+      console.error(`Instagram API error [${errorCode}/${errorSubcode}]:`, errorMsg);
+      
+      let userFriendlyError = errorMsg;
+      if (errorCode === 100 && errorSubcode === 33) {
+        userFriendlyError = 'Comentário não encontrado ou foi deletado do Instagram.';
+      } else if (errorCode === 100) {
+        userFriendlyError = 'Comentário inválido ou não pode ser respondido.';
+      } else if (errorCode === 190) {
+        userFriendlyError = 'Token do Instagram expirado. Reconecte sua conta nas Configurações.';
+      } else if (errorCode === 10 || errorType === 'OAuthException') {
+        userFriendlyError = 'Permissão negada. Verifique se o app tem permissão para responder comentários.';
+      } else if (errorCode === 4) {
+        userFriendlyError = 'Limite de requisições atingido. Aguarde alguns minutos e tente novamente.';
+      } else if (errorMsg.toLowerCase().includes('comment was deleted') || errorMsg.toLowerCase().includes('does not exist')) {
+        userFriendlyError = 'Este comentário foi deletado ou não existe mais no Instagram.';
+      }
+      
+      return { success: false, error: userFriendlyError };
     } else {
-      return { success: false, error: 'Unknown error replying to comment' };
+      return { success: false, error: 'Erro desconhecido ao responder comentário' };
     }
   } catch (error) {
     console.error(`Error replying to Instagram comment:`, error);
@@ -1221,7 +1258,8 @@ export async function registerRoutes(
       }
     } catch (error) {
       console.error("Error approving message:", error);
-      res.status(500).json({ error: "Failed to approve message" });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: `Falha ao aprovar mensagem: ${errorMessage}` });
     }
   });
 
