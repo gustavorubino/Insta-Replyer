@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, Filter, RefreshCw, MessageSquare, AtSign, LayoutGrid, List } from "lucide-react";
+import { Search, Filter, RefreshCw, MessageSquare, AtSign, LayoutGrid, List, ArrowUpDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,6 +48,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "dm" | "comment">(defaultFilter);
   const [viewMode, setViewMode] = useState<"grouped" | "list">("grouped");
+  const [commentSort, setCommentSort] = useState<"relevant" | "recent" | "oldest" | "followers">("recent");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -299,13 +300,54 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
       }
     });
 
+    const sortedPostGroups = Array.from(groupedByPost.values()).map((group) => {
+      const sortedComments = [...group.comments].sort((a, b) => {
+        switch (commentSort) {
+          case "relevant":
+            const confA = a.aiResponse?.confidenceScore ?? 0;
+            const confB = b.aiResponse?.confidenceScore ?? 0;
+            return confB - confA;
+          case "recent":
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          case "oldest":
+            return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          case "followers":
+            const followersA = a.senderFollowersCount ?? 0;
+            const followersB = b.senderFollowersCount ?? 0;
+            return followersB - followersA;
+          default:
+            return 0;
+        }
+      });
+      return { ...group, comments: sortedComments };
+    });
+
+    const sortedUngrouped = [...ungrouped].sort((a, b) => {
+      switch (commentSort) {
+        case "relevant":
+          const confA = a.aiResponse?.confidenceScore ?? 0;
+          const confB = b.aiResponse?.confidenceScore ?? 0;
+          return confB - confA;
+        case "recent":
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        case "oldest":
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        case "followers":
+          const followersA = a.senderFollowersCount ?? 0;
+          const followersB = b.senderFollowersCount ?? 0;
+          return followersB - followersA;
+        default:
+          return 0;
+      }
+    });
+
     return {
-      postGroups: Array.from(groupedByPost.values()),
+      postGroups: sortedPostGroups,
       dmMessages: dms,
       dmConversations: dmGroups,
-      ungroupedComments: ungrouped,
+      ungroupedComments: sortedUngrouped,
     };
-  }, [filteredMessages]);
+  }, [filteredMessages, commentSort]);
 
   const getInitials = (name: string) => {
     return name
@@ -370,6 +412,24 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
                   Comentários
                 </div>
               </SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        
+        {(defaultFilter === "comment" || typeFilter === "comment") && (
+          <Select
+            value={commentSort}
+            onValueChange={(v) => setCommentSort(v as "relevant" | "recent" | "oldest" | "followers")}
+          >
+            <SelectTrigger className="w-[220px]" data-testid="select-comment-sort">
+              <ArrowUpDown className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Ordenar por" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="relevant">Mais relevantes</SelectItem>
+              <SelectItem value="recent">Mais recentes primeiro</SelectItem>
+              <SelectItem value="oldest">Mais antigos primeiro</SelectItem>
+              <SelectItem value="followers">Número de seguidores*</SelectItem>
             </SelectContent>
           </Select>
         )}

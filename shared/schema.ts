@@ -15,6 +15,7 @@ export const instagramMessages = pgTable("instagram_messages", {
   senderName: text("sender_name").notNull(),
   senderUsername: text("sender_username").notNull(),
   senderAvatar: text("sender_avatar"),
+  senderFollowersCount: integer("sender_followers_count"), // Number of followers of the sender
   senderId: text("sender_id"), // IGSID of the sender for replying
   content: text("content"), // Can be null for media-only messages
   mediaUrl: text("media_url"),
