@@ -323,10 +323,11 @@ A confiança deve ser um número entre 0 e 1, onde:
 - 0.5-0.69: Resposta incerta, melhor revisar com humano
 - Abaixo de 0.5: Muito incerto, precisa de revisão humana`;
 
-  try {
-    // Build user message content - with or without image for vision
+  // Helper function to make the actual API call
+  async function makeAICall(useVision: boolean): Promise<GenerateResponseResult> {
     let userContent: MessageContent;
-    if (hasPostImage && postImageUrl) {
+    
+    if (useVision && hasPostImage && postImageUrl) {
       // Vision mode: include image in the message
       userContent = [
         { type: "text", text: prompt },
@@ -341,10 +342,13 @@ A confiança deve ser um número entre 0 e 1, onde:
       console.log("[OpenAI] Sending request with vision (image attached)");
     } else {
       userContent = prompt;
+      if (!useVision && hasPostImage) {
+        console.log("[OpenAI] Sending request WITHOUT vision (fallback mode)");
+      }
     }
 
     const content = await callOpenAI([
-      { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (hasPostImage ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
+      { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (useVision && hasPostImage ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
       { role: "user", content: userContent },
     ]);
 
@@ -365,6 +369,34 @@ A confiança deve ser um número entre 0 e 1, onde:
       suggestedResponse: parsed.response || "Desculpe, não consegui gerar uma resposta.",
       confidenceScore: Math.min(1, Math.max(0, parsed.confidence || 0.5)),
     };
+  }
+
+  try {
+    // First attempt: try with vision if available
+    const shouldTryVision = hasPostImage && postImageUrl;
+    
+    if (shouldTryVision) {
+      try {
+        return await makeAICall(true);
+      } catch (visionError) {
+        // Vision failed - likely expired image URL or inaccessible image
+        const errorMsg = visionError instanceof Error ? visionError.message : String(visionError);
+        console.warn(`[OpenAI] Vision request failed: ${errorMsg}`);
+        console.log("[OpenAI] Retrying WITHOUT image (fallback to text-only)...");
+        
+        // Don't retry if it's a rate limit or missing API key error
+        if (visionError instanceof OpenAIError && 
+            (visionError.code === "MISSING_API_KEY" || visionError.code === "RATE_LIMIT")) {
+          throw visionError;
+        }
+        
+        // Retry without vision
+        return await makeAICall(false);
+      }
+    } else {
+      // No vision needed, just make a regular call
+      return await makeAICall(false);
+    }
   } catch (error) {
     console.error("[OpenAI] Error generating AI response:");
     console.error("[OpenAI] Error type:", error?.constructor?.name);
@@ -564,10 +596,11 @@ Responda em formato JSON com a seguinte estrutura:
   "reasoning": "breve explicação"
 }`;
 
-  try {
-    // Build user message content - with or without image for vision (regenerate)
+  // Helper function to make the actual API call for regenerate
+  async function makeRegenAICall(useVision: boolean): Promise<GenerateResponseResult> {
     let userContentRegen: MessageContent;
-    if (hasPostImageRegen && postImageUrlRegen) {
+    
+    if (useVision && hasPostImageRegen && postImageUrlRegen) {
       userContentRegen = [
         { type: "text", text: prompt },
         { 
@@ -581,10 +614,13 @@ Responda em formato JSON com a seguinte estrutura:
       console.log("[OpenAI] Regenerate: sending request with vision (image attached)");
     } else {
       userContentRegen = prompt;
+      if (!useVision && hasPostImageRegen) {
+        console.log("[OpenAI] Regenerate: sending request WITHOUT vision (fallback mode)");
+      }
     }
 
     const content = await callOpenAI([
-      { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (hasPostImageRegen ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
+      { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (useVision && hasPostImageRegen ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
       { role: "user", content: userContentRegen },
     ]);
 
@@ -605,6 +641,34 @@ Responda em formato JSON com a seguinte estrutura:
       suggestedResponse: parsed.response || "Desculpe, não consegui gerar uma resposta.",
       confidenceScore: Math.min(1, Math.max(0, parsed.confidence || 0.5)),
     };
+  }
+
+  try {
+    // First attempt: try with vision if available
+    const shouldTryVisionRegen = hasPostImageRegen && postImageUrlRegen;
+    
+    if (shouldTryVisionRegen) {
+      try {
+        return await makeRegenAICall(true);
+      } catch (visionError) {
+        // Vision failed - likely expired image URL
+        const errorMsg = visionError instanceof Error ? visionError.message : String(visionError);
+        console.warn(`[OpenAI] Regenerate vision request failed: ${errorMsg}`);
+        console.log("[OpenAI] Regenerate: retrying WITHOUT image (fallback to text-only)...");
+        
+        // Don't retry if it's a rate limit or missing API key error
+        if (visionError instanceof OpenAIError && 
+            (visionError.code === "MISSING_API_KEY" || visionError.code === "RATE_LIMIT")) {
+          throw visionError;
+        }
+        
+        // Retry without vision
+        return await makeRegenAICall(false);
+      }
+    } else {
+      // No vision needed, just make a regular call
+      return await makeRegenAICall(false);
+    }
   } catch (error) {
     console.error("[OpenAI] Error regenerating AI response:", error instanceof Error ? error.message : error);
     
