@@ -30,6 +30,7 @@ The system supports a SaaS-style global configuration model where administrators
 - **Settings**: Configurable sections for Instagram connection, operation modes (Manual, Semi-Automatic), and AI settings. Users can see which settings are personalized vs using global defaults.
 - **AI Learning**: Incorporates human corrections to continuously improve AI response quality.
 - **Media Support**: Handles various media types (photos, videos, audio, GIFs, reels, stickers, drawings) in DMs.
+- **DM Conversation History**: For direct messages, the AI receives the last 10 messages from the conversation with that sender, allowing it to understand if it's a new or ongoing conversation, maintain consistency, and avoid repeating information already provided.
 - **Comment Context**: Comments are grouped by post, displaying the original post's thumbnail, caption, and full comment thread. Replies to comments show parent comment details. The AI receives the full context (post caption, parent comments) to analyze tone, detect sarcasm/irony, and generate contextually appropriate responses.
 - **Knowledge Base**: Allows training the AI with external links and file uploads (PDF, TXT) to provide specific context for responses.
 - **Authentication & Authorization**: Supports Replit Auth (Google, GitHub, Apple) and email/password. Implements role-based access control (RBAC) with admin and regular user roles, ensuring data segregation and administrative oversight. An admin panel enables user management and Instagram account monitoring.
