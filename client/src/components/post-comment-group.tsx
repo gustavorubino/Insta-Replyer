@@ -1,11 +1,18 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ChevronDown, ChevronUp, ExternalLink, Image, MessageCircle, Reply } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, Image, MessageCircle, Reply, ArrowUpDown } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { MessageWithResponse } from "@shared/schema";
 
 interface PostCommentGroupProps {
@@ -49,10 +56,28 @@ export function PostCommentGroup({
   onViewMessage,
 }: PostCommentGroupProps) {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [sortOrder, setSortOrder] = useState<"relevant" | "recent" | "oldest" | "followers">("relevant");
 
-  const sortedComments = [...comments].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-  );
+  const sortedComments = useMemo(() => {
+    return [...comments].sort((a, b) => {
+      switch (sortOrder) {
+        case "relevant":
+          const confA = a.aiResponse?.confidenceScore ?? 0;
+          const confB = b.aiResponse?.confidenceScore ?? 0;
+          return confB - confA;
+        case "recent":
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        case "oldest":
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        case "followers":
+          const followersA = a.senderFollowersCount ?? 0;
+          const followersB = b.senderFollowersCount ?? 0;
+          return followersB - followersA;
+        default:
+          return 0;
+      }
+    });
+  }, [comments, sortOrder]);
 
   return (
     <Card className="overflow-hidden" data-testid={`post-group-${postId}`}>
@@ -96,21 +121,35 @@ export function PostCommentGroup({
                   </a>
                 )}
               </div>
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsExpanded(!isExpanded);
-                }}
-                data-testid={`button-toggle-post-${postId}`}
-              >
-                {isExpanded ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </Button>
+              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                <Select
+                  value={sortOrder}
+                  onValueChange={(v) => setSortOrder(v as any)}
+                >
+                  <SelectTrigger className="h-8 w-[140px] text-xs">
+                    <SelectValue placeholder="Ordenar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="relevant">Mais relevantes</SelectItem>
+                    <SelectItem value="recent">Mais recentes</SelectItem>
+                    <SelectItem value="oldest">Mais antigos</SelectItem>
+                    <SelectItem value="followers">Seguidores*</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  data-testid={`button-toggle-post-${postId}`}
+                >
+                  {isExpanded ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
             
             {postCaption ? (

@@ -48,7 +48,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "dm" | "comment">(defaultFilter);
   const [viewMode, setViewMode] = useState<"grouped" | "list">("grouped");
-  const [commentSort, setCommentSort] = useState<"relevant" | "recent" | "oldest" | "followers">("recent");
+  const [postSort, setPostSort] = useState<"recent" | "oldest">("recent");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -300,44 +300,32 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
       }
     });
 
-    const sortedPostGroups = Array.from(groupedByPost.values()).map((group) => {
-      const sortedComments = [...group.comments].sort((a, b) => {
-        switch (commentSort) {
-          case "relevant":
-            const confA = a.aiResponse?.confidenceScore ?? 0;
-            const confB = b.aiResponse?.confidenceScore ?? 0;
-            return confB - confA;
-          case "recent":
-            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-          case "oldest":
-            return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-          case "followers":
-            const followersA = a.senderFollowersCount ?? 0;
-            const followersB = b.senderFollowersCount ?? 0;
-            return followersB - followersA;
-          default:
-            return 0;
-        }
-      });
-      return { ...group, comments: sortedComments };
+    const postGroupsList = Array.from(groupedByPost.values());
+
+    // Sort the groups themselves based on global sort
+    const sortedPostGroups = postGroupsList.sort((groupA, groupB) => {
+      // Find the most relevant timestamp for each group (newest or oldest message depending on sort)
+      // For "recent" sort, we compare the newest messages of each group
+      // For "oldest" sort, we compare the oldest messages of each group
+
+      const getCompareDate = (group: PostGroup, mode: "max" | "min") => {
+        if (group.comments.length === 0) return 0;
+        const timestamps = group.comments.map(c => new Date(c.createdAt).getTime());
+        return mode === "max" ? Math.max(...timestamps) : Math.min(...timestamps);
+      };
+
+      if (postSort === "recent") {
+        return getCompareDate(groupB, "max") - getCompareDate(groupA, "max");
+      } else {
+        return getCompareDate(groupA, "min") - getCompareDate(groupB, "min");
+      }
     });
 
     const sortedUngrouped = [...ungrouped].sort((a, b) => {
-      switch (commentSort) {
-        case "relevant":
-          const confA = a.aiResponse?.confidenceScore ?? 0;
-          const confB = b.aiResponse?.confidenceScore ?? 0;
-          return confB - confA;
-        case "recent":
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        case "oldest":
-          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        case "followers":
-          const followersA = a.senderFollowersCount ?? 0;
-          const followersB = b.senderFollowersCount ?? 0;
-          return followersB - followersA;
-        default:
-          return 0;
+      if (postSort === "recent") {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      } else {
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
       }
     });
 
@@ -347,7 +335,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
       dmConversations: dmGroups,
       ungroupedComments: sortedUngrouped,
     };
-  }, [filteredMessages, commentSort]);
+  }, [filteredMessages, postSort]);
 
   const getInitials = (name: string) => {
     return name
@@ -418,18 +406,16 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
         
         {(defaultFilter === "comment" || typeFilter === "comment") && (
           <Select
-            value={commentSort}
-            onValueChange={(v) => setCommentSort(v as "relevant" | "recent" | "oldest" | "followers")}
+            value={postSort}
+            onValueChange={(v) => setPostSort(v as "recent" | "oldest")}
           >
-            <SelectTrigger className="w-[220px]" data-testid="select-comment-sort">
+            <SelectTrigger className="w-[200px]" data-testid="select-post-sort">
               <ArrowUpDown className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Ordenar por" />
+              <SelectValue placeholder="Ordenar posts" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="relevant">Mais relevantes</SelectItem>
-              <SelectItem value="recent">Mais recentes primeiro</SelectItem>
-              <SelectItem value="oldest">Mais antigos primeiro</SelectItem>
-              <SelectItem value="followers">Número de seguidores*</SelectItem>
+              <SelectItem value="recent">Mais recentes</SelectItem>
+              <SelectItem value="oldest">Mais antigos</SelectItem>
             </SelectContent>
           </Select>
         )}
