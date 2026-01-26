@@ -372,7 +372,8 @@ export async function regenerateResponse(
   senderName: string,
   previousSuggestion: string,
   userId?: string,
-  commentContext?: CommentContext
+  commentContext?: CommentContext,
+  conversationHistory?: ConversationHistoryEntry[]
 ): Promise<GenerateResponseResult> {
   const systemPromptSetting = await storage.getSetting("systemPrompt");
   const systemPrompt = systemPromptSetting?.value || getDefaultSystemPrompt();
@@ -385,6 +386,36 @@ export async function regenerateResponse(
     } catch (err) {
       console.error("[OpenAI] Error loading knowledge context for regenerate:", err);
     }
+  }
+
+  // Build conversation history section for DMs
+  let conversationHistorySection = "";
+  if (messageType === "dm" && conversationHistory && conversationHistory.length > 0) {
+    const historyLines = conversationHistory
+      .slice()
+      .reverse()
+      .map(entry => {
+        const lines = [`[${entry.senderName}]: ${entry.content}`];
+        if (entry.response) {
+          lines.push(`[Você]: ${entry.response}`);
+        }
+        return lines.join("\n");
+      })
+      .join("\n");
+
+    conversationHistorySection = `
+═══════════════════════════════════════════════════════
+HISTÓRICO DA CONVERSA (mensagens anteriores com esta pessoa):
+${historyLines}
+═══════════════════════════════════════════════════════
+
+IMPORTANTE: Analise o histórico acima para:
+1. Entender se é uma conversa em andamento ou nova
+2. Não repetir informações já fornecidas
+3. Manter consistência nas respostas
+4. Lembrar do contexto do que já foi discutido
+
+`;
   }
 
   // Build context section for comments
@@ -421,7 +452,7 @@ IMPORTANTE: Analise o contexto acima para entender:
 
   const prompt = `${systemPrompt}
 ${knowledgeContext ? `\n${knowledgeContext}\n` : ""}
-${postContextSection}
+${postContextSection}${conversationHistorySection}
 A resposta anterior foi rejeitada ou o usuário pediu uma nova sugestão.
 
 Resposta anterior (que não foi aprovada): "${previousSuggestion}"

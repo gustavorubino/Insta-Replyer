@@ -1283,13 +1283,28 @@ export async function registerRoutes(
         parentCommentUsername: message.parentCommentUsername,
       } : undefined;
 
+      // Fetch conversation history for DMs
+      let conversationHistory: ConversationHistoryEntry[] | undefined;
+      if (message.type === "dm" && message.senderId) {
+        const historyMessages = await storage.getConversationHistory(message.senderId, userId, 10);
+        conversationHistory = historyMessages
+          .filter(m => m.id !== message.id)
+          .map(m => ({
+            senderName: m.senderName,
+            content: m.content || "",
+            response: m.aiResponse?.finalResponse || m.aiResponse?.suggestedResponse,
+            timestamp: m.createdAt,
+          }));
+      }
+
       const aiResult = await regenerateResponse(
         getMessageContentForAI(message),
         message.type as "dm" | "comment",
         message.senderName,
         previousResponse,
         userId,
-        commentContext
+        commentContext,
+        conversationHistory
       );
 
       // Check if AI generation failed
