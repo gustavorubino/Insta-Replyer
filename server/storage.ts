@@ -46,6 +46,7 @@ export interface IStorage {
   getAiResponse(messageId: number): Promise<AiResponse | undefined>;
   createAiResponse(response: InsertAiResponse): Promise<AiResponse>;
   updateAiResponse(id: number, updates: Partial<AiResponse>): Promise<void>;
+  updateAiResponseFeedback(id: number, feedbackStatus: string, humanFeedback?: string): Promise<void>;
 
   createLearningEntry(entry: InsertLearningHistory): Promise<LearningHistory>;
   getLearningHistory(): Promise<LearningHistory[]>;
@@ -405,6 +406,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateAiResponse(id: number, updates: Partial<AiResponse>): Promise<void> {
+    await db.update(aiResponses).set(updates).where(eq(aiResponses.id, id));
+  }
+
+  async updateAiResponseFeedback(id: number, feedbackStatus: string, humanFeedback?: string): Promise<void> {
+    const updates: Partial<AiResponse> = { feedbackStatus };
+    if (humanFeedback !== undefined) {
+      updates.humanFeedback = humanFeedback;
+    }
     await db.update(aiResponses).set(updates).where(eq(aiResponses.id, id));
   }
 

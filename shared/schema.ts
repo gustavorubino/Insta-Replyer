@@ -45,6 +45,7 @@ export const aiResponses = pgTable("ai_responses", {
   wasEdited: boolean("was_edited").notNull().default(false),
   wasApproved: boolean("was_approved"),
   humanFeedback: text("human_feedback"), // Optional feedback from human
+  feedbackStatus: text("feedback_status"), // 'like' or 'dislike'
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
   approvedAt: timestamp("approved_at"),
 });

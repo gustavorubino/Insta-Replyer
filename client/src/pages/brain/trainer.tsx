@@ -52,6 +52,9 @@ export default function Trainer() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [correction, setCorrection] = useState("");
+  const [postCaption, setPostCaption] = useState("");
+  const [postImageUrl, setPostImageUrl] = useState("");
+  const [showContext, setShowContext] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -72,6 +75,8 @@ export default function Trainer() {
         message: data.message,
         mode: mode,
         history: data.history,
+        postCaption: showContext ? postCaption : undefined,
+        postImageUrl: showContext ? postImageUrl : undefined,
       });
       return res.json();
     },
@@ -221,6 +226,45 @@ export default function Trainer() {
           </TabsList>
         </Tabs>
       </div>
+
+      {mode === "simulator" && (
+        <Card>
+          <CardContent className="pt-4 pb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowContext(!showContext)}
+              className="w-full justify-between"
+            >
+              <span>Configurar Contexto (Imagem/Legenda)</span>
+              {showContext ? "Ocultar" : "Mostrar"}
+            </Button>
+
+            {showContext && (
+              <div className="grid gap-4 pt-4 animate-in slide-in-from-top-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="postCaption">Legenda do Post</Label>
+                  <Input
+                    id="postCaption"
+                    placeholder="Ex: Foto incrível do nosso novo produto..."
+                    value={postCaption}
+                    onChange={(e) => setPostCaption(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="postImageUrl">URL da Imagem/Mídia</Label>
+                  <Input
+                    id="postImageUrl"
+                    placeholder="https://..."
+                    value={postImageUrl}
+                    onChange={(e) => setPostImageUrl(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="flex-1 flex flex-col overflow-hidden border-2">
         <CardContent
