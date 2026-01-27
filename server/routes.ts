@@ -15,6 +15,7 @@ import { sql } from "drizzle-orm";
 import { extractFromUrl, extractFromPdf, extractFromText } from "./knowledge-extractor";
 import { ObjectStorageService, registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { generateEmbedding } from "./utils/openai_embeddings";
+import { runArchitectAgent, runCopilotAgent } from "./modes";
 
 // Store last 50 webhooks received for debugging (in-memory)
 interface WebhookProcessingResult {
@@ -4766,19 +4767,33 @@ export async function registerRoutes(
   app.post("/api/brain/simulate", isAuthenticated, async (req, res) => {
     try {
       const { userId } = await getUserContext(req);
-      const { message, senderName } = req.body;
+      const { message, senderName, mode, history } = req.body;
 
-      if (!message) {
+      if (!message && mode !== "architect" && mode !== "copilot") {
         return res.status(400).json({ error: "Message is required" });
       }
 
+      // Default to simulator
+      const currentMode = mode || "simulator";
+
+      if (currentMode === "architect") {
+        const response = await runArchitectAgent(history || []);
+        return res.json({ response, confidence: 1.0 });
+      }
+
+      if (currentMode === "copilot") {
+        const response = await runCopilotAgent(history || []);
+        return res.json({ response, confidence: 1.0 });
+      }
+
+      // Simulator Mode (Legacy)
       const aiResult = await generateAIResponse(
         message,
         "dm", // Simulate as DM
         senderName || "Simulated User",
         userId,
         undefined, // No comment context
-        undefined  // No history for now (could add simple history later)
+        undefined // No history for now (could add simple history later)
       );
 
       res.json({
