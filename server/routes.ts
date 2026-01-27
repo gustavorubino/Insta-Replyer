@@ -4802,7 +4802,7 @@ export async function registerRoutes(
   app.post("/api/brain/simulate", isAuthenticated, async (req, res) => {
     try {
       const { userId } = await getUserContext(req);
-      const { message, senderName, mode, history, postCaption, postImageUrl } = req.body;
+      const { message, senderName, mode, history, postCaption, postImageUrl, attachments } = req.body;
 
       if (!message && mode !== "architect" && mode !== "copilot") {
         return res.status(400).json({ error: "Message is required" });
@@ -4837,7 +4837,8 @@ export async function registerRoutes(
         senderName || "Simulated User",
         userId,
         commentContext,
-        undefined // No history for now (could add simple history later)
+        undefined, // No history for now (could add simple history later)
+        attachments
       );
 
       res.json({

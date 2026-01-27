@@ -12,6 +12,9 @@ import {
   PencilRuler,
   Cpu,
   Settings2,
+  Mic,
+  Image as ImageIcon,
+  X,
 } from "lucide-react";
 import {
   Card,
@@ -59,6 +62,12 @@ export default function Trainer() {
   const [postCaption, setPostCaption] = useState("");
   const [postImageUrl, setPostImageUrl] = useState("");
   const [showContext, setShowContext] = useState(false);
+
+  // Multimodal State
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,20 +76,31 @@ export default function Trainer() {
     }
   }, [messages]);
 
+  // Clean up speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
   const handleModeChange = (newMode: string) => {
     setMode(newMode as Mode);
     setMessages([]);
     setInputValue("");
+    setAttachments([]);
   };
 
   const simulateMutation = useMutation({
-    mutationFn: async (data: { message: string; history: ChatMessage[] }) => {
+    mutationFn: async (data: { message: string; history: ChatMessage[]; attachments?: string[] }) => {
       const res = await apiRequest("POST", "/api/brain/simulate", {
         message: data.message,
         mode: mode,
         history: data.history,
         postCaption: showContext ? postCaption : undefined,
         postImageUrl: showContext ? postImageUrl : undefined,
+        attachments: data.attachments,
       });
       return res.json();
     },
@@ -144,18 +164,23 @@ export default function Trainer() {
   });
 
   const handleSendMessage = () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() && attachments.length === 0) return;
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
-      content: inputValue,
+      content: inputValue + (attachments.length > 0 ? `\n[${attachments.length} imagem(ns) anexada(s)]` : ""),
     };
 
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
-    simulateMutation.mutate({ message: inputValue, history: newHistory });
+    simulateMutation.mutate({
+        message: inputValue,
+        history: newHistory,
+        attachments: attachments.length > 0 ? attachments : undefined
+    });
     setInputValue("");
+    setAttachments([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -187,6 +212,103 @@ export default function Trainer() {
 
   const clearChat = () => {
     setMessages([]);
+    setAttachments([]);
+  };
+
+  // --- Multimodal Handlers ---
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast({
+        title: "Recurso Indisponível",
+        description: "Seu navegador não suporta reconhecimento de voz (Web Speech API). Tente usar o Google Chrome ou Edge.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+        const recognition = new SpeechRecognition();
+        recognition.lang = "pt-BR";
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        recognition.onresult = (event: any) => {
+        let interimTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                const transcript = event.results[i][0].transcript;
+                setInputValue((prev) => prev + (prev && !prev.endsWith(" ") ? " " : "") + transcript);
+            } else {
+                interimTranscript += event.results[i][0].transcript;
+            }
+        }
+        };
+
+        recognition.onerror = (event: any) => {
+            console.error("Speech recognition error", event.error);
+            setIsListening(false);
+            if (event.error !== 'no-speech') { // Ignore no-speech errors which happen often
+                toast({
+                    title: "Erro no Microfone",
+                    description: "Não foi possível acessar o microfone ou ocorreu um erro.",
+                    variant: "destructive",
+                });
+            }
+        };
+
+        recognition.onend = () => {
+            setIsListening(false);
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+        setIsListening(true);
+    } catch (e) {
+        console.error(e);
+        toast({
+            title: "Erro",
+            description: "Falha ao iniciar o reconhecimento de voz.",
+            variant: "destructive",
+        });
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newAttachments: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file.type.startsWith("image/")) continue;
+
+      try {
+        const reader = new FileReader();
+        const base64 = await new Promise<string>((resolve, reject) => {
+            reader.onload = (e) => resolve(e.target?.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        newAttachments.push(base64);
+      } catch (err) {
+        console.error("Error reading file:", err);
+      }
+    }
+
+    setAttachments((prev) => [...prev, ...newAttachments]);
+    e.target.value = ""; // Reset input
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
   return (
@@ -205,7 +327,7 @@ export default function Trainer() {
             <Button
               variant="outline"
               onClick={clearChat}
-              disabled={messages.length === 0}
+              disabled={messages.length === 0 && attachments.length === 0}
             >
               <RotateCcw className="h-4 w-4 mr-2" />
               Limpar
@@ -398,25 +520,76 @@ export default function Trainer() {
             </div>
           )}
         </div>
+
+        {/* Attachment Previews */}
+        {attachments.length > 0 && (
+          <div className="absolute bottom-20 left-0 right-0 px-4 flex justify-center z-10 pointer-events-none">
+             <div className="flex gap-2 p-2 bg-background/95 backdrop-blur-sm rounded-xl border shadow-sm pointer-events-auto">
+                {attachments.map((src, i) => (
+                  <div key={i} className="relative h-16 w-16 rounded-lg overflow-hidden border group bg-muted">
+                    <img src={src} alt="preview" className="h-full w-full object-cover" />
+                    <button
+                      onClick={() => removeAttachment(i)}
+                      className="absolute top-0.5 right-0.5 bg-black/50 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+             </div>
+          </div>
+        )}
+
         <div className="absolute bottom-6 left-0 right-0 px-4 flex justify-center z-10 pointer-events-none">
           <div className="w-full max-w-3xl bg-background shadow-xl rounded-full border p-1.5 flex items-center gap-2 pointer-events-auto transition-all duration-300 ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+            {/* File Upload Button */}
+            <input
+              type="file"
+              accept="image/png, image/jpeg"
+              multiple
+              className="hidden"
+              id="file-upload"
+              onChange={handleFileSelect}
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 rounded-full text-muted-foreground hover:text-foreground shrink-0 hover:bg-muted"
+              onClick={() => document.getElementById('file-upload')?.click()}
+              disabled={simulateMutation.isPending}
+            >
+              <ImageIcon className="h-5 w-5" />
+            </Button>
+
+            {/* Microphone Button */}
+            <Button
+                variant="ghost"
+                size="icon"
+                className={`h-10 w-10 rounded-full shrink-0 transition-colors ${isListening ? "text-red-600 bg-red-100 hover:bg-red-200 animate-pulse" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
+                onClick={toggleListening}
+                disabled={simulateMutation.isPending}
+            >
+                <Mic className="h-5 w-5" />
+            </Button>
+
             <Input
-              className="flex-1 border-0 focus-visible:ring-0 shadow-none bg-transparent h-11 pl-4 rounded-full"
+              className="flex-1 border-0 focus-visible:ring-0 shadow-none bg-transparent h-11 pl-2 rounded-full"
               placeholder={
                 mode === "simulator"
-                  ? "Digite uma mensagem como se fosse um cliente..."
+                  ? "Digite uma mensagem..."
                   : mode === "architect"
-                  ? "Descreva a persona ou regras de comportamento..."
-                  : "Pergunte 'Quantas mensagens tenho?' ou 'Como configurar o bot?'"
+                  ? "Descreva o comportamento..."
+                  : "Pergunte algo..."
               }
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={simulateMutation.isPending}
+              spellCheck={true}
             />
             <Button
               onClick={handleSendMessage}
-              disabled={!inputValue.trim() || simulateMutation.isPending}
+              disabled={(!inputValue.trim() && attachments.length === 0) || simulateMutation.isPending}
               size="icon"
               className="h-10 w-10 rounded-full shrink-0"
             >

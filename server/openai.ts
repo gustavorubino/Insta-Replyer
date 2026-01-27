@@ -220,7 +220,8 @@ export async function generateAIResponse(
   senderName: string,
   userId?: string,
   commentContext?: CommentContext,
-  conversationHistory?: ConversationHistoryEntry[]
+  conversationHistory?: ConversationHistoryEntry[],
+  attachments?: string[]
 ): Promise<GenerateResponseResult> {
   // 1. Get System Prompt (Per-user or Global fallback)
   let systemPrompt = "";
@@ -403,30 +404,50 @@ A confiança deve ser um número entre 0 e 1, onde:
   // Helper function to make the actual API call
   async function makeAICall(useVision: boolean): Promise<GenerateResponseResult> {
     let userContent: MessageContent;
+
+    const hasAttachments = attachments && attachments.length > 0;
+    const shouldUseVision = useVision && ((hasPostImage && postImageUrl) || hasAttachments);
     
-    if (useVision && hasPostImage && postImageUrl) {
+    if (shouldUseVision) {
       // Vision mode: include image in the message
-      userContent = [
-        { type: "text", text: prompt },
-        { 
+      const contentParts: (TextContent | ImageContent)[] = [
+        { type: "text", text: prompt }
+      ];
+
+      if (hasPostImage && postImageUrl) {
+        contentParts.push({
           type: "image_url", 
           image_url: { 
             url: postImageUrl,
             detail: "low" // Use low detail for faster processing and lower cost
           } 
-        }
-      ];
-      console.log("[OpenAI] Sending request with vision (image attached)");
+        });
+      }
+
+      if (hasAttachments && attachments) {
+        attachments.forEach(img => {
+          contentParts.push({
+            type: "image_url",
+            image_url: {
+              url: img,
+              detail: "low"
+            }
+          });
+        });
+      }
+
+      userContent = contentParts;
+      console.log(`[OpenAI] Sending request with vision (${hasPostImage ? 'post image ' : ''}${hasAttachments ? `${attachments.length} attachments` : ''})`);
     } else {
       userContent = prompt;
-      if (!useVision && hasPostImage) {
+      if (!useVision && (hasPostImage || hasAttachments)) {
         console.log("[OpenAI] Sending request WITHOUT vision (fallback mode)");
       }
     }
 
     const message = await callOpenAI(
       [
-        { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (useVision && hasPostImage ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
+        { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (shouldUseVision ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações e arquivos enviados." : "") },
         { role: "user", content: userContent },
       ],
       undefined, // tools
@@ -456,7 +477,8 @@ A confiança deve ser um número entre 0 e 1, onde:
 
   try {
     // First attempt: try with vision if available
-    const shouldTryVision = hasPostImage && postImageUrl;
+    const hasAttachments = attachments && attachments.length > 0;
+    const shouldTryVision = (hasPostImage && postImageUrl) || hasAttachments;
     
     if (shouldTryVision) {
       try {
