@@ -69,12 +69,20 @@ export default function Trainer() {
   const recognitionRef = useRef<any>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+    }
+  }, [inputValue]);
 
   // Clean up speech recognition on unmount
   useEffect(() => {
@@ -281,6 +289,15 @@ export default function Trainer() {
     }
   };
 
+  const convertFileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -291,12 +308,7 @@ export default function Trainer() {
       if (!file.type.startsWith("image/")) continue;
 
       try {
-        const reader = new FileReader();
-        const base64 = await new Promise<string>((resolve, reject) => {
-            reader.onload = (e) => resolve(e.target?.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
+        const base64 = await convertFileToBase64(file);
         newAttachments.push(base64);
       } catch (err) {
         console.error("Error reading file:", err);
@@ -305,6 +317,42 @@ export default function Trainer() {
 
     setAttachments((prev) => [...prev, ...newAttachments]);
     e.target.value = ""; // Reset input
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    let hasImage = false;
+    const imageFiles: File[] = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith("image/")) {
+        hasImage = true;
+        const file = item.getAsFile();
+        if (file) {
+          imageFiles.push(file);
+        }
+      }
+    }
+
+    if (hasImage) {
+      e.preventDefault();
+
+      const processImages = async () => {
+        const newAttachments: string[] = [];
+        for (const file of imageFiles) {
+          try {
+            const base64 = await convertFileToBase64(file);
+            newAttachments.push(base64);
+          } catch (err) {
+            console.error("Error reading pasted file:", err);
+          }
+        }
+        setAttachments((prev) => [...prev, ...newAttachments]);
+      };
+
+      processImages();
+    }
   };
 
   const removeAttachment = (index: number) => {
@@ -541,7 +589,7 @@ export default function Trainer() {
         )}
 
         <div className="absolute bottom-6 left-0 right-0 px-4 flex justify-center z-10 pointer-events-none">
-          <div className="w-full max-w-3xl bg-background shadow-xl rounded-full border p-1.5 flex items-center gap-2 pointer-events-auto transition-all duration-300 ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+          <div className="w-full max-w-3xl bg-background shadow-xl rounded-[26px] border p-1.5 flex items-end gap-2 pointer-events-auto transition-all duration-300 ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
             {/* File Upload Button */}
             <input
               type="file"
@@ -554,7 +602,7 @@ export default function Trainer() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-10 w-10 rounded-full text-muted-foreground hover:text-foreground shrink-0 hover:bg-muted"
+              className="h-10 w-10 rounded-full text-muted-foreground hover:text-foreground shrink-0 hover:bg-muted mb-0.5"
               onClick={() => document.getElementById('file-upload')?.click()}
               disabled={simulateMutation.isPending}
             >
@@ -565,15 +613,16 @@ export default function Trainer() {
             <Button
                 variant="ghost"
                 size="icon"
-                className={`h-10 w-10 rounded-full shrink-0 transition-colors ${isListening ? "text-red-600 bg-red-100 hover:bg-red-200 animate-pulse" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
+                className={`h-10 w-10 rounded-full shrink-0 transition-colors mb-0.5 ${isListening ? "text-red-600 bg-red-100 hover:bg-red-200 animate-pulse" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
                 onClick={toggleListening}
                 disabled={simulateMutation.isPending}
             >
                 <Mic className="h-5 w-5" />
             </Button>
 
-            <Input
-              className="flex-1 border-0 focus-visible:ring-0 shadow-none bg-transparent h-11 pl-2 rounded-full"
+            <Textarea
+              ref={textareaRef}
+              className="flex-1 min-h-[44px] max-h-[150px] border-0 focus-visible:ring-0 shadow-none bg-transparent resize-none py-3 px-2 text-sm"
               placeholder={
                 mode === "simulator"
                   ? "Digite uma mensagem..."
@@ -584,14 +633,16 @@ export default function Trainer() {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               disabled={simulateMutation.isPending}
               spellCheck={true}
+              rows={1}
             />
             <Button
               onClick={handleSendMessage}
               disabled={(!inputValue.trim() && attachments.length === 0) || simulateMutation.isPending}
               size="icon"
-              className="h-10 w-10 rounded-full shrink-0"
+              className="h-10 w-10 rounded-full shrink-0 mb-0.5"
             >
               <Send className="h-5 w-5" />
             </Button>
