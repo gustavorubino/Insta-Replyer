@@ -60,7 +60,9 @@ export interface IStorage {
 
   clearAllMessages(): Promise<{ aiResponses: number; messages: number }>;
 
-  getStats(userId?: string, isAdmin?: boolean): Promise<{
+  getPendingMessagesCount(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<number>;
+
+  getStats(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<{
     totalMessages: number;
     pendingMessages: number;
     approvedToday: number;
@@ -517,7 +519,55 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getStats(userId?: string, isAdmin?: boolean): Promise<{
+  async getPendingMessagesCount(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<number> {
+    const baseCondition = eq(instagramMessages.status, "pending");
+
+    const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
+    const validExcludeUsernames = excludeSenderUsernames?.filter(u => u && u.trim() !== '') || [];
+
+    // Build senderId exclusion
+    let senderIdOk: ReturnType<typeof or> | undefined;
+    if (validExcludeIds.length > 0) {
+      const idConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
+      senderIdOk = or(isNull(instagramMessages.senderId), and(...idConditions));
+    }
+
+    // Build senderUsername exclusion
+    let senderUsernameOk: ReturnType<typeof or> | undefined;
+    if (validExcludeUsernames.length > 0) {
+      const usernameConditions = validExcludeUsernames.map(u =>
+        ne(sql`lower(${instagramMessages.senderUsername})`, u.toLowerCase())
+      );
+      senderUsernameOk = or(isNull(instagramMessages.senderUsername), and(...usernameConditions));
+    }
+
+    // Combine exclusions
+    let excludeCondition: ReturnType<typeof and> | undefined;
+    if (senderIdOk && senderUsernameOk) {
+      excludeCondition = and(senderIdOk, senderUsernameOk);
+    } else if (senderIdOk) {
+      excludeCondition = senderIdOk;
+    } else if (senderUsernameOk) {
+      excludeCondition = senderUsernameOk;
+    }
+
+    if (!userId) {
+      return 0;
+    }
+
+    const condition = excludeCondition
+      ? and(baseCondition, eq(instagramMessages.userId, userId), excludeCondition)
+      : and(baseCondition, eq(instagramMessages.userId, userId));
+
+    const [result] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(instagramMessages)
+      .where(condition);
+
+    return Number(result?.count) || 0;
+  }
+
+  async getStats(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<{
     totalMessages: number;
     pendingMessages: number;
     approvedToday: number;
@@ -541,10 +591,8 @@ export class DatabaseStorage implements IStorage {
       .from(instagramMessages)
       .where(userCondition);
 
-    const [pendingResult] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(instagramMessages)
-      .where(userCondition ? and(eq(instagramMessages.status, "pending"), userCondition) : eq(instagramMessages.status, "pending"));
+    // Use the centralized function for pending count to ensure consistency
+    const pendingMessagesCount = await this.getPendingMessagesCount(userId, isAdmin, excludeSenderIds, excludeSenderUsernames);
 
     const [approvedResult] = await db
       .select({ count: sql<number>`count(*)` })
@@ -585,7 +633,7 @@ export class DatabaseStorage implements IStorage {
 
     return {
       totalMessages: Number(totalResult?.count) || 0,
-      pendingMessages: Number(pendingResult?.count) || 0,
+      pendingMessages: pendingMessagesCount,
       approvedToday: Number(approvedResult?.count) || 0,
       rejectedToday: Number(rejectedResult?.count) || 0,
       autoSentToday: Number(autoSentResult?.count) || 0,

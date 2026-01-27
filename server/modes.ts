@@ -5,6 +5,7 @@ import { aiDataset, instagramMessages, aiResponses, learningHistory, knowledgeLi
 import { eq, count, sql, and, gte, desc } from "drizzle-orm";
 import * as fs from "fs";
 import * as path from "path";
+import { authStorage } from "./replit_integrations/auth";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -519,41 +520,33 @@ async function executeGetDatasetStats(): Promise<string> {
   }
 }
 
-// CORRIGIDA: Agora faz COUNT(*) REAL separado
-async function executeGetPendingMessages(): Promise<string> {
+// CORRIGIDA: Agora usa storage.getPendingMessagesCount para garantir consistência
+async function executeGetPendingMessages(userId: string): Promise<string> {
   try {
-    // COUNT REAL de mensagens pendentes (sem limite!)
-    const totalPendingResult = await db
-      .select({ count: count() })
-      .from(instagramMessages)
-      .where(eq(instagramMessages.status, "pending"));
-    const totalPending = totalPendingResult[0]?.count || 0;
+    const user = await authStorage.getUser(userId);
+    const excludeSenderIds: string[] = [];
+    const excludeSenderUsernames: string[] = [];
 
-    // COUNT de comentários pendentes
-    const commentsPendingResult = await db
-      .select({ count: count() })
-      .from(instagramMessages)
-      .where(and(
-        eq(instagramMessages.status, "pending"),
-        eq(instagramMessages.type, "comment")
-      ));
-    const commentsPending = commentsPendingResult[0]?.count || 0;
+    if (user) {
+      if (user.instagramAccountId) excludeSenderIds.push(user.instagramAccountId);
+      if (user.instagramRecipientId) excludeSenderIds.push(user.instagramRecipientId);
+      if (user.instagramUsername) excludeSenderUsernames.push(user.instagramUsername.toLowerCase());
+    }
 
-    // COUNT de DMs pendentes
-    const dmsPendingResult = await db
-      .select({ count: count() })
-      .from(instagramMessages)
-      .where(and(
-        eq(instagramMessages.status, "pending"),
-        eq(instagramMessages.type, "dm")
-      ));
-    const dmsPending = dmsPendingResult[0]?.count || 0;
+    // Use a fonte oficial de contagem
+    const totalPending = await storage.getPendingMessagesCount(userId, user?.isAdmin, excludeSenderIds, excludeSenderUsernames);
+
+    // Para o breakdown, usamos a lista (que tem a mesma lógica de filtro)
+    const messages = await storage.getPendingMessages(userId, user?.isAdmin, excludeSenderIds, excludeSenderUsernames);
+
+    const commentsPending = messages.filter(m => m.type === 'comment').length;
+    const dmsPending = messages.filter(m => m.type === 'dm').length;
 
     return JSON.stringify({
       total_pending: totalPending,
       comments_pending: commentsPending,
       dms_pending: dmsPending,
-      description: "Contagem REAL de mensagens na Fila de Aprovação (sem limite)",
+      description: "Contagem REAL de mensagens na Fila de Aprovação (filtrado por usuário e exclusões)",
     });
   } catch (error) {
     console.error("[Copilot] Error fetching pending messages:", error);
@@ -561,80 +554,41 @@ async function executeGetPendingMessages(): Promise<string> {
   }
 }
 
-async function executeGetSystemStats(): Promise<string> {
+async function executeGetSystemStats(userId: string): Promise<string> {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const user = await authStorage.getUser(userId);
+    const excludeSenderIds: string[] = [];
+    const excludeSenderUsernames: string[] = [];
 
-    // Total messages
-    const totalResult = await db.select({ count: count() }).from(instagramMessages);
-    const totalMessages = totalResult[0]?.count || 0;
+    if (user) {
+      if (user.instagramAccountId) excludeSenderIds.push(user.instagramAccountId);
+      if (user.instagramRecipientId) excludeSenderIds.push(user.instagramRecipientId);
+      if (user.instagramUsername) excludeSenderUsernames.push(user.instagramUsername.toLowerCase());
+    }
 
-    // Pending messages
-    const pendingResult = await db
-      .select({ count: count() })
-      .from(instagramMessages)
-      .where(eq(instagramMessages.status, "pending"));
-    const pendingMessages = pendingResult[0]?.count || 0;
+    // Use storage.getStats which calls getPendingMessagesCount
+    const stats = await storage.getStats(userId, user?.isAdmin, excludeSenderIds, excludeSenderUsernames);
 
-    // Approved today
-    const approvedResult = await db
-      .select({ count: count() })
-      .from(instagramMessages)
-      .where(and(
-        eq(instagramMessages.status, "approved"),
-        gte(instagramMessages.processedAt, today)
-      ));
-    const approvedToday = approvedResult[0]?.count || 0;
+    // Get other stats not included in getStats if needed, or just return what getStats returns
+    // getStats returns: totalMessages, pendingMessages, approvedToday, rejectedToday, autoSentToday, avgConfidence
 
-    // Rejected today
-    const rejectedResult = await db
-      .select({ count: count() })
-      .from(instagramMessages)
-      .where(and(
-        eq(instagramMessages.status, "rejected"),
-        gte(instagramMessages.processedAt, today)
-      ));
-    const rejectedToday = rejectedResult[0]?.count || 0;
+    // We need breakdown by type (comments/dms) which getStats doesn't return
+    // We can fetch them separately or just report totals from getStats
 
-    // Auto-sent today
-    const autoSentResult = await db
-      .select({ count: count() })
-      .from(instagramMessages)
-      .where(and(
-        eq(instagramMessages.status, "auto_sent"),
-        gte(instagramMessages.processedAt, today)
-      ));
-    const autoSentToday = autoSentResult[0]?.count || 0;
+    // Fetch count by type (using same filter logic as getMessages)
+    // Currently storage doesn't have a countByType function, so we might skip detailed breakdown
+    // or calculate it from getMessages (might be heavy if many messages)
 
-    // Average confidence
-    const avgResult = await db
-      .select({ avg: sql<number>`AVG(${aiResponses.confidenceScore})` })
-      .from(aiResponses);
-    const avgConfidence = avgResult[0]?.avg || 0;
-
-    // Count by type
-    const commentResult = await db
-      .select({ count: count() })
-      .from(instagramMessages)
-      .where(eq(instagramMessages.type, "comment"));
-    const totalComments = commentResult[0]?.count || 0;
-
-    const dmResult = await db
-      .select({ count: count() })
-      .from(instagramMessages)
-      .where(eq(instagramMessages.type, "dm"));
-    const totalDms = dmResult[0]?.count || 0;
+    // For now, let's return what we have from the unified source + basic totals
 
     return JSON.stringify({
-      total_messages: totalMessages,
-      total_comments: totalComments,
-      total_dms: totalDms,
-      pending_messages: pendingMessages,
-      approved_today: approvedToday,
-      rejected_today: rejectedToday,
-      auto_sent_today: autoSentToday,
-      average_confidence: Math.round(avgConfidence * 100) + "%",
+      total_messages: stats.totalMessages,
+      pending_messages: stats.pendingMessages, // This comes from getPendingMessagesCount
+      approved_today: stats.approvedToday,
+      rejected_today: stats.rejectedToday,
+      auto_sent_today: stats.autoSentToday,
+      average_confidence: Math.round(stats.avgConfidence * 100) + "%",
+      description: "Estatísticas oficiais do usuário (unificadas)",
     });
   } catch (error) {
     console.error("[Copilot] Error fetching system stats:", error);
@@ -835,7 +789,7 @@ async function executeGetTechnicalSuggestions(): Promise<string> {
   }
 }
 
-export async function runCopilotAgent(history: ChatMessage[]): Promise<string> {
+export async function runCopilotAgent(history: ChatMessage[], userId: string): Promise<string> {
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: COPILOT_SYSTEM_PROMPT },
     ...history.map((msg) => ({
@@ -879,10 +833,10 @@ export async function runCopilotAgent(history: ChatMessage[]): Promise<string> {
               result = await executeGetDatasetStats();
               break;
             case "get_pending_messages":
-              result = await executeGetPendingMessages();
+              result = await executeGetPendingMessages(userId);
               break;
             case "get_system_stats":
-              result = await executeGetSystemStats();
+              result = await executeGetSystemStats(userId);
               break;
             case "get_knowledge_base":
               result = await executeGetKnowledgeBase();

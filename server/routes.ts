@@ -623,8 +623,8 @@ export async function registerRoutes(
   // Get dashboard stats
   app.get("/api/stats", isAuthenticated, async (req, res) => {
     try {
-      const { userId, isAdmin } = await getUserContext(req);
-      const stats = await storage.getStats(userId, isAdmin);
+      const { userId, isAdmin, excludeSenderIds, excludeSenderUsernames } = await getUserContext(req);
+      const stats = await storage.getStats(userId, isAdmin, excludeSenderIds, excludeSenderUsernames);
       res.json(stats);
     } catch (error) {
       console.error("Error fetching stats:", error);
@@ -4817,7 +4817,7 @@ export async function registerRoutes(
       }
 
       if (currentMode === "copilot") {
-        const response = await runCopilotAgent(history || []);
+        const response = await runCopilotAgent(history || [], userId);
         return res.json({ response, confidence: 1.0 });
       }
 
