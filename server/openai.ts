@@ -425,11 +425,24 @@ A confiança deve ser um número entre 0 e 1, onde:
       }
 
       if (hasAttachments && attachments) {
-        attachments.forEach(img => {
+        attachments.forEach((img, index) => {
+          // Validate and fix image URL/Base64 if needed
+          let imageUrl = img;
+          const isUrl = img.startsWith('http') || img.startsWith('https');
+          const isDataUri = img.startsWith('data:');
+
+          console.log(`[OpenAI] Processing attachment ${index + 1}/${attachments.length}: length=${img.length}, isUrl=${isUrl}, isDataUri=${isDataUri}`);
+
+          if (!isUrl && !isDataUri) {
+            // Assume it's a raw base64 string and missing prefix
+            console.warn(`[OpenAI] Attachment ${index + 1} missing prefix, adding data:image/jpeg;base64,...`);
+            imageUrl = `data:image/jpeg;base64,${img}`;
+          }
+
           contentParts.push({
             type: "image_url",
             image_url: {
-              url: img,
+              url: imageUrl,
               detail: "low"
             }
           });
@@ -438,6 +451,13 @@ A confiança deve ser um número entre 0 e 1, onde:
 
       userContent = contentParts;
       console.log(`[OpenAI] Sending request with vision (${hasPostImage ? 'post image ' : ''}${hasAttachments ? `${attachments.length} attachments` : ''})`);
+
+      // Log structure for debugging (safely)
+      const contentSummary = contentParts.map(p => {
+        if (p.type === 'text') return { type: 'text', length: p.text.length };
+        return { type: 'image_url', urlStart: p.image_url.url.substring(0, 30) + '...' };
+      });
+      console.log("[OpenAI] Payload content structure:", JSON.stringify(contentSummary));
     } else {
       userContent = prompt;
       if (!useVision && (hasPostImage || hasAttachments)) {

@@ -182,6 +182,11 @@ export default function Trainer() {
 
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
+
+    if (attachments.length > 0) {
+      console.log(`Sending ${attachments.length} attachments. Sample:`, attachments[0].substring(0, 50) + "...");
+    }
+
     simulateMutation.mutate({
         message: inputValue,
         history: newHistory,
