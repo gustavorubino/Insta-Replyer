@@ -4817,7 +4817,9 @@ export async function registerRoutes(
       }
 
       if (currentMode === "copilot") {
+        console.log("[Copilot] Starting copilot agent with history:", JSON.stringify(history?.map(h => ({ role: h.role, content: h.content?.substring(0, 50) })) || []));
         const response = await runCopilotAgent(history || []);
+        console.log("[Copilot] Got response:", response?.substring(0, 200));
         return res.json({ response, confidence: 1.0 });
       }
 
