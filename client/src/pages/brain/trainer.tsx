@@ -11,11 +11,10 @@ import {
   Terminal,
   PencilRuler,
   Cpu,
+  Settings2,
 } from "lucide-react";
 import {
   Card,
-  CardContent,
-  CardFooter,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,10 +27,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
 
 type Mode = "simulator" | "architect" | "copilot";
 
@@ -209,66 +213,77 @@ export default function Trainer() {
           </div>
         </div>
 
-        <Tabs value={mode} onValueChange={handleModeChange} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="simulator">
-              <Bot className="h-4 w-4 mr-2" />
-              Simulador
-            </TabsTrigger>
-            <TabsTrigger value="architect">
-              <PencilRuler className="h-4 w-4 mr-2" />
-              Arquiteto
-            </TabsTrigger>
-            <TabsTrigger value="copilot">
-              <Cpu className="h-4 w-4 mr-2" />
-              Copiloto
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="bg-muted/50 p-1 rounded-full flex w-full max-w-md mx-auto">
+          {(["simulator", "architect", "copilot"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => handleModeChange(m)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-full text-sm font-medium transition-all ${
+                mode === m
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground/80"
+              }`}
+            >
+              {m === "simulator" && <Bot className="h-4 w-4" />}
+              {m === "architect" && <PencilRuler className="h-4 w-4" />}
+              {m === "copilot" && <Cpu className="h-4 w-4" />}
+              <span className="capitalize">
+                {m === "simulator"
+                  ? "Simulador"
+                  : m === "architect"
+                  ? "Arquiteto"
+                  : "Copiloto"}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {mode === "simulator" && (
-        <Card>
-          <CardContent className="pt-4 pb-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowContext(!showContext)}
-              className="w-full justify-between"
-            >
-              <span>Configurar Contexto (Imagem/Legenda)</span>
-              {showContext ? "Ocultar" : "Mostrar"}
-            </Button>
+        <Collapsible
+          open={showContext}
+          onOpenChange={setShowContext}
+          className="w-full border rounded-xl bg-card px-4 py-2 shadow-sm"
+        >
+          <div className="flex items-center justify-between">
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-2 text-muted-foreground hover:text-foreground p-0 h-auto font-normal hover:bg-transparent"
+              >
+                <Settings2 className="h-4 w-4" />
+                Configurar Contexto de Teste
+              </Button>
+            </CollapsibleTrigger>
+          </div>
 
-            {showContext && (
-              <div className="grid gap-4 pt-4 animate-in slide-in-from-top-2">
-                <div className="grid gap-2">
-                  <Label htmlFor="postCaption">Legenda do Post</Label>
-                  <Input
-                    id="postCaption"
-                    placeholder="Ex: Foto incrível do nosso novo produto..."
-                    value={postCaption}
-                    onChange={(e) => setPostCaption(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="postImageUrl">URL da Imagem/Mídia</Label>
-                  <Input
-                    id="postImageUrl"
-                    placeholder="https://..."
-                    value={postImageUrl}
-                    onChange={(e) => setPostImageUrl(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          <CollapsibleContent className="space-y-4 pt-4 pb-2 animate-in slide-in-from-top-2">
+            <div className="grid gap-2">
+              <Label htmlFor="postCaption">Legenda do Post</Label>
+              <Input
+                id="postCaption"
+                placeholder="Ex: Foto incrível do nosso novo produto..."
+                value={postCaption}
+                onChange={(e) => setPostCaption(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="postImageUrl">URL da Imagem/Mídia</Label>
+              <Input
+                id="postImageUrl"
+                placeholder="https://..."
+                value={postImageUrl}
+                onChange={(e) => setPostImageUrl(e.target.value)}
+              />
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       )}
 
-      <Card className="flex-1 flex flex-col overflow-hidden border-2">
-        <CardContent
-          className="flex-1 overflow-y-auto p-4 space-y-4"
+      <Card className="flex-1 flex flex-col overflow-hidden relative border shadow-sm rounded-xl bg-background">
+        <div
+          className="flex-1 overflow-y-auto p-4 space-y-6 pb-32"
           ref={scrollRef}
         >
           {messages.length === 0 ? (
@@ -288,13 +303,13 @@ export default function Trainer() {
             messages.map((msg) => (
               <div
                 key={msg.id}
-                className={`flex gap-3 ${
+                className={`flex gap-4 ${
                   msg.role === "user" ? "justify-end" : "justify-start"
                 }`}
               >
                 {msg.role === "assistant" && (
                   <div
-                    className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    className={`h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
                       mode === "architect"
                         ? "bg-purple-100 text-purple-600"
                         : mode === "copilot"
@@ -303,28 +318,32 @@ export default function Trainer() {
                     }`}
                   >
                     {mode === "architect" ? (
-                      <PencilRuler className="h-5 w-5" />
+                      <PencilRuler className="h-6 w-6" />
                     ) : mode === "copilot" ? (
-                      <Cpu className="h-5 w-5" />
+                      <Cpu className="h-6 w-6" />
                     ) : (
-                      <Bot className="h-5 w-5" />
+                      <Bot className="h-6 w-6" />
                     )}
                   </div>
                 )}
 
                 <div
-                  className={`flex flex-col gap-1 max-w-[80%] ${
+                  className={`flex flex-col gap-1 max-w-[85%] ${
                     msg.role === "user" ? "items-end" : "items-start"
                   }`}
                 >
                   <div
-                    className={`p-3 rounded-lg ${
+                    className={`px-5 py-3 shadow-sm ${
                       msg.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
+                        ? "bg-primary text-primary-foreground rounded-2xl rounded-tr-md"
+                        : "bg-transparent text-foreground p-0 shadow-none"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                    {msg.role === "user" ? (
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+                    ) : (
+                      <MarkdownRenderer content={msg.content} />
+                    )}
                   </div>
 
                   {msg.role === "assistant" && mode === "simulator" && (
@@ -363,26 +382,26 @@ export default function Trainer() {
                     </div>
                   )}
                 </div>
-
-                {msg.role === "user" && (
-                  <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
-                    <User className="h-5 w-5 text-secondary-foreground" />
-                  </div>
-                )}
               </div>
             ))
           )}
           {simulateMutation.isPending && (
-            <div className="flex justify-start gap-3">
-              <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
+            <div className="flex justify-start gap-4">
+               <div className="h-10 w-10 rounded-lg bg-muted/50 flex items-center justify-center">
+                  <Bot className="h-6 w-6 text-muted-foreground animate-pulse" />
+               </div>
+               <div className="flex items-center gap-1 h-10 px-2">
+                  <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                  <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                  <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce"></span>
+               </div>
             </div>
           )}
-        </CardContent>
-        <CardFooter className="p-4 border-t bg-card">
-          <div className="flex w-full gap-2">
+        </div>
+        <div className="absolute bottom-6 left-0 right-0 px-4 flex justify-center z-10 pointer-events-none">
+          <div className="w-full max-w-3xl bg-background shadow-xl rounded-full border p-1.5 flex items-center gap-2 pointer-events-auto transition-all duration-300 ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
             <Input
+              className="flex-1 border-0 focus-visible:ring-0 shadow-none bg-transparent h-11 pl-4 rounded-full"
               placeholder={
                 mode === "simulator"
                   ? "Digite uma mensagem como se fosse um cliente..."
@@ -398,11 +417,13 @@ export default function Trainer() {
             <Button
               onClick={handleSendMessage}
               disabled={!inputValue.trim() || simulateMutation.isPending}
+              size="icon"
+              className="h-10 w-10 rounded-full shrink-0"
             >
-              <Send className="h-4 w-4" />
+              <Send className="h-5 w-5" />
             </Button>
           </div>
-        </CardFooter>
+        </div>
       </Card>
 
       {/* Dialog for Simulator Mode - Edit & Learn */}
