@@ -3,12 +3,12 @@ import { getOpenAIConfig } from "./utils/openai-config";
 import { generateEmbedding, cosineSimilarity } from "./utils/openai_embeddings";
 
 // Types for OpenAI API - supports both text and vision
-type TextContent = {
+export type TextContent = {
   type: "text";
   text: string;
 };
 
-type ImageContent = {
+export type ImageContent = {
   type: "image_url";
   image_url: {
     url: string;
@@ -16,18 +16,41 @@ type ImageContent = {
   };
 };
 
-type MessageContent = string | (TextContent | ImageContent)[];
+export type MessageContent = string | (TextContent | ImageContent)[];
 
-type ChatCompletionMessageParam = {
-  role: "system" | "user" | "assistant";
-  content: MessageContent;
+export type ChatCompletionMessageParam = {
+  role: "system" | "user" | "assistant" | "tool";
+  content?: MessageContent | null;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+  name?: string;
+};
+
+export type ToolCall = {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+};
+
+export type Tool = {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: Record<string, any>;
+  };
 };
 
 interface OpenAIResponse {
   id: string;
   choices: {
     message: {
-      content: string;
+      role: "assistant";
+      content: string | null;
+      tool_calls?: ToolCall[];
     };
   }[];
   error?: {
@@ -86,9 +109,11 @@ export class OpenAIError extends Error {
 }
 
 // Direct HTTP call to OpenAI API - no SDK needed, works in any environment
-async function callOpenAI(
-  messages: ChatCompletionMessageParam[]
-): Promise<string> {
+export async function callOpenAI(
+  messages: ChatCompletionMessageParam[],
+  tools?: Tool[],
+  responseFormat?: { type: "json_object" | "text" }
+): Promise<OpenAIResponse["choices"][0]["message"]> {
   const config = getOpenAIConfig();
   
   // Log API configuration for debugging (safe - no secrets)
@@ -113,12 +138,19 @@ async function callOpenAI(
   const baseURL = config.baseURL || "https://api.openai.com/v1";
   const url = `${baseURL}/chat/completions`;
   
-  const requestBody = {
+  const requestBody: any = {
     model: "gpt-4o",
     messages,
-    response_format: { type: "json_object" },
     max_tokens: 1024,
   };
+
+  if (responseFormat) {
+    requestBody.response_format = responseFormat;
+  }
+
+  if (tools && tools.length > 0) {
+    requestBody.tools = tools;
+  }
 
   console.log("[OpenAI] Calling API with model: gpt-4o via direct HTTP");
   const startTime = Date.now();
@@ -155,14 +187,14 @@ async function callOpenAI(
         throw new OpenAIError(errorMessage, "API_ERROR");
       }
 
-      const content = data.choices?.[0]?.message?.content;
-      console.log(`[OpenAI] Response OK (${latency}ms), content length: ${content?.length || 0}`);
+      const message = data.choices?.[0]?.message;
+      console.log(`[OpenAI] Response OK (${latency}ms), content length: ${message?.content?.length || 0}`);
       
-      if (!content) {
-        throw new OpenAIError("No response content from OpenAI", "API_ERROR");
+      if (!message) {
+        throw new OpenAIError("No response message from OpenAI", "API_ERROR");
       }
       
-      return content;
+      return message;
     } catch (err: any) {
       const latency = Date.now() - startTime;
       
@@ -392,14 +424,20 @@ A confiança deve ser um número entre 0 e 1, onde:
       }
     }
 
-    const content = await callOpenAI([
-      { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (useVision && hasPostImage ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
-      { role: "user", content: userContent },
-    ]);
+    const message = await callOpenAI(
+      [
+        { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (useVision && hasPostImage ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
+        { role: "user", content: userContent },
+      ],
+      undefined, // tools
+      { type: "json_object" } // responseFormat
+    );
+
+    const content = message.content;
 
     let parsed;
     try {
-      parsed = JSON.parse(content);
+      parsed = JSON.parse(content || "{}");
     } catch (parseErr) {
       console.error("[OpenAI] Failed to parse JSON response:", content?.substring(0, 200));
       return {
@@ -664,14 +702,20 @@ Responda em formato JSON com a seguinte estrutura:
       }
     }
 
-    const content = await callOpenAI([
-      { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (useVision && hasPostImageRegen ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
-      { role: "user", content: userContentRegen },
-    ]);
+    const message = await callOpenAI(
+      [
+        { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (useVision && hasPostImageRegen ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
+        { role: "user", content: userContentRegen },
+      ],
+      undefined, // tools
+      { type: "json_object" } // responseFormat
+    );
+
+    const content = message.content;
 
     let parsed;
     try {
-      parsed = JSON.parse(content);
+      parsed = JSON.parse(content || "{}");
     } catch (parseErr) {
       console.error("[OpenAI] Failed to parse regenerate JSON response");
       return {
