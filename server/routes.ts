@@ -1245,11 +1245,33 @@ export async function registerRoutes(
 
       // If edited, add to learning history (always enabled)
       if (wasEdited) {
+        const originalContent = getMessageContentForAI(message);
+
+        // 1. Add to Legacy Learning History (global log)
         await storage.createLearningEntry({
-          originalMessage: getMessageContentForAI(message),
+          originalMessage: originalContent,
           originalSuggestion: aiResponse.suggestedResponse,
           correctedResponse: response,
         });
+
+        // 2. NEW: Automatically add to User Dataset for future RAG (Memory)
+        try {
+          // Generate embedding for the question/content
+          const embedding = await generateEmbedding(originalContent);
+
+          if (embedding) {
+            await storage.addDatasetEntry({
+              userId: message.userId, // Use the message owner's ID
+              question: originalContent,
+              answer: response,
+              embedding: embedding as any,
+            });
+            console.log(`[Auto-Learn] Added corrected response to dataset for user ${message.userId}`);
+          }
+        } catch (e) {
+          console.error("[Auto-Learn] Failed to auto-add to dataset:", e);
+          // Don't fail the request if auto-learning fails
+        }
       }
 
       if (sendResult.success) {
@@ -4665,6 +4687,78 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting dataset entry:", error);
       res.status(500).json({ error: "Failed to delete dataset entry" });
+    }
+  });
+
+  // POST /api/brain/migrate-legacy - Migrate learning history to dataset
+  app.post("/api/brain/migrate-legacy", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+
+      console.log(`[Migration] Starting legacy learning migration for user ${userId}...`);
+
+      // 1. Fetch all legacy learning history
+      const history = await storage.getLearningHistory();
+      console.log(`[Migration] Found ${history.length} legacy entries.`);
+
+      // 2. Fetch current user dataset to avoid duplicates
+      const currentDataset = await storage.getDataset(userId);
+      const existingQuestions = new Set(currentDataset.map(d => d.question));
+
+      let migratedCount = 0;
+      let skippedCount = 0;
+      let errorCount = 0;
+
+      // 3. Iterate and migrate
+      // Note: We process them sequentially to avoid overwhelming the embedding API
+      for (const entry of history) {
+        // Simple deduplication: check if question already exists
+        if (existingQuestions.has(entry.originalMessage)) {
+          skippedCount++;
+          continue;
+        }
+
+        try {
+          // Generate embedding
+          const embedding = await generateEmbedding(entry.originalMessage);
+
+          if (embedding) {
+            await storage.addDatasetEntry({
+              userId,
+              question: entry.originalMessage,
+              answer: entry.correctedResponse,
+              embedding: embedding as any,
+            });
+            migratedCount++;
+            // Add to set to prevent duplicates within the same batch
+            existingQuestions.add(entry.originalMessage);
+          } else {
+            console.error(`[Migration] Failed to generate embedding for entry ${entry.id}`);
+            errorCount++;
+          }
+
+          // Small delay to be nice to the API rate limits
+          await new Promise(resolve => setTimeout(resolve, 200));
+
+        } catch (e) {
+          console.error(`[Migration] Error migrating entry ${entry.id}:`, e);
+          errorCount++;
+        }
+      }
+
+      console.log(`[Migration] Completed. Migrated: ${migratedCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`);
+
+      res.json({
+        success: true,
+        migrated: migratedCount,
+        skipped: skippedCount,
+        errors: errorCount,
+        totalHistory: history.length
+      });
+
+    } catch (error) {
+      console.error("Error migrating legacy data:", error);
+      res.status(500).json({ error: "Failed to migrate legacy data" });
     }
   });
 
