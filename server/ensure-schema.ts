@@ -17,6 +17,16 @@ export async function ensureSchema() {
       );
     `);
 
+    // Check for new columns in ai_responses
+    try {
+      await db.execute(sql`
+        ALTER TABLE "ai_responses"
+        ADD COLUMN IF NOT EXISTS "feedback_status" text;
+      `);
+    } catch (e) {
+      console.log("Column feedback_status might already exist or table missing");
+    }
+
     console.log("Schema verification completed.");
   } catch (error) {
     console.error("Schema verification failed:", error);

@@ -14,6 +14,8 @@ import {
   AlertTriangle,
   ExternalLink,
   Reply,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -23,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -33,6 +36,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useMutation } from "@tanstack/react-query";
 
 import type { MessageWithResponse } from "@shared/schema";
 
@@ -65,11 +71,56 @@ export function ApprovalModal({
   onRegenerate,
   isLoading = false,
 }: ApprovalModalProps) {
+  const { toast } = useToast();
   const [editedResponse, setEditedResponse] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [emojiPopoverOpen, setEmojiPopoverOpen] = useState(false);
   const [hasAIError, setHasAIError] = useState(false);
+
+  // Feedback state
+  const [feedbackStatus, setFeedbackStatus] = useState<"like" | "dislike" | null>(null);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [showFeedbackInput, setShowFeedbackInput] = useState(false);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const feedbackMutation = useMutation({
+    mutationFn: async (data: { status: "like" | "dislike"; text?: string }) => {
+      if (!message) return;
+      await apiRequest("POST", `/api/messages/${message.id}/feedback`, {
+        feedbackStatus: data.status,
+        feedbackText: data.text,
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Feedback enviado",
+        description: "Obrigado por ajudar a melhorar a IA!",
+      });
+      setShowFeedbackInput(false);
+    },
+    onError: () => {
+      toast({
+        title: "Erro",
+        description: "Não foi possível enviar o feedback.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleFeedback = (status: "like" | "dislike") => {
+    setFeedbackStatus(status);
+    if (status === "dislike") {
+      setShowFeedbackInput(true);
+    } else {
+      setShowFeedbackInput(false);
+      feedbackMutation.mutate({ status });
+    }
+  };
+
+  const submitDislikeReason = () => {
+    feedbackMutation.mutate({ status: "dislike", text: feedbackText });
+  };
 
   const insertEmoji = (emoji: string) => {
     const textarea = textareaRef.current;
@@ -101,6 +152,11 @@ export function ApprovalModal({
       setHasAIError(isErrorResponse);
       setEditedResponse(isErrorResponse ? "" : response);
       setIsEditing(isErrorResponse); // Auto-enable editing if error
+
+      // Reset feedback state
+      setFeedbackStatus(null);
+      setFeedbackText("");
+      setShowFeedbackInput(false);
     } else {
       setHasAIError(true); // No AI response at all
       setEditedResponse("");
@@ -291,15 +347,55 @@ export function ApprovalModal({
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-primary" />
-                Resposta Sugerida (Aprendizado da IA)
+                Resposta Sugerida
               </h3>
-              {message.aiResponse && (
-                <ConfidenceBadge
-                  score={message.aiResponse.confidenceScore}
-                  showLabel={true}
-                />
-              )}
+              <div className="flex items-center gap-2">
+                {message.aiResponse && (
+                  <ConfidenceBadge
+                    score={message.aiResponse.confidenceScore}
+                    showLabel={true}
+                  />
+                )}
+                {message.aiResponse && (
+                  <div className="flex items-center border rounded-md ml-2">
+                    <Button
+                      variant={feedbackStatus === "like" ? "default" : "ghost"}
+                      size="icon"
+                      className="h-6 w-6 rounded-none rounded-l-md"
+                      onClick={() => handleFeedback("like")}
+                      title="Gostei da sugestão"
+                    >
+                      <ThumbsUp className="h-3 w-3" />
+                    </Button>
+                    <Separator orientation="vertical" className="h-4" />
+                    <Button
+                      variant={feedbackStatus === "dislike" ? "default" : "ghost"}
+                      size="icon"
+                      className="h-6 w-6 rounded-none rounded-r-md"
+                      onClick={() => handleFeedback("dislike")}
+                      title="Não gostei (enviar feedback)"
+                    >
+                      <ThumbsDown className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
+
+            {showFeedbackInput && (
+              <div className="flex gap-2 animate-in slide-in-from-top-2 mb-2">
+                <Input
+                  placeholder="Por que não gostou? (opcional)"
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  className="h-8 text-sm"
+                />
+                <Button size="sm" onClick={submitDislikeReason} disabled={feedbackMutation.isPending}>
+                  Enviar
+                </Button>
+              </div>
+            )}
+
             <div className="flex-1 flex flex-col gap-2 overflow-hidden">
               {hasAIError && (
                 <Alert variant="destructive" className="py-2">

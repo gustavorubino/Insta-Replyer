@@ -1413,6 +1413,41 @@ export async function registerRoutes(
     }
   });
 
+  // Submit Feedback (Thumbs Up/Down)
+  app.post("/api/messages/:id/feedback", isAuthenticated, async (req, res) => {
+    try {
+      const { userId, isAdmin } = await getUserContext(req);
+      const id = parseInt(req.params.id);
+      const { feedbackStatus, feedbackText } = req.body;
+
+      if (!feedbackStatus || (feedbackStatus !== "like" && feedbackStatus !== "dislike")) {
+        return res.status(400).json({ error: "Invalid feedback status" });
+      }
+
+      const message = await storage.getMessage(id);
+      if (!message) {
+        return res.status(404).json({ error: "Message not found" });
+      }
+
+      // Check authorization
+      if (!isAdmin && message.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const aiResponse = await storage.getAiResponse(id);
+      if (!aiResponse) {
+        return res.status(404).json({ error: "AI response not found" });
+      }
+
+      await storage.updateAiResponseFeedback(aiResponse.id, feedbackStatus, feedbackText);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error submitting feedback:", error);
+      res.status(500).json({ error: "Failed to submit feedback" });
+    }
+  });
+
   // Get settings (per-user with global defaults)
   app.get("/api/settings", isAuthenticated, async (req, res) => {
     try {
@@ -4767,7 +4802,7 @@ export async function registerRoutes(
   app.post("/api/brain/simulate", isAuthenticated, async (req, res) => {
     try {
       const { userId } = await getUserContext(req);
-      const { message, senderName, mode, history } = req.body;
+      const { message, senderName, mode, history, postCaption, postImageUrl } = req.body;
 
       if (!message && mode !== "architect" && mode !== "copilot") {
         return res.status(400).json({ error: "Message is required" });
@@ -4787,12 +4822,21 @@ export async function registerRoutes(
       }
 
       // Simulator Mode (Legacy)
+      // If post details are provided, treat as a comment
+      const isCommentSimulation = !!(postCaption || postImageUrl);
+      const messageType = isCommentSimulation ? "comment" : "dm";
+
+      const commentContext = isCommentSimulation ? {
+        postCaption: postCaption || null,
+        postThumbnailUrl: postImageUrl || null,
+      } : undefined;
+
       const aiResult = await generateAIResponse(
         message,
-        "dm", // Simulate as DM
+        messageType,
         senderName || "Simulated User",
         userId,
-        undefined, // No comment context
+        commentContext,
         undefined // No history for now (could add simple history later)
       );
 
