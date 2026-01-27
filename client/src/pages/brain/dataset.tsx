@@ -91,6 +91,23 @@ export default function Dataset() {
     },
   });
 
+  const importHistoryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/migrate-history");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
+      toast({
+        title: "Importação concluída",
+        description: `${data.migrated} itens migrados, ${data.skipped} ignorados.`
+      });
+    },
+    onError: () => {
+      toast({ title: "Erro", description: "Falha ao importar histórico.", variant: "destructive" });
+    },
+  });
+
   const handleSubmit = () => {
     if (!formData.question.trim() || !formData.answer.trim()) return;
 
@@ -128,10 +145,24 @@ export default function Dataset() {
             Gerencie os exemplos de Perguntas e Respostas que guiam a IA (Few-Shot Learning).
           </p>
         </div>
-        <Button onClick={openCreateDialog}>
-          <Plus className="h-4 w-4 mr-2" />
-          Adicionar Exemplo
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => importHistoryMutation.mutate()}
+            disabled={importHistoryMutation.isPending}
+          >
+            {importHistoryMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4 mr-2" />
+            )}
+            Importar Histórico Antigo
+          </Button>
+          <Button onClick={openCreateDialog}>
+            <Plus className="h-4 w-4 mr-2" />
+            Adicionar Exemplo
+          </Button>
+        </div>
       </div>
 
       <Card>

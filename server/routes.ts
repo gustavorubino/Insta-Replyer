@@ -15,6 +15,7 @@ import { sql } from "drizzle-orm";
 import { extractFromUrl, extractFromPdf, extractFromText } from "./knowledge-extractor";
 import { ObjectStorageService, registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { generateEmbedding } from "./utils/openai_embeddings";
+import { migrateLearningHistoryToDataset } from "./migration-utils";
 
 // Store last 50 webhooks received for debugging (in-memory)
 interface WebhookProcessingResult {
@@ -2789,6 +2790,10 @@ export async function registerRoutes(
 
       // Ignore comments from the account owner (these are our own replies)
       const fromUserId = fromUser?.id;
+      // Initialize variables that will be used later
+      let senderAvatar: string | undefined;
+      let senderFollowersCount: number | undefined;
+
       console.log("[COMMENT-WEBHOOK] Verificando se é comentário próprio...");
       console.log("  - fromUserId (quem comentou):", fromUserId);
       console.log("  - instagramAccountId (dono da conta):", instagramUser.instagramAccountId);
@@ -2824,9 +2829,6 @@ export async function registerRoutes(
       console.log("[COMMENT-WEBHOOK] ✅ Comentário de terceiro, processando...");
 
       // Try to fetch profile picture using multiple strategies
-      let senderAvatar: string | undefined;
-      let senderFollowersCount: number | undefined;
-      
       // Strategy 1: Look up cached avatar from previous messages by the same username
       // This is the most reliable method since we may already have the avatar from a DM
       if (username && username !== "instagram_user") {
@@ -4695,6 +4697,22 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error simulating AI response:", error);
       res.status(500).json({ error: "Failed to simulate response" });
+    }
+  });
+
+  // Admin: Run manual migration of learning history
+  app.post("/api/admin/migrate-history", isAuthenticated, async (req, res) => {
+    try {
+      const { isAdmin } = await getUserContext(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const result = await migrateLearningHistoryToDataset();
+      res.json(result);
+    } catch (error) {
+      console.error("Migration failed:", error);
+      res.status(500).json({ error: "Migration failed" });
     }
   });
 

@@ -1,0 +1,47 @@
+
+> rest-express@1.0.0 dev
+> NODE_ENV=development tsx server/index.ts
+
+Verifying database schema...
+Schema verification failed: error: password authentication failed for user 'neondb_owner'
+    at /app/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async ensureSchema (/app/server/ensure-schema.ts:9:5)
+    at async <anonymous> (/app/server/index.ts:102:3) {
+  length: 75,
+  severity: 'ERROR',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: undefined,
+  line: undefined,
+  routine: undefined
+}
+Tue, 27 Jan 2026 16:14:28 GMT express-session deprecated req.secret; provide secret option at file:/app/server/replit_integrations/auth/replitAuth.ts:1:820
+file:///app/node_modules/openid-client/build/index.js:89
+    const err = new TypeError(message, { cause });
+                ^
+
+TypeError: "clientId" must be a non-empty string
+    at CodedTypeError (/app/node_modules/openid-client/src/index.ts:839:15)
+    at new Configuration (/app/node_modules/openid-client/src/index.ts:1849:13)
+    at Module.discovery (/app/node_modules/openid-client/src/index.ts:1281:20)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async memoize.maxAge (/app/server/replit_integrations/auth/replitAuth.ts:13:12)
+    at async setupAuth (/app/server/replit_integrations/auth/replitAuth.ts:105:18)
+    at async registerRoutes (/app/server/routes.ts:351:3)
+    at async <anonymous> (/app/server/index.ts:104:3) {
+  code: 'ERR_INVALID_ARG_TYPE',
+  [cause]: undefined
+}
+
+Node.js v22.22.0
