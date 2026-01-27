@@ -19,6 +19,11 @@ import Dashboard from "@/pages/dashboard";
 import Queue from "@/pages/queue";
 import History from "@/pages/history";
 import Settings from "@/pages/settings";
+import Connections from "@/pages/connections";
+import Personality from "@/pages/brain/personality";
+import Sources from "@/pages/brain/sources";
+import Dataset from "@/pages/brain/dataset";
+import Trainer from "@/pages/brain/trainer";
 import Admin from "@/pages/admin";
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
@@ -35,6 +40,11 @@ function Router() {
       <Route path="/queue" component={Queue} />
       <Route path="/history" component={History} />
       <Route path="/settings" component={Settings} />
+      <Route path="/connections" component={Connections} />
+      <Route path="/brain/personality" component={Personality} />
+      <Route path="/brain/sources" component={Sources} />
+      <Route path="/brain/dataset" component={Dataset} />
+      <Route path="/brain/trainer" component={Trainer} />
       <Route path="/admin" component={Admin} />
       <Route component={NotFound} />
     </Switch>

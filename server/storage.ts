@@ -6,12 +6,15 @@ import {
   settings,
   knowledgeLinks,
   knowledgeFiles,
+  aiDataset,
   type User,
   type UpsertUser,
   type InstagramMessage,
   type InsertInstagramMessage,
   type AiResponse,
   type InsertAiResponse,
+  type AiDatasetEntry,
+  type InsertAiDatasetEntry,
   type LearningHistory,
   type InsertLearningHistory,
   type Setting,
@@ -93,6 +96,12 @@ export interface IStorage {
 
   // Get all knowledge content for AI context
   getKnowledgeContext(userId: string): Promise<string>;
+
+  // Dataset Methods
+  getDataset(userId: string): Promise<AiDatasetEntry[]>;
+  addDatasetEntry(entry: InsertAiDatasetEntry): Promise<AiDatasetEntry>;
+  updateDatasetEntry(id: number, userId: string, entry: Partial<InsertAiDatasetEntry>): Promise<AiDatasetEntry | undefined>;
+  deleteDatasetEntry(id: number, userId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -719,6 +728,37 @@ export class DatabaseStorage implements IStorage {
     }
 
     return `=== KNOWLEDGE BASE ===\n\n${sections.join("\n\n")}\n\n=== END KNOWLEDGE BASE ===`;
+  }
+
+  async getDataset(userId: string): Promise<AiDatasetEntry[]> {
+    return db
+      .select()
+      .from(aiDataset)
+      .where(eq(aiDataset.userId, userId))
+      .orderBy(desc(aiDataset.createdAt));
+  }
+
+  async addDatasetEntry(entry: InsertAiDatasetEntry): Promise<AiDatasetEntry> {
+    const [created] = await db
+      .insert(aiDataset)
+      .values(entry)
+      .returning();
+    return created;
+  }
+
+  async updateDatasetEntry(id: number, userId: string, updates: Partial<InsertAiDatasetEntry>): Promise<AiDatasetEntry | undefined> {
+    const [updated] = await db
+      .update(aiDataset)
+      .set(updates)
+      .where(and(eq(aiDataset.id, id), eq(aiDataset.userId, userId)))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteDatasetEntry(id: number, userId: string): Promise<void> {
+    await db
+      .delete(aiDataset)
+      .where(and(eq(aiDataset.id, id), eq(aiDataset.userId, userId)));
   }
 }
 

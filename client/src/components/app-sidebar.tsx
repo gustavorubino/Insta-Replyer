@@ -15,6 +15,11 @@ import {
   ChevronDown,
   MessageCircle,
   MessageSquare,
+  Brain,
+  Book,
+  Database,
+  Gamepad2,
+  Plug,
 } from "lucide-react";
 import { SiInstagram } from "react-icons/si";
 import {
@@ -66,10 +71,36 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
       url: "/history",
       icon: History,
     },
+  ];
+
+  const brainItems = [
     {
-      title: t.nav.settings,
-      url: "/settings",
-      icon: Settings,
+      title: "Personalidade",
+      url: "/brain/personality",
+      icon: Brain,
+    },
+    {
+      title: "Fontes",
+      url: "/brain/sources",
+      icon: Book,
+    },
+    {
+      title: "Memória & Dataset",
+      url: "/brain/dataset",
+      icon: Database,
+    },
+    {
+      title: "Treinador",
+      url: "/brain/trainer",
+      icon: Gamepad2,
+    },
+  ];
+
+  const settingsItems = [
+    {
+      title: "Conexões",
+      url: "/connections",
+      icon: Plug,
     },
   ];
 
@@ -236,6 +267,59 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* AI Brain Group */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Cérebro da IA</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {brainItems.map((item) => {
+                const isActive = location === item.url;
+                return (
+                  <SidebarMenuItem key={item.url}>
+                    <SidebarMenuButton
+                      asChild
+                      data-active={isActive}
+                      className="data-[active=true]:bg-sidebar-accent"
+                    >
+                      <Link href={item.url}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Settings Group */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Configurações</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {settingsItems.map((item) => {
+                const isActive = location === item.url;
+                return (
+                  <SidebarMenuItem key={item.url}>
+                    <SidebarMenuButton
+                      asChild
+                      data-active={isActive}
+                      className="data-[active=true]:bg-sidebar-accent"
+                    >
+                      <Link href={item.url}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         {user?.isAdmin && (
           <SidebarGroup>
             <SidebarGroupLabel>Admin</SidebarGroupLabel>

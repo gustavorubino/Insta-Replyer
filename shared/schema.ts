@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, serial, integer, timestamp, boolean, real } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, integer, timestamp, boolean, real, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -47,6 +47,16 @@ export const aiResponses = pgTable("ai_responses", {
   humanFeedback: text("human_feedback"), // Optional feedback from human
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
   approvedAt: timestamp("approved_at"),
+});
+
+// AI Dataset (Memory) for RAG
+export const aiDataset = pgTable("ai_dataset", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  question: text("question").notNull(),
+  answer: text("answer").notNull(),
+  embedding: jsonb("embedding"), // Stores vector as array of numbers
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
 // Learning History (for AI improvement)
@@ -132,6 +142,11 @@ export const insertAiResponseSchema = createInsertSchema(aiResponses).omit({
   approvedAt: true,
 });
 
+export const insertAiDatasetSchema = createInsertSchema(aiDataset).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertLearningHistorySchema = createInsertSchema(learningHistory).omit({
   id: true,
   createdAt: true,
@@ -160,6 +175,9 @@ export type InsertInstagramMessage = z.infer<typeof insertInstagramMessageSchema
 
 export type AiResponse = typeof aiResponses.$inferSelect;
 export type InsertAiResponse = z.infer<typeof insertAiResponseSchema>;
+
+export type AiDatasetEntry = typeof aiDataset.$inferSelect;
+export type InsertAiDatasetEntry = z.infer<typeof insertAiDatasetSchema>;
 
 export type LearningHistory = typeof learningHistory.$inferSelect;
 export type InsertLearningHistory = z.infer<typeof insertLearningHistorySchema>;
