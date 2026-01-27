@@ -4,6 +4,7 @@ import { setupMediaEndpoint } from "./utils/media-storage";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startTokenRefreshJob, autoFixMissingRecipientIds } from "./jobs/token-refresh-job";
+import { ensureSchema } from "./ensure-schema";
 
 const app = express();
 const httpServer = createServer(app);
@@ -97,6 +98,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Ensure schema exists on startup
+  await ensureSchema();
+
   await registerRoutes(httpServer, app);
 
   // Configurar endpoint de mídia

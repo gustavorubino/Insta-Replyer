@@ -14,6 +14,7 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { extractFromUrl, extractFromPdf, extractFromText } from "./knowledge-extractor";
 import { ObjectStorageService, registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import { generateEmbedding } from "./utils/openai_embeddings";
 
 // Store last 50 webhooks received for debugging (in-memory)
 interface WebhookProcessingResult {
@@ -3256,6 +3257,7 @@ export async function registerRoutes(
     try {
       console.log("Processing webhook DM:", JSON.stringify(messageData));
 
+      let senderFollowersCount: number | undefined;
       const senderId = messageData.sender?.id;
       const recipientId = messageData.recipient?.id;
       const messageId = messageData.message?.mid;
@@ -3647,7 +3649,7 @@ export async function registerRoutes(
           senderAvatar = userInfo.avatar;
         }
         // Use followers count if available
-        let senderFollowersCount = userInfo.followersCount;
+        senderFollowersCount = userInfo.followersCount;
 
         console.log(`Resolved sender info: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}, followers: ${senderFollowersCount || 'N/A'}`);
         
@@ -4556,6 +4558,143 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting knowledge file:", error);
       res.status(500).json({ error: "Failed to delete knowledge file" });
+    }
+  });
+
+  // ============================================
+  // AI Brain / Dataset API Endpoints
+  // ============================================
+
+  // GET /api/brain/dataset - List all dataset entries
+  app.get("/api/brain/dataset", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const dataset = await storage.getDataset(userId);
+      res.json(dataset);
+    } catch (error) {
+      console.error("Error fetching dataset:", error);
+      res.status(500).json({ error: "Failed to fetch dataset" });
+    }
+  });
+
+  // POST /api/brain/dataset - Add new entry
+  app.post("/api/brain/dataset", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const { question, answer } = req.body;
+
+      if (!question || !answer) {
+        return res.status(400).json({ error: "Question and answer are required" });
+      }
+
+      // Generate embedding
+      let embedding: number[] | null = null;
+      try {
+        embedding = await generateEmbedding(question);
+      } catch (e) {
+        console.error("Failed to generate embedding:", e);
+        return res.status(500).json({ error: "Failed to generate embedding for the question" });
+      }
+
+      const entry = await storage.addDatasetEntry({
+        userId,
+        question,
+        answer,
+        embedding: embedding as any,
+      });
+
+      res.status(201).json(entry);
+    } catch (error) {
+      console.error("Error adding dataset entry:", error);
+      res.status(500).json({ error: "Failed to add dataset entry" });
+    }
+  });
+
+  // PATCH /api/brain/dataset/:id - Update entry
+  app.patch("/api/brain/dataset/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const id = parseInt(req.params.id);
+      const { question, answer } = req.body;
+
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
+
+      const dataset = await storage.getDataset(userId);
+      const currentEntry = dataset.find(e => e.id === id);
+
+      if (!currentEntry) {
+        return res.status(404).json({ error: "Entry not found" });
+      }
+
+      let embedding = currentEntry.embedding;
+
+      // Regenerate embedding if question changed
+      if (question && question !== currentEntry.question) {
+        try {
+          const newEmbedding = await generateEmbedding(question);
+          embedding = newEmbedding as any;
+        } catch (e) {
+          console.error("Failed to regenerate embedding:", e);
+          return res.status(500).json({ error: "Failed to regenerate embedding" });
+        }
+      }
+
+      const updated = await storage.updateDatasetEntry(id, userId, {
+        question,
+        answer,
+        embedding: embedding as any,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating dataset entry:", error);
+      res.status(500).json({ error: "Failed to update dataset entry" });
+    }
+  });
+
+  // DELETE /api/brain/dataset/:id - Delete entry
+  app.delete("/api/brain/dataset/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const id = parseInt(req.params.id);
+
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
+
+      await storage.deleteDatasetEntry(id, userId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting dataset entry:", error);
+      res.status(500).json({ error: "Failed to delete dataset entry" });
+    }
+  });
+
+  // POST /api/brain/simulate - Trainer/Simulator Endpoint
+  app.post("/api/brain/simulate", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const { message, senderName } = req.body;
+
+      if (!message) {
+        return res.status(400).json({ error: "Message is required" });
+      }
+
+      const aiResult = await generateAIResponse(
+        message,
+        "dm", // Simulate as DM
+        senderName || "Simulated User",
+        userId,
+        undefined, // No comment context
+        undefined  // No history for now (could add simple history later)
+      );
+
+      res.json({
+        response: aiResult.suggestedResponse,
+        confidence: aiResult.confidenceScore,
+        usedRAG: false, // Will be updated in Step 4
+      });
+    } catch (error) {
+      console.error("Error simulating AI response:", error);
+      res.status(500).json({ error: "Failed to simulate response" });
     }
   });
 

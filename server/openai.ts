@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import { getOpenAIConfig } from "./utils/openai-config";
+import { generateEmbedding, cosineSimilarity } from "./utils/openai_embeddings";
 
 // Types for OpenAI API - supports both text and vision
 type TextContent = {
@@ -189,22 +190,65 @@ export async function generateAIResponse(
   commentContext?: CommentContext,
   conversationHistory?: ConversationHistoryEntry[]
 ): Promise<GenerateResponseResult> {
-  const systemPromptSetting = await storage.getSetting("systemPrompt");
-  const systemPrompt = systemPromptSetting?.value || getDefaultSystemPrompt();
+  // 1. Get System Prompt (Per-user or Global fallback)
+  let systemPrompt = "";
+  if (userId) {
+    const user = await storage.getUser(userId);
+    if (user?.aiContext) {
+      systemPrompt = user.aiContext;
+    }
+  }
+
+  if (!systemPrompt) {
+    const systemPromptSetting = await storage.getSetting("systemPrompt");
+    systemPrompt = systemPromptSetting?.value || getDefaultSystemPrompt();
+  }
 
   const learningHistory = await storage.getLearningHistory();
   const learningContext = formatLearningContext(learningHistory.slice(0, 10));
 
   // Fetch knowledge base context if userId is provided
   let knowledgeContext = "";
+  let ragContext = ""; // New RAG context
+
   if (userId) {
     try {
       knowledgeContext = await storage.getKnowledgeContext(userId);
       if (knowledgeContext) {
         console.log(`[OpenAI] Knowledge context loaded for user ${userId}, length: ${knowledgeContext.length}`);
       }
+
+      // RAG Logic
+      const dataset = await storage.getDataset(userId);
+      if (dataset.length > 0) {
+        const queryEmbedding = await generateEmbedding(messageContent);
+
+        const scored = dataset.map(entry => {
+          if (!entry.embedding) return { entry, score: 0 };
+          const vec = entry.embedding as number[];
+          return { entry, score: cosineSimilarity(queryEmbedding, vec) };
+        });
+
+        scored.sort((a, b) => b.score - a.score);
+        const topMatches = scored.filter(x => x.score > 0.7).slice(0, 3);
+
+        if (topMatches.length > 0) {
+          ragContext = `
+═══════════════════════════════════════════════════════
+MEMÓRIA (Exemplos similares de como responder):
+${topMatches.map((m, i) => `
+Exemplo ${i + 1} (Similaridade: ${(m.score * 100).toFixed(0)}%):
+Usuário: "${m.entry.question}"
+Resposta Ideal: "${m.entry.answer}"
+`).join("\n")}
+═══════════════════════════════════════════════════════
+Use estes exemplos como referência rigorosa de estilo e tom.
+`;
+          console.log(`[OpenAI] RAG context added with ${topMatches.length} examples`);
+        }
+      }
     } catch (err) {
-      console.error("[OpenAI] Error loading knowledge context:", err);
+      console.error("[OpenAI] Error loading context (Knowledge/RAG):", err);
     }
   }
 
@@ -302,6 +346,7 @@ ${contextPoints.map((p, i) => `${i + 1}. ${p}`).join("\n")}
   const prompt = `${systemPrompt}
 
 ${knowledgeContext ? `\n${knowledgeContext}\n` : ""}
+${ragContext}
 ${learningContext}
 ${postContextSection}${conversationHistorySection}
 Agora, gere uma resposta para a seguinte mensagem:
