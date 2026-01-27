@@ -1,0 +1,8 @@
+
+  VITE v7.3.0  ready in 393 ms
+
+  ➜  Local:   http://localhost:5000/
+  ➜  Network: use --host to expose
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+7:37:59 PM [vite] (client) hmr update /src/App.tsx, /src/components/app-sidebar.tsx, /src/pages/admin.tsx, /src/index.css

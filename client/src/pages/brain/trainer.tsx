@@ -1,5 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
   Send,
   Bot,
@@ -11,12 +15,11 @@ import {
   Terminal,
   PencilRuler,
   Cpu,
+  Sparkles,
+  Settings,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,6 +33,11 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -57,6 +65,7 @@ export default function Trainer() {
   const [showContext, setShowContext] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll to bottom
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -186,12 +195,13 @@ export default function Trainer() {
   };
 
   return (
-    <div className="p-6 h-[calc(100vh-4rem)] flex flex-col gap-6">
-      <div className="flex flex-col gap-4 flex-shrink-0">
-        <div className="flex items-center justify-between">
+    <div className="flex flex-col h-full bg-background text-foreground relative">
+      {/* Header Section */}
+      <div className="p-6 pb-4 space-y-6 flex-shrink-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex items-center justify-between max-w-4xl mx-auto w-full">
           <div>
-            <h1 className="text-2xl font-semibold">Console de Comando Central</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-2xl font-semibold tracking-tight">Console de Comando Central</h1>
+            <p className="text-muted-foreground text-sm">
               {mode === "simulator" && "Simule conversas e corrija a IA."}
               {mode === "architect" && "Construa o System Prompt perfeito."}
               {mode === "copilot" && "Gerencie o sistema e tire dúvidas."}
@@ -200,6 +210,7 @@ export default function Trainer() {
           <div className="flex gap-2">
             <Button
               variant="outline"
+              size="sm"
               onClick={clearChat}
               disabled={messages.length === 0}
             >
@@ -209,39 +220,48 @@ export default function Trainer() {
           </div>
         </div>
 
-        <Tabs value={mode} onValueChange={handleModeChange} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="simulator">
-              <Bot className="h-4 w-4 mr-2" />
-              Simulador
-            </TabsTrigger>
-            <TabsTrigger value="architect">
-              <PencilRuler className="h-4 w-4 mr-2" />
-              Arquiteto
-            </TabsTrigger>
-            <TabsTrigger value="copilot">
-              <Cpu className="h-4 w-4 mr-2" />
-              Copiloto
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+        <div className="max-w-4xl mx-auto w-full">
+           <Tabs value={mode} onValueChange={handleModeChange} className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="simulator">
+                <Bot className="h-4 w-4 mr-2" />
+                Simulador
+              </TabsTrigger>
+              <TabsTrigger value="architect">
+                <PencilRuler className="h-4 w-4 mr-2" />
+                Arquiteto
+              </TabsTrigger>
+              <TabsTrigger value="copilot">
+                <Cpu className="h-4 w-4 mr-2" />
+                Copiloto
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
 
-      {mode === "simulator" && (
-        <Card>
-          <CardContent className="pt-4 pb-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowContext(!showContext)}
-              className="w-full justify-between"
+          {/* Context Configuration (Collapsible) */}
+          {mode === "simulator" && (
+            <Collapsible
+              open={showContext}
+              onOpenChange={setShowContext}
+              className="mt-4 border rounded-lg bg-card/50"
             >
-              <span>Configurar Contexto (Imagem/Legenda)</span>
-              {showContext ? "Ocultar" : "Mostrar"}
-            </Button>
-
-            {showContext && (
-              <div className="grid gap-4 pt-4 animate-in slide-in-from-top-2">
+              <div className="flex items-center justify-between px-4 py-2">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-4 w-4 text-muted-foreground" />
+                  <h2 className="text-sm font-medium text-muted-foreground">Contexto & Multimodal</h2>
+                </div>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    {showContext ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                    <span className="sr-only">Toggle Context</span>
+                  </Button>
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent className="px-4 pb-4 space-y-4">
                 <div className="grid gap-2">
                   <Label htmlFor="postCaption">Legenda do Post</Label>
                   <Input
@@ -260,150 +280,205 @@ export default function Trainer() {
                     onChange={(e) => setPostImageUrl(e.target.value)}
                   />
                 </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+        </div>
+      </div>
 
-      <Card className="flex-1 flex flex-col overflow-hidden border-2">
-        <CardContent
-          className="flex-1 overflow-y-auto p-4 space-y-4"
-          ref={scrollRef}
-        >
+      {/* Chat Area */}
+      <div
+        className="flex-1 overflow-y-auto px-4 pb-32 w-full max-w-4xl mx-auto scroll-smooth"
+        ref={scrollRef}
+      >
+        <div className="space-y-6 py-4">
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50">
-              {mode === "simulator" && <Bot className="h-16 w-16 mb-4" />}
-              {mode === "architect" && <PencilRuler className="h-16 w-16 mb-4" />}
-              {mode === "copilot" && <Terminal className="h-16 w-16 mb-4" />}
-              <p>
+            <div className="h-[40vh] flex flex-col items-center justify-center text-muted-foreground/50">
+              {mode === "simulator" && <Bot className="h-16 w-16 mb-4 stroke-1" />}
+              {mode === "architect" && <PencilRuler className="h-16 w-16 mb-4 stroke-1" />}
+              {mode === "copilot" && <Terminal className="h-16 w-16 mb-4 stroke-1" />}
+              <p className="font-light">
                 {mode === "simulator"
-                  ? "Envie uma mensagem para começar o treinamento."
+                  ? "Inicie a simulação..."
                   : mode === "architect"
-                  ? "Comece descrevendo como você quer que o bot se comporte."
-                  : "Pergunte sobre estatísticas ou configurações do sistema."}
+                  ? "Defina o comportamento..."
+                  : "Aguardando comando..."}
               </p>
             </div>
           ) : (
             messages.map((msg) => (
               <div
                 key={msg.id}
-                className={`flex gap-3 ${
+                className={`flex gap-4 ${
                   msg.role === "user" ? "justify-end" : "justify-start"
                 }`}
               >
+                {/* Avatar for Assistant */}
                 {msg.role === "assistant" && (
                   <div
-                    className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 border mt-1 ${
                       mode === "architect"
-                        ? "bg-purple-100 text-purple-600"
+                        ? "bg-purple-50 text-purple-600 border-purple-100"
                         : mode === "copilot"
-                        ? "bg-blue-100 text-blue-600"
-                        : "bg-primary/10 text-primary"
+                        ? "bg-blue-50 text-blue-600 border-blue-100"
+                        : "bg-emerald-50 text-emerald-600 border-emerald-100"
                     }`}
                   >
                     {mode === "architect" ? (
-                      <PencilRuler className="h-5 w-5" />
+                      <PencilRuler className="h-4 w-4" />
                     ) : mode === "copilot" ? (
-                      <Cpu className="h-5 w-5" />
+                      <Cpu className="h-4 w-4" />
                     ) : (
-                      <Bot className="h-5 w-5" />
+                      <Sparkles className="h-4 w-4" />
                     )}
                   </div>
                 )}
 
                 <div
-                  className={`flex flex-col gap-1 max-w-[80%] ${
+                  className={`flex flex-col gap-1 max-w-[85%] ${
                     msg.role === "user" ? "items-end" : "items-start"
                   }`}
                 >
                   <div
-                    className={`p-3 rounded-lg ${
+                    className={`px-4 py-3 rounded-2xl shadow-sm text-sm leading-relaxed ${
                       msg.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
+                        ? "bg-primary text-primary-foreground rounded-tr-sm"
+                        : "bg-muted/40 text-foreground rounded-tl-sm border"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                    {msg.role === "assistant" ? (
+                      <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            code({ node, inline, className, children, ...props }: any) {
+                              const match = /language-(\w+)/.exec(className || "");
+                              return !inline && match ? (
+                                <SyntaxHighlighter
+                                  style={vscDarkPlus}
+                                  language={match[1]}
+                                  PreTag="div"
+                                  className="rounded-md !bg-zinc-950 !my-0"
+                                  {...props}
+                                >
+                                  {String(children).replace(/\n$/, "")}
+                                </SyntaxHighlighter>
+                              ) : (
+                                <code className={`${className} bg-muted px-1 py-0.5 rounded font-mono text-sm`} {...props}>
+                                  {children}
+                                </code>
+                              );
+                            },
+                          }}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                    )}
                   </div>
 
-                  {msg.role === "assistant" && mode === "simulator" && (
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-muted-foreground">
-                        Confiança: {Math.round((msg.confidence || 0) * 100)}%
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-xs text-primary hover:text-primary/80"
-                        onClick={() => openCorrectionDialog(msg)}
-                      >
-                        <Save className="h-3 w-3 mr-1" />
-                        Corrigir & Ensinar
-                      </Button>
-                    </div>
-                  )}
+                  {/* Message Actions */}
+                  {msg.role === "assistant" && (
+                    <div className="flex items-center gap-2 px-1">
+                      {mode === "simulator" && (
+                        <>
+                          <span className="text-[10px] text-muted-foreground">
+                            Confiança: {Math.round((msg.confidence || 0) * 100)}%
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 px-2 text-[10px] text-muted-foreground hover:text-primary"
+                            onClick={() => openCorrectionDialog(msg)}
+                          >
+                            <Save className="h-3 w-3 mr-1" />
+                            Corrigir
+                          </Button>
+                        </>
+                      )}
 
-                  {msg.role === "assistant" && mode === "architect" && (
-                    <div className="flex items-center gap-2 mt-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-xs text-purple-600 hover:text-purple-700"
-                        onClick={() => handleApplyPrompt(msg.content)}
-                        disabled={applyPromptMutation.isPending}
-                      >
-                        {applyPromptMutation.isPending ? (
-                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="h-3 w-3 mr-1" />
-                        )}
-                        Aplicar Prompt
-                      </Button>
+                      {mode === "architect" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 px-2 text-[10px] text-purple-600 hover:text-purple-700"
+                          onClick={() => handleApplyPrompt(msg.content)}
+                          disabled={applyPromptMutation.isPending}
+                        >
+                          {applyPromptMutation.isPending ? (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                          )}
+                          Aplicar Prompt
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
 
+                {/* Avatar for User */}
                 {msg.role === "user" && (
-                  <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
-                    <User className="h-5 w-5 text-secondary-foreground" />
+                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 border border-primary/20 mt-1">
+                    <User className="h-4 w-4 text-primary" />
                   </div>
                 )}
               </div>
             ))
           )}
+
+          {/* Typing Indicator */}
           {simulateMutation.isPending && (
-            <div className="flex justify-start gap-3">
-              <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
+            <div className="flex gap-4 justify-start">
+               <div className="h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 border mt-1 bg-muted/30">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+               </div>
+               <div className="bg-muted/40 rounded-2xl rounded-tl-sm px-4 py-3 border">
+                  <div className="flex gap-1 items-center h-5">
+                    <div className="w-2 h-2 bg-foreground/30 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                    <div className="w-2 h-2 bg-foreground/30 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                    <div className="w-2 h-2 bg-foreground/30 rounded-full animate-bounce"></div>
+                  </div>
+               </div>
             </div>
           )}
-        </CardContent>
-        <CardFooter className="p-4 border-t bg-card">
-          <div className="flex w-full gap-2">
+        </div>
+      </div>
+
+      {/* Floating Input Area (Sticky Footer) */}
+      <div className="absolute bottom-0 left-0 right-0 p-4 z-50 bg-gradient-to-t from-background via-background to-transparent pt-10 pb-6 pointer-events-none">
+        <div className="max-w-3xl mx-auto w-full pointer-events-auto">
+          <div className="relative shadow-xl rounded-full bg-background border ring-1 ring-black/5 flex items-center transition-all focus-within:ring-primary/20 focus-within:shadow-2xl">
             <Input
               placeholder={
                 mode === "simulator"
-                  ? "Digite uma mensagem como se fosse um cliente..."
+                  ? "Envie uma mensagem..."
                   : mode === "architect"
-                  ? "Descreva a persona ou regras de comportamento..."
-                  : "Pergunte 'Quantas mensagens tenho?' ou 'Como configurar o bot?'"
+                  ? "Descreva as regras..."
+                  : "Pergunte ao Copiloto..."
               }
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={simulateMutation.isPending}
+              className="border-0 shadow-none focus-visible:ring-0 bg-transparent py-6 pl-6 pr-14 text-base rounded-full h-14"
             />
             <Button
               onClick={handleSendMessage}
               disabled={!inputValue.trim() || simulateMutation.isPending}
+              size="icon"
+              className="absolute right-2 h-10 w-10 rounded-full shadow-sm"
             >
               <Send className="h-4 w-4" />
             </Button>
           </div>
-        </CardFooter>
-      </Card>
+          <p className="text-[10px] text-center text-muted-foreground mt-2 opacity-60">
+            A IA pode cometer erros. Verifique informações importantes.
+          </p>
+        </div>
+      </div>
 
       {/* Dialog for Simulator Mode - Edit & Learn */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
