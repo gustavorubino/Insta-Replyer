@@ -1,8 +1,10 @@
 import { callOpenAI, ChatCompletionMessageParam, Tool } from "./openai";
 import { storage } from "./storage";
 import { db } from "./db";
-import { aiDataset, instagramMessages, aiResponses, learningHistory, knowledgeLinks, knowledgeFiles, users } from "@shared/schema";
+import { aiDataset, instagramMessages, aiResponses, learningHistory, knowledgeLinks, knowledgeFiles, users, settings } from "@shared/schema";
 import { eq, count, sql, and, gte, desc } from "drizzle-orm";
+import * as fs from "fs";
+import * as path from "path";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -37,48 +39,123 @@ export async function runArchitectAgent(history: ChatMessage[]): Promise<string>
 
 // --- Copilot Mode ---
 
-const COPILOT_SYSTEM_PROMPT = `Você é o Copiloto Técnico do Sistema de IA para Instagram. Você é como o Replit Agent - tem acesso TOTAL a todos os dados e informações do sistema.
+const COPILOT_SYSTEM_PROMPT = `Você é o Copiloto Técnico do Sistema de IA para Instagram. Você é IGUAL ao Replit Agent - tem acesso TOTAL e IRRESTRITO a todos os dados, código e informações do sistema. SEM LIMITES.
 
-## SUAS CAPACIDADES
-Você tem ferramentas para consultar dados REAIS do banco de dados:
-- get_dataset_stats: Conta mensagens no Memória & Dataset (aprendizado da IA)
-- get_pending_messages: Lista mensagens/comentários pendentes de aprovação
-- get_system_stats: Estatísticas gerais (total de mensagens, aprovadas, rejeitadas, etc.)
-- get_user_settings: Configurações do usuário (modo de operação, tom da IA, etc.)
-- get_knowledge_base: Base de conhecimento (links e arquivos de treinamento)
-- get_learning_history: Histórico de aprendizado/correções
+## ACESSO TOTAL - SUAS FERRAMENTAS
+
+### BANCO DE DADOS (Acesso Completo)
+- **execute_sql**: Executa qualquer query SELECT no PostgreSQL - acesso direto a TODAS as tabelas
+- **get_table_schema**: Vê a estrutura de qualquer tabela do banco
+- **get_all_users**: Lista TODOS os usuários com suas configurações completas
+- **get_all_settings**: Lista TODAS as configurações do sistema
+
+### ESTATÍSTICAS E DADOS
+- **get_dataset_stats**: Conta mensagens no Dataset de aprendizado
+- **get_pending_messages**: Lista mensagens pendentes com contagem REAL (sem limite)
+- **get_system_stats**: Estatísticas gerais completas
+- **get_knowledge_base**: Base de conhecimento completa
+- **get_learning_history**: Histórico de aprendizado completo
+
+### CÓDIGO E ARQUIVOS
+- **get_code_structure**: Lista toda a estrutura de arquivos do projeto
+- **read_code_file**: Lê o conteúdo de qualquer arquivo do código fonte
+
+### ANÁLISE
+- **get_technical_suggestions**: Análise técnica e sugestões de melhorias
 
 ## ARQUITETURA DO SISTEMA
-- **Frontend**: React + TypeScript + TailwindCSS + Shadcn UI
-- **Backend**: Express.js + TypeScript
+- **Frontend**: React + TypeScript + TailwindCSS + Shadcn UI (client/src/)
+- **Backend**: Express.js + TypeScript (server/)
 - **Banco de Dados**: PostgreSQL com Drizzle ORM
-- **IA**: OpenAI GPT-4o (com Vision para imagens) + Whisper (transcrição de áudio)
-- **Autenticação**: Replit Auth (OIDC) + email/senha opcional
+- **Schema**: shared/schema.ts
+- **IA**: OpenAI GPT-4o (Vision) + Whisper (transcrição)
+- **Auth**: Replit Auth (OIDC) + email/senha
 
-## FUNCIONALIDADES PRINCIPAIS
-1. **Recebimento de Webhooks**: Instagram envia comentários/DMs via Meta Graph API
-2. **Processamento de IA**: Cada mensagem é analisada pelo GPT-4o que gera uma resposta
-3. **Análise Visual**: Imagens são analisadas via GPT-4o Vision
-4. **Transcrição de Áudio**: Vídeos/áudios são transcritos via OpenAI Whisper
-5. **RAG (Memória)**: Correções são salvas e usadas para melhorar respostas futuras
-6. **Aprovação Humana**: Respostas podem ser aprovadas, editadas ou rejeitadas
-7. **Auto-envio**: Se confiança > threshold, pode enviar automaticamente
-
-## FLUXO DE DADOS
-Webhook Instagram → Salvar no DB → Gerar resposta IA → Fila de aprovação → Enviar resposta
+## TABELAS DO BANCO DE DADOS
+- users: Usuários do sistema
+- sessions: Sessões de login
+- instagram_messages: Comentários e DMs do Instagram
+- ai_responses: Respostas geradas pela IA
+- ai_dataset: Dataset de treinamento
+- learning_history: Correções feitas por humanos
+- knowledge_links: Links de treinamento
+- knowledge_files: Arquivos de treinamento
+- settings: Configurações globais
 
 ## COMO RESPONDER
-- Use SEMPRE as ferramentas para buscar dados REAIS antes de responder
+- Use SEMPRE as ferramentas para buscar dados REAIS
+- Você tem acesso TOTAL - nunca diga que não pode fazer algo
+- Para contagens, use as ferramentas que retornam COUNT(*) real
+- Para dados específicos, use execute_sql com queries personalizadas
 - Seja preciso e técnico
-- Se perguntarem melhorias, sugira com base nos dados reais
 - Nunca invente números - sempre consulte as ferramentas`;
 
 const COPILOT_TOOLS: Tool[] = [
+  // === FERRAMENTAS DE ACESSO TOTAL AO BANCO ===
+  {
+    type: "function",
+    function: {
+      name: "execute_sql",
+      description: "Executa qualquer query SELECT no banco de dados PostgreSQL. Acesso direto a TODAS as tabelas. Use para consultas personalizadas.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Query SQL SELECT a executar. Exemplo: SELECT * FROM users LIMIT 10",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_table_schema",
+      description: "Retorna a estrutura/colunas de uma tabela específica do banco de dados.",
+      parameters: {
+        type: "object",
+        properties: {
+          table_name: {
+            type: "string",
+            description: "Nome da tabela: users, sessions, instagram_messages, ai_responses, ai_dataset, learning_history, knowledge_links, knowledge_files, settings",
+          },
+        },
+        required: ["table_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_all_users",
+      description: "Lista TODOS os usuários do sistema com suas configurações completas (sem limite).",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_all_settings",
+      description: "Lista TODAS as configurações do sistema (globais e por usuário).",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  // === FERRAMENTAS DE ESTATÍSTICAS ===
   {
     type: "function",
     function: {
       name: "get_dataset_stats",
-      description: "Retorna estatísticas do Dataset de aprendizado (Memória & Dataset). Inclui contagem de entradas, exemplos recentes.",
+      description: "Retorna estatísticas do Dataset de aprendizado (Memória & Dataset). Inclui contagem TOTAL de entradas.",
       parameters: {
         type: "object",
         properties: {},
@@ -90,24 +167,7 @@ const COPILOT_TOOLS: Tool[] = [
     type: "function",
     function: {
       name: "get_pending_messages",
-      description: "Retorna mensagens/comentários pendentes de aprovação, incluindo detalhes e quantidade.",
-      parameters: {
-        type: "object",
-        properties: {
-          limit: {
-            type: "number",
-            description: "Limite de mensagens a retornar (padrão: 10)",
-          },
-        },
-        required: [],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_system_stats",
-      description: "Retorna estatísticas gerais do sistema: total de mensagens, aprovadas, rejeitadas, auto-enviadas, confiança média.",
+      description: "Retorna a contagem REAL (COUNT) de mensagens pendentes na Fila de Aprovação, separadas por tipo (comentários e DMs).",
       parameters: {
         type: "object",
         properties: {},
@@ -118,8 +178,8 @@ const COPILOT_TOOLS: Tool[] = [
   {
     type: "function",
     function: {
-      name: "get_user_settings",
-      description: "Retorna configurações do usuário: modo de operação, threshold de auto-aprovação, tom da IA, contexto.",
+      name: "get_system_stats",
+      description: "Retorna estatísticas gerais COMPLETAS do sistema: total de mensagens, pendentes, aprovadas, rejeitadas, auto-enviadas, confiança média.",
       parameters: {
         type: "object",
         properties: {},
@@ -131,7 +191,7 @@ const COPILOT_TOOLS: Tool[] = [
     type: "function",
     function: {
       name: "get_knowledge_base",
-      description: "Retorna informações sobre a base de conhecimento: links e arquivos de treinamento.",
+      description: "Retorna informações COMPLETAS sobre a base de conhecimento: links e arquivos de treinamento.",
       parameters: {
         type: "object",
         properties: {},
@@ -143,19 +203,50 @@ const COPILOT_TOOLS: Tool[] = [
     type: "function",
     function: {
       name: "get_learning_history",
-      description: "Retorna o histórico de aprendizado: correções feitas pelo usuário para melhorar a IA.",
+      description: "Retorna o histórico COMPLETO de aprendizado: todas as correções feitas por humanos.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  // === FERRAMENTAS DE CÓDIGO ===
+  {
+    type: "function",
+    function: {
+      name: "get_code_structure",
+      description: "Lista toda a estrutura de arquivos do projeto (client/, server/, shared/).",
       parameters: {
         type: "object",
         properties: {
-          limit: {
-            type: "number",
-            description: "Limite de entradas a retornar (padrão: 20)",
+          directory: {
+            type: "string",
+            description: "Diretório específico para listar. Padrão: raiz do projeto. Ex: server, client/src, shared",
           },
         },
         required: [],
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "read_code_file",
+      description: "Lê o conteúdo de qualquer arquivo do código fonte do projeto.",
+      parameters: {
+        type: "object",
+        properties: {
+          file_path: {
+            type: "string",
+            description: "Caminho do arquivo. Ex: server/routes.ts, client/src/App.tsx, shared/schema.ts",
+          },
+        },
+        required: ["file_path"],
+      },
+    },
+  },
+  // === FERRAMENTA DE ANÁLISE ===
   {
     type: "function",
     function: {
@@ -170,14 +261,238 @@ const COPILOT_TOOLS: Tool[] = [
   },
 ];
 
-// Real tool implementations that query the database
+// ========== NOVAS FERRAMENTAS DE ACESSO TOTAL ==========
+
+// Executa SQL SELECT diretamente no banco
+async function executeExecuteSql(query: string): Promise<string> {
+  try {
+    // Validação de segurança: apenas SELECT permitido
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery.startsWith("select")) {
+      return JSON.stringify({ 
+        error: "Apenas queries SELECT são permitidas por segurança",
+        suggestion: "Use: SELECT * FROM tabela LIMIT 100"
+      });
+    }
+    
+    // Bloqueia comandos perigosos
+    const dangerousKeywords = ["drop", "delete", "update", "insert", "alter", "truncate", "create"];
+    for (const keyword of dangerousKeywords) {
+      if (normalizedQuery.includes(keyword)) {
+        return JSON.stringify({ 
+          error: `Comando '${keyword.toUpperCase()}' não permitido`,
+          suggestion: "Apenas SELECT é permitido"
+        });
+      }
+    }
+    
+    const result = await db.execute(sql.raw(query));
+    return JSON.stringify({
+      success: true,
+      row_count: Array.isArray(result) ? result.length : (result.rows?.length || 0),
+      data: Array.isArray(result) ? result : result.rows,
+    });
+  } catch (error) {
+    console.error("[Copilot] SQL execution error:", error);
+    return JSON.stringify({ error: "Erro ao executar query", details: String(error) });
+  }
+}
+
+// Retorna schema de uma tabela
+async function executeGetTableSchema(tableName: string): Promise<string> {
+  try {
+    const validTables = [
+      "users", "sessions", "instagram_messages", "ai_responses", 
+      "ai_dataset", "learning_history", "knowledge_links", "knowledge_files", "settings"
+    ];
+    
+    if (!validTables.includes(tableName)) {
+      return JSON.stringify({ 
+        error: "Tabela inválida", 
+        valid_tables: validTables 
+      });
+    }
+    
+    const result = await db.execute(sql.raw(`
+      SELECT column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns 
+      WHERE table_name = '${tableName}'
+      ORDER BY ordinal_position
+    `));
+    
+    return JSON.stringify({
+      table: tableName,
+      columns: Array.isArray(result) ? result : result.rows,
+    });
+  } catch (error) {
+    console.error("[Copilot] Schema fetch error:", error);
+    return JSON.stringify({ error: "Erro ao obter schema", details: String(error) });
+  }
+}
+
+// Lista TODOS os usuários (sem limite)
+async function executeGetAllUsers(): Promise<string> {
+  try {
+    const allUsers = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        isAdmin: users.isAdmin,
+        instagramAccountId: users.instagramAccountId,
+        instagramUsername: users.instagramUsername,
+        operationMode: users.operationMode,
+        autoApproveThreshold: users.autoApproveThreshold,
+        aiTone: users.aiTone,
+        aiContext: users.aiContext,
+        createdAt: users.createdAt,
+      })
+      .from(users);
+    
+    return JSON.stringify({
+      total_users: allUsers.length,
+      users: allUsers.map(u => ({
+        id: u.id,
+        email: u.email,
+        name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || "Sem nome",
+        role: u.isAdmin ? "admin" : "user",
+        instagram: u.instagramUsername || "Não conectado",
+        instagram_account_id: u.instagramAccountId || "N/A",
+        operation_mode: u.operationMode || "manual",
+        auto_approve_threshold: u.autoApproveThreshold || "0.85",
+        ai_tone: u.aiTone || "default",
+        ai_context: u.aiContext?.substring(0, 100) || "Não definido",
+        created_at: u.createdAt,
+      })),
+    });
+  } catch (error) {
+    console.error("[Copilot] Error fetching all users:", error);
+    return JSON.stringify({ error: "Erro ao listar usuários", details: String(error) });
+  }
+}
+
+// Lista TODAS as configurações
+async function executeGetAllSettings(): Promise<string> {
+  try {
+    const allSettings = await db.select().from(settings);
+    
+    return JSON.stringify({
+      total_settings: allSettings.length,
+      settings: allSettings.map(s => ({
+        key: s.key,
+        value: s.value,
+        updated_at: s.updatedAt,
+      })),
+    });
+  } catch (error) {
+    console.error("[Copilot] Error fetching settings:", error);
+    return JSON.stringify({ error: "Erro ao listar configurações", details: String(error) });
+  }
+}
+
+// Lista estrutura de código
+async function executeGetCodeStructure(directory: string = "."): Promise<string> {
+  try {
+    const baseDir = path.resolve(process.cwd(), directory);
+    
+    // Verifica se está dentro do projeto
+    if (!baseDir.startsWith(process.cwd())) {
+      return JSON.stringify({ error: "Caminho inválido - deve estar dentro do projeto" });
+    }
+    
+    const getFilesRecursively = (dir: string, depth: number = 0): any[] => {
+      if (depth > 3) return []; // Limita profundidade para evitar loops
+      
+      const items: any[] = [];
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        
+        for (const entry of entries) {
+          // Ignora node_modules e arquivos ocultos
+          if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "dist") {
+            continue;
+          }
+          
+          const fullPath = path.join(dir, entry.name);
+          const relativePath = path.relative(process.cwd(), fullPath);
+          
+          if (entry.isDirectory()) {
+            items.push({
+              type: "directory",
+              name: entry.name,
+              path: relativePath,
+              children: getFilesRecursively(fullPath, depth + 1),
+            });
+          } else {
+            items.push({
+              type: "file",
+              name: entry.name,
+              path: relativePath,
+            });
+          }
+        }
+      } catch (e) {
+        // Ignora erros de acesso
+      }
+      return items;
+    };
+    
+    const structure = getFilesRecursively(baseDir);
+    
+    return JSON.stringify({
+      base_directory: directory,
+      structure: structure,
+    });
+  } catch (error) {
+    console.error("[Copilot] Error reading code structure:", error);
+    return JSON.stringify({ error: "Erro ao ler estrutura", details: String(error) });
+  }
+}
+
+// Lê conteúdo de arquivo
+async function executeReadCodeFile(filePath: string): Promise<string> {
+  try {
+    const fullPath = path.resolve(process.cwd(), filePath);
+    
+    // Verifica se está dentro do projeto
+    if (!fullPath.startsWith(process.cwd())) {
+      return JSON.stringify({ error: "Caminho inválido - deve estar dentro do projeto" });
+    }
+    
+    // Verifica se arquivo existe
+    if (!fs.existsSync(fullPath)) {
+      return JSON.stringify({ error: "Arquivo não encontrado", path: filePath });
+    }
+    
+    // Lê o arquivo
+    const content = fs.readFileSync(fullPath, "utf-8");
+    
+    // Limita tamanho para evitar resposta muito grande
+    const maxSize = 50000; // 50KB
+    const truncated = content.length > maxSize;
+    
+    return JSON.stringify({
+      path: filePath,
+      size: content.length,
+      truncated: truncated,
+      content: truncated ? content.substring(0, maxSize) + "\n\n... [ARQUIVO TRUNCADO - muito grande]" : content,
+    });
+  } catch (error) {
+    console.error("[Copilot] Error reading file:", error);
+    return JSON.stringify({ error: "Erro ao ler arquivo", details: String(error) });
+  }
+}
+
+// ========== FERRAMENTAS DE ESTATÍSTICAS (CORRIGIDAS) ==========
+
 async function executeGetDatasetStats(): Promise<string> {
   try {
-    // Count total entries in ai_dataset
+    // COUNT real sem limite
     const totalResult = await db.select({ count: count() }).from(aiDataset);
     const totalEntries = totalResult[0]?.count || 0;
 
-    // Get recent entries
+    // Exemplos recentes (apenas para referência)
     const recentEntries = await db
       .select({
         id: aiDataset.id,
@@ -191,7 +506,7 @@ async function executeGetDatasetStats(): Promise<string> {
 
     return JSON.stringify({
       total_entries: totalEntries,
-      description: "Quantidade de exemplos no Dataset de aprendizado (Memória & Dataset)",
+      description: "Quantidade TOTAL de exemplos no Dataset de aprendizado",
       recent_examples: recentEntries.map(e => ({
         pergunta: e.question?.substring(0, 100) + (e.question && e.question.length > 100 ? "..." : ""),
         resposta: e.answer?.substring(0, 100) + (e.answer && e.answer.length > 100 ? "..." : ""),
@@ -204,42 +519,41 @@ async function executeGetDatasetStats(): Promise<string> {
   }
 }
 
-async function executeGetPendingMessages(limit: number = 10): Promise<string> {
+// CORRIGIDA: Agora faz COUNT(*) REAL separado
+async function executeGetPendingMessages(): Promise<string> {
   try {
-    // Get pending messages with their AI responses
-    const pendingMessages = await db
-      .select({
-        id: instagramMessages.id,
-        type: instagramMessages.type,
-        senderUsername: instagramMessages.senderUsername,
-        content: instagramMessages.content,
-        postCaption: instagramMessages.postCaption,
-        createdAt: instagramMessages.createdAt,
-        responseContent: aiResponses.suggestedResponse,
-        confidence: aiResponses.confidenceScore,
-      })
+    // COUNT REAL de mensagens pendentes (sem limite!)
+    const totalPendingResult = await db
+      .select({ count: count() })
       .from(instagramMessages)
-      .leftJoin(aiResponses, eq(instagramMessages.id, aiResponses.messageId))
-      .where(eq(instagramMessages.status, "pending"))
-      .orderBy(desc(instagramMessages.createdAt))
-      .limit(limit);
+      .where(eq(instagramMessages.status, "pending"));
+    const totalPending = totalPendingResult[0]?.count || 0;
 
-    const commentCount = pendingMessages.filter(m => m.type === "comment").length;
-    const dmCount = pendingMessages.filter(m => m.type === "dm").length;
+    // COUNT de comentários pendentes
+    const commentsPendingResult = await db
+      .select({ count: count() })
+      .from(instagramMessages)
+      .where(and(
+        eq(instagramMessages.status, "pending"),
+        eq(instagramMessages.type, "comment")
+      ));
+    const commentsPending = commentsPendingResult[0]?.count || 0;
+
+    // COUNT de DMs pendentes
+    const dmsPendingResult = await db
+      .select({ count: count() })
+      .from(instagramMessages)
+      .where(and(
+        eq(instagramMessages.status, "pending"),
+        eq(instagramMessages.type, "dm")
+      ));
+    const dmsPending = dmsPendingResult[0]?.count || 0;
 
     return JSON.stringify({
-      total_pending: pendingMessages.length,
-      comments_pending: commentCount,
-      dms_pending: dmCount,
-      messages: pendingMessages.map(m => ({
-        id: m.id,
-        type: m.type,
-        sender: m.senderUsername,
-        content: m.content?.substring(0, 150) + (m.content && m.content.length > 150 ? "..." : ""),
-        ai_response: m.responseContent?.substring(0, 150) + (m.responseContent && m.responseContent.length > 150 ? "..." : ""),
-        confidence: m.confidence ? Math.round(Number(m.confidence) * 100) + "%" : "N/A",
-        date: m.createdAt,
-      })),
+      total_pending: totalPending,
+      comments_pending: commentsPending,
+      dms_pending: dmsPending,
+      description: "Contagem REAL de mensagens na Fila de Aprovação (sem limite)",
     });
   } catch (error) {
     console.error("[Copilot] Error fetching pending messages:", error);
@@ -416,14 +730,14 @@ async function executeGetKnowledgeBase(): Promise<string> {
   }
 }
 
-async function executeGetLearningHistory(limit: number = 20): Promise<string> {
+async function executeGetLearningHistory(): Promise<string> {
   try {
-    // Get learning history count
+    // COUNT TOTAL de entradas no histórico de aprendizado
     const totalResult = await db.select({ count: count() }).from(learningHistory);
     const totalEntries = totalResult[0]?.count || 0;
 
-    // Get recent learning entries
-    const recentEntries = await db
+    // Busca TODAS as entradas (sem limite)
+    const allEntries = await db
       .select({
         id: learningHistory.id,
         originalMessage: learningHistory.originalMessage,
@@ -432,16 +746,16 @@ async function executeGetLearningHistory(limit: number = 20): Promise<string> {
         createdAt: learningHistory.createdAt,
       })
       .from(learningHistory)
-      .orderBy(desc(learningHistory.createdAt))
-      .limit(limit);
+      .orderBy(desc(learningHistory.createdAt));
 
     return JSON.stringify({
       total_learning_entries: totalEntries,
-      description: "Correções feitas por humanos para melhorar a IA",
-      recent_corrections: recentEntries.map(e => ({
-        original_message: e.originalMessage?.substring(0, 100) + (e.originalMessage && e.originalMessage.length > 100 ? "..." : ""),
-        original_suggestion: e.originalSuggestion?.substring(0, 100) + (e.originalSuggestion && e.originalSuggestion.length > 100 ? "..." : ""),
-        corrected_response: e.correctedResponse?.substring(0, 100) + (e.correctedResponse && e.correctedResponse.length > 100 ? "..." : ""),
+      description: "TODAS as correções feitas por humanos para melhorar a IA (sem limite)",
+      corrections: allEntries.map(e => ({
+        id: e.id,
+        original_message: e.originalMessage?.substring(0, 200) || "",
+        original_suggestion: e.originalSuggestion?.substring(0, 200) || "",
+        corrected_response: e.correctedResponse?.substring(0, 200) || "",
         date: e.createdAt,
       })),
     });
@@ -547,24 +861,43 @@ export async function runCopilotAgent(history: ChatMessage[]): Promise<string> {
           const args = JSON.parse(toolCall.function.arguments || "{}");
 
           switch (toolCall.function.name) {
+            // === FERRAMENTAS DE ACESSO TOTAL ===
+            case "execute_sql":
+              result = await executeExecuteSql(args.query);
+              break;
+            case "get_table_schema":
+              result = await executeGetTableSchema(args.table_name);
+              break;
+            case "get_all_users":
+              result = await executeGetAllUsers();
+              break;
+            case "get_all_settings":
+              result = await executeGetAllSettings();
+              break;
+            // === FERRAMENTAS DE ESTATÍSTICAS ===
             case "get_dataset_stats":
               result = await executeGetDatasetStats();
               break;
             case "get_pending_messages":
-              result = await executeGetPendingMessages(args.limit || 10);
+              result = await executeGetPendingMessages();
               break;
             case "get_system_stats":
               result = await executeGetSystemStats();
-              break;
-            case "get_user_settings":
-              result = await executeGetUserSettings();
               break;
             case "get_knowledge_base":
               result = await executeGetKnowledgeBase();
               break;
             case "get_learning_history":
-              result = await executeGetLearningHistory(args.limit || 20);
+              result = await executeGetLearningHistory();
               break;
+            // === FERRAMENTAS DE CÓDIGO ===
+            case "get_code_structure":
+              result = await executeGetCodeStructure(args.directory || ".");
+              break;
+            case "read_code_file":
+              result = await executeReadCodeFile(args.file_path);
+              break;
+            // === FERRAMENTA DE ANÁLISE ===
             case "get_technical_suggestions":
               result = await executeGetTechnicalSuggestions();
               break;
