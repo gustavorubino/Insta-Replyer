@@ -170,10 +170,11 @@ export async function syncAllKnowledge(
 
     const posts = mediaData.data || [];
     let mediaCount = 0;
+    let interactionCount = 0;
 
     report(`Processando ${posts.length} posts...`, 30);
 
-    // Save to media_library (up to 50)
+    // Save to media_library (up to 50) and fetch comments for each
     for (let i = 0; i < Math.min(posts.length, 50); i++) {
         const post = posts[i];
         const progress = 30 + Math.floor((i / posts.length) * 40);
@@ -211,7 +212,8 @@ export async function syncAllKnowledge(
                 }
             }
 
-            await storage.addMediaLibraryEntry({
+            // Save the media entry and get the ID for linking comments
+            const savedMedia = await storage.addMediaLibraryEntry({
                 userId,
                 instagramMediaId: post.id,
                 caption: post.caption || null,
@@ -224,21 +226,11 @@ export async function syncAllKnowledge(
             });
 
             mediaCount++;
-        } catch (err) {
-            console.error(`[SyncKnowledge] Erro ao salvar post ${post.id}:`, err);
-        }
-    }
 
-    report("Buscando interações recentes...", 75);
-
-    // Fetch recent conversations (comments on our posts)
-    let interactionCount = 0;
-
-    try {
-        // For each post, get comments with more fields
-        for (const post of posts.slice(0, 10)) { // Top 10 posts
-            // Include 'from' field for better username data, and 'replies' for owner responses
-            const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=20`;
+            // ================================================
+            // FETCH TOP 10 COMMENTS WITH OWNER REPLIES FOR THIS POST
+            // ================================================
+            const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=30`;
 
             try {
                 const commentsResponse = await fetch(commentsUrl);
@@ -262,18 +254,12 @@ export async function syncAllKnowledge(
                         }>;
                     };
 
-                    for (const comment of (commentsData.data || [])) {
-                        if (interactionCount >= 200) break;
-
-                        // Get username from available fields (prioritize 'from.username')
-                        const senderUsername = comment.from?.username || comment.username || null;
-
-                        // Check if there's a reply from the owner (could be in replies)
+                    // Prioritize comments that have owner replies (for better learning)
+                    const commentsWithData = (commentsData.data || []).map(comment => {
                         let ownerReply: string | null = null;
+
                         if (comment.replies?.data) {
-                            // The first reply is usually from the owner
                             for (const reply of comment.replies.data) {
-                                // Check if this reply is from the page owner
                                 const replyUsername = reply.from?.username || reply.username || "";
                                 if (replyUsername === username) {
                                     ownerReply = reply.text;
@@ -282,13 +268,38 @@ export async function syncAllKnowledge(
                             }
                         }
 
+                        return { ...comment, ownerReply };
+                    });
+
+                    // Sort: comments WITH owner replies first
+                    const sortedComments = commentsWithData.sort((a, b) => {
+                        if (a.ownerReply && !b.ownerReply) return -1;
+                        if (!a.ownerReply && b.ownerReply) return 1;
+                        return 0;
+                    });
+
+                    // Take TOP 10 for this post
+                    const topComments = sortedComments.slice(0, 10);
+
+                    for (const comment of topComments) {
+                        // Get username with fallback
+                        let senderUsername = comment.from?.username || comment.username || null;
+                        let senderName = senderUsername;
+
+                        // Use meaningful fallback if username is empty
+                        if (!senderUsername || senderUsername === '?' || senderUsername.length === 0) {
+                            senderUsername = "Seguidor";
+                            senderName = "Eleitor";
+                        }
+
                         await storage.addInteractionDialect({
                             userId,
+                            mediaId: savedMedia.id, // Link to the post!
                             channelType: 'public_comment',
-                            senderName: senderUsername,
+                            senderName: senderName,
                             senderUsername: senderUsername,
                             userMessage: comment.text,
-                            myResponse: ownerReply,
+                            myResponse: comment.ownerReply,
                             postContext: post.caption?.substring(0, 200) || null,
                             instagramCommentId: comment.id,
                             parentCommentId: null,
@@ -300,9 +311,10 @@ export async function syncAllKnowledge(
             } catch (commentErr) {
                 console.log(`[SyncKnowledge] Erro ao buscar comentários do post ${post.id}:`, commentErr);
             }
+
+        } catch (err) {
+            console.error(`[SyncKnowledge] Erro ao salvar post ${post.id}:`, err);
         }
-    } catch (err) {
-        console.log(`[SyncKnowledge] Erro ao buscar interações:`, err);
     }
 
     report("Sincronização concluída!", 100);

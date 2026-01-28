@@ -14,18 +14,16 @@ import {
   Video,
   FileText,
   Clock,
-  User,
-  ScrollText,
-  Eye,
   ArrowUpDown,
   ChevronDown,
   ChevronUp,
   Shield,
+  Star,
+  Eye,
 } from "lucide-react";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -60,6 +58,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -92,14 +95,13 @@ interface MediaLibraryEntry {
 
 interface InteractionEntry {
   id: number;
+  mediaId: number | null;
   channelType: string;
   senderName: string | null;
   senderUsername: string | null;
   userMessage: string;
   myResponse: string | null;
   postContext: string | null;
-  parentCommentId: string | null;
-  isOwnerReply: boolean;
   interactedAt: string;
 }
 
@@ -124,6 +126,7 @@ export default function Dataset() {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [isSyncing, setIsSyncing] = useState(false);
+  const [expandedMediaId, setExpandedMediaId] = useState<number | null>(null);
 
   // Fetch knowledge stats
   const { data: stats } = useQuery<KnowledgeStats>({
@@ -146,9 +149,18 @@ export default function Dataset() {
     queryKey: ["/api/brain/media-library"],
   });
 
-  // Fetch Interaction Dialect
-  const { data: interactions = [], isLoading: loadingInteractions } = useQuery<InteractionEntry[]>({
-    queryKey: ["/api/brain/interaction-dialect"],
+  // Fetch interactions for expanded media
+  const { data: mediaInteractions = [], isLoading: loadingInteractions } = useQuery<InteractionEntry[]>({
+    queryKey: ["/api/brain/interactions", expandedMediaId],
+    queryFn: async () => {
+      if (!expandedMediaId) return [];
+      const response = await fetch(`/api/brain/interactions/${expandedMediaId}`, {
+        credentials: "include",
+      });
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!expandedMediaId,
   });
 
   // Sync Knowledge mutation
@@ -162,7 +174,6 @@ export default function Dataset() {
       setIsSyncing(false);
       queryClient.invalidateQueries({ queryKey: ["/api/brain/knowledge/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/brain/media-library"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/brain/interaction-dialect"] });
       toast({
         title: "✅ Sincronização Concluída",
         description: data.message || `${data.mediaCount} posts sincronizados!`,
@@ -216,7 +227,7 @@ export default function Dataset() {
       queryClient.invalidateQueries({ queryKey: ["/api/brain/guidelines"] });
       setIsDialogOpen(false);
       setGuidelineForm({ rule: "", priority: 3, category: "geral" });
-      toast({ title: "✅ Diretriz Adicionada", description: "Nova regra salva com sucesso!" });
+      toast({ title: "✅ Diretriz Adicionada" });
     },
     onError: () => {
       toast({ title: "Erro", description: "Falha ao adicionar diretriz.", variant: "destructive" });
@@ -255,13 +266,26 @@ export default function Dataset() {
     },
   });
 
+  // Promote to Gold mutation
+  const promoteToGoldMutation = useMutation({
+    mutationFn: async (interactionId: number) => {
+      const response = await apiRequest("POST", "/api/brain/promote-to-gold", { interactionId });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/manual-qa"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/knowledge/stats"] });
+      toast({ title: "⭐ Promovido!", description: data.message });
+    },
+    onError: () => {
+      toast({ title: "Erro", description: "Falha ao promover interação.", variant: "destructive" });
+    },
+  });
+
   const handleAddGuideline = () => {
     if (!guidelineForm.rule.trim()) return;
     if (editingGuideline) {
-      updateGuidelineMutation.mutate({
-        id: editingGuideline.id,
-        data: guidelineForm,
-      });
+      updateGuidelineMutation.mutate({ id: editingGuideline.id, data: guidelineForm });
     } else {
       addGuidelineMutation.mutate(guidelineForm);
     }
@@ -282,6 +306,10 @@ export default function Dataset() {
   const openMediaAnalysis = (media: MediaLibraryEntry) => {
     setSelectedMedia(media);
     setIsMediaDialogOpen(true);
+  };
+
+  const toggleMediaExpand = (mediaId: number) => {
+    setExpandedMediaId(expandedMediaId === mediaId ? null : mediaId);
   };
 
   const formatDate = (dateStr: string | null) => {
@@ -305,13 +333,6 @@ export default function Dataset() {
     }
   };
 
-  const getChannelBadge = (channel: string) => {
-    if (channel === "public_comment") {
-      return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Comentário</Badge>;
-    }
-    return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">DM</Badge>;
-  };
-
   const getPriorityBadge = (priority: number) => {
     const colors: Record<number, string> = {
       5: "bg-red-100 text-red-700 border-red-200",
@@ -323,48 +344,13 @@ export default function Dataset() {
     return <Badge variant="outline" className={colors[priority] || colors[1]}>P{priority}</Badge>;
   };
 
-  const formatUsername = (username: string | null, name: string | null) => {
-    if (username && username !== "?" && username.length > 0) {
-      return `@${username}`;
-    }
-    if (name && name !== "?" && name.length > 0) {
-      return name;
-    }
-    return "Usuário";
-  };
-
-  // Sort and filter data
-  const sortData = <T extends { createdAt?: string; interactedAt?: string; postedAt?: string | null }>(data: T[]): T[] => {
+  const sortData = <T extends { createdAt?: string; postedAt?: string | null }>(data: T[]): T[] => {
     return [...data].sort((a, b) => {
-      const dateA = new Date(a.createdAt || a.interactedAt || a.postedAt || 0).getTime();
-      const dateB = new Date(b.createdAt || b.interactedAt || b.postedAt || 0).getTime();
+      const dateA = new Date(a.createdAt || a.postedAt || 0).getTime();
+      const dateB = new Date(b.createdAt || b.postedAt || 0).getTime();
       return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
     });
   };
-
-  // Group interactions as threads
-  const groupedInteractions = (() => {
-    const threads: Array<{
-      id: number;
-      senderUsername: string | null;
-      senderName: string | null;
-      userMessage: string;
-      myResponse: string | null;
-      postContext: string | null;
-      channelType: string;
-      interactedAt: string;
-    }> = [];
-
-    // For now, just show all interactions with proper formatting
-    // (Full threading would require matching by parentCommentId)
-    sortData(interactions).forEach((item) => {
-      if (!item.isOwnerReply) {
-        threads.push(item);
-      }
-    });
-
-    return threads;
-  })();
 
   const filteredGuidelines = guidelines.filter(
     (item) => item.rule.toLowerCase().includes(searchTerm.toLowerCase())
@@ -382,19 +368,13 @@ export default function Dataset() {
       (item.imageDescription?.toLowerCase() || "").includes(searchTerm.toLowerCase())
   );
 
-  const filteredInteractions = groupedInteractions.filter(
-    (item) =>
-      item.userMessage.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (item.myResponse?.toLowerCase() || "").includes(searchTerm.toLowerCase())
-  );
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Memória & Dataset</h1>
           <p className="text-muted-foreground">
-            Visualize e gerencie as 4 fontes de conhecimento que treinam a IA.
+            Gerencie as fontes de conhecimento que treinam a IA.
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -402,7 +382,7 @@ export default function Dataset() {
             variant="outline"
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending || isSyncing}
-            className="bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200 hover:border-purple-300 dark:from-purple-950/30 dark:to-pink-950/30"
+            className="bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200"
           >
             {syncMutation.isPending || isSyncing ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -426,32 +406,25 @@ export default function Dataset() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="border-indigo-200 dark:border-indigo-800">
+      {/* Stats Cards - 3 abas agora */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="border-indigo-200">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <Shield className="h-4 w-4 text-indigo-500" />
                 Diretrizes
               </CardTitle>
-              <Badge variant="outline" className="text-xs">
-                {guidelines.length}/50
-              </Badge>
+              <Badge variant="outline" className="text-xs">{guidelines.length}/50</Badge>
             </div>
           </CardHeader>
           <CardContent>
-            <Progress
-              value={(guidelines.length / 50) * 100}
-              className="h-2"
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              Regras prioritárias que guiam o comportamento
-            </p>
+            <Progress value={(guidelines.length / 50) * 100} className="h-2" />
+            <p className="text-xs text-muted-foreground mt-2">Regras prioritárias</p>
           </CardContent>
         </Card>
 
-        <Card className="border-amber-200 dark:border-amber-800">
+        <Card className="border-amber-200">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -464,17 +437,12 @@ export default function Dataset() {
             </div>
           </CardHeader>
           <CardContent>
-            <Progress
-              value={((stats?.manualQA.count || 0) / (stats?.manualQA.limit || 500)) * 100}
-              className="h-2"
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              Correções humanas que definem as regras de comportamento
-            </p>
+            <Progress value={((stats?.manualQA.count || 0) / (stats?.manualQA.limit || 500)) * 100} className="h-2" />
+            <p className="text-xs text-muted-foreground mt-2">Correções humanas</p>
           </CardContent>
         </Card>
 
-        <Card className="border-blue-200 dark:border-blue-800">
+        <Card className="border-blue-200">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -487,41 +455,13 @@ export default function Dataset() {
             </div>
           </CardHeader>
           <CardContent>
-            <Progress
-              value={((stats?.mediaLibrary.count || 0) / (stats?.mediaLibrary.limit || 50)) * 100}
-              className="h-2"
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              Posts recentes que definem seus assuntos e contexto
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-green-200 dark:border-green-800">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-green-500" />
-                Histórico de Interações
-              </CardTitle>
-              <Badge variant="outline" className="text-xs">
-                {stats?.interactionDialect.count || 0}/{stats?.interactionDialect.limit || 200}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <Progress
-              value={((stats?.interactionDialect.count || 0) / (stats?.interactionDialect.limit || 200)) * 100}
-              className="h-2"
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              Conversas reais que definem seu tom de voz
-            </p>
+            <Progress value={((stats?.mediaLibrary.count || 0) / (stats?.mediaLibrary.limit || 50)) * 100} className="h-2" />
+            <p className="text-xs text-muted-foreground mt-2">Posts + Threads ({stats?.interactionDialect.count || 0} discussões)</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs - 3 abas agora */}
       <Card>
         <CardContent className="pt-6">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -529,19 +469,15 @@ export default function Dataset() {
               <TabsList>
                 <TabsTrigger value="guidelines" className="gap-2">
                   <Shield className="h-4 w-4" />
-                  <span className="hidden sm:inline">Diretrizes</span>
+                  Diretrizes
                 </TabsTrigger>
                 <TabsTrigger value="golden" className="gap-2">
                   <Trophy className="h-4 w-4" />
-                  <span className="hidden sm:inline">Correções de Ouro</span>
+                  Correções de Ouro
                 </TabsTrigger>
                 <TabsTrigger value="media" className="gap-2">
                   <Image className="h-4 w-4" />
-                  <span className="hidden sm:inline">Biblioteca de Mídia</span>
-                </TabsTrigger>
-                <TabsTrigger value="interactions" className="gap-2">
-                  <MessageSquare className="h-4 w-4" />
-                  <span className="hidden sm:inline">Interações</span>
+                  Biblioteca de Mídia
                 </TabsTrigger>
               </TabsList>
 
@@ -585,15 +521,14 @@ export default function Dataset() {
                 <div className="text-center p-8 text-muted-foreground">
                   <Shield className="h-12 w-12 mx-auto mb-4 opacity-20" />
                   <p>Nenhuma diretriz cadastrada.</p>
-                  <p className="text-sm">Adicione regras que a IA deve seguir com prioridade máxima.</p>
-                  <p className="text-sm mt-2">Ex: "Sempre defenda a pauta da educação" ou "Nunca fale mal do partido X"</p>
+                  <p className="text-sm">Ex: "Sempre defenda a pauta X"</p>
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[5%]">Ativo</TableHead>
-                      <TableHead className="w-[10%]">Prioridade</TableHead>
+                      <TableHead className="w-[10%]">Prior.</TableHead>
                       <TableHead className="w-[15%]">Categoria</TableHead>
                       <TableHead className="w-[55%]">Regra</TableHead>
                       <TableHead className="w-[15%] text-right">Ações</TableHead>
@@ -617,11 +552,7 @@ export default function Dataset() {
                         <TableCell className="font-medium">{item.rule}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => openEditGuideline(item)}
-                            >
+                            <Button variant="ghost" size="icon" onClick={() => openEditGuideline(item)}>
                               <Pencil className="h-4 w-4" />
                             </Button>
                             <Button
@@ -651,14 +582,13 @@ export default function Dataset() {
                 <div className="text-center p-8 text-muted-foreground">
                   <Trophy className="h-12 w-12 mx-auto mb-4 opacity-20" />
                   <p>Nenhuma correção registrada ainda.</p>
-                  <p className="text-sm">Correções feitas na Fila de Aprovação ou Simulador aparecem aqui.</p>
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[40%]">Pergunta Original</TableHead>
-                      <TableHead className="w-[40%]">Resposta Corrigida</TableHead>
+                      <TableHead className="w-[40%]">Pergunta</TableHead>
+                      <TableHead className="w-[40%]">Resposta</TableHead>
                       <TableHead className="w-[10%]">Fonte</TableHead>
                       <TableHead className="w-[10%]">Data</TableHead>
                     </TableRow>
@@ -666,20 +596,14 @@ export default function Dataset() {
                   <TableBody>
                     {filteredManualQA.map((item) => (
                       <TableRow key={item.id}>
-                        <TableCell className="align-top font-medium text-sm">
-                          "{item.question}"
-                        </TableCell>
-                        <TableCell className="align-top text-sm text-muted-foreground">
-                          "{item.answer}"
-                        </TableCell>
+                        <TableCell className="align-top font-medium text-sm">"{item.question}"</TableCell>
+                        <TableCell className="align-top text-sm text-muted-foreground">"{item.answer}"</TableCell>
                         <TableCell>
                           <Badge variant="outline" className="text-xs">
-                            {item.source === "simulator" ? "Simulador" : "Fila"}
+                            {item.source === "promoted" ? "⭐ Promovido" : item.source === "simulator" ? "Simulador" : "Fila"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {formatDate(item.createdAt)}
-                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{formatDate(item.createdAt)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -687,7 +611,7 @@ export default function Dataset() {
               )}
             </TabsContent>
 
-            {/* Media Library Tab */}
+            {/* Media Library Tab with Threads */}
             <TabsContent value="media">
               {loadingMedia ? (
                 <div className="flex justify-center p-8">
@@ -697,107 +621,128 @@ export default function Dataset() {
                 <div className="text-center p-8 text-muted-foreground">
                   <Image className="h-12 w-12 mx-auto mb-4 opacity-20" />
                   <p>Nenhum post sincronizado ainda.</p>
-                  <p className="text-sm">Clique em "Sincronizar Instagram" para importar seus posts.</p>
+                  <p className="text-sm">Clique em "Sincronizar Instagram"</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredMedia.map((item) => (
-                    <Card key={item.id} className="overflow-hidden">
-                      <div className="aspect-video bg-muted relative">
-                        {item.thumbnailUrl || item.mediaUrl ? (
-                          <img
-                            src={item.thumbnailUrl || item.mediaUrl || ""}
-                            alt="Post"
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            {getMediaIcon(item.mediaType)}
-                          </div>
-                        )}
-                        <Badge className="absolute top-2 right-2" variant="secondary">
-                          {item.mediaType}
-                        </Badge>
-                      </div>
-                      <CardContent className="p-3">
-                        <p className="text-sm line-clamp-2 mb-2">
-                          {item.caption || <span className="text-muted-foreground italic">Sem legenda</span>}
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Clock className="h-3 w-3" />
-                            {formatDate(item.postedAt)}
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openMediaAnalysis(item)}
-                            className="h-7 text-xs"
-                          >
-                            <Eye className="h-3 w-3 mr-1" />
-                            Ver Análise
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-
-            {/* Interactions Tab */}
-            <TabsContent value="interactions">
-              {loadingInteractions ? (
-                <div className="flex justify-center p-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : filteredInteractions.length === 0 ? (
-                <div className="text-center p-8 text-muted-foreground">
-                  <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                  <p>Nenhuma interação sincronizada ainda.</p>
-                  <p className="text-sm">Clique em "Sincronizar Instagram" para importar suas conversas.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {filteredInteractions.map((item) => (
-                    <Card key={item.id} className="p-4">
-                      <div className="flex items-start gap-4">
-                        <div className="flex-shrink-0">
-                          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-semibold">
-                            {formatUsername(item.senderUsername, item.senderName).charAt(0).toUpperCase()}
-                          </div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-medium text-sm">
-                              {formatUsername(item.senderUsername, item.senderName)}
-                            </span>
-                            {getChannelBadge(item.channelType)}
-                            <span className="text-xs text-muted-foreground">
-                              {formatDate(item.interactedAt)}
-                            </span>
-                          </div>
-                          <div className="bg-muted/50 rounded-lg p-3 mb-2">
-                            <p className="text-sm">{item.userMessage}</p>
-                          </div>
-                          {item.myResponse ? (
-                            <div className="bg-primary/10 rounded-lg p-3 ml-8 border-l-2 border-primary">
-                              <p className="text-sm text-muted-foreground">
-                                <span className="font-medium text-primary">Sua resposta:</span> {item.myResponse}
-                              </p>
-                            </div>
+                <div className="space-y-4">
+                  {filteredMedia.map((media) => (
+                    <Card key={media.id} className="overflow-hidden">
+                      <div className="flex flex-col md:flex-row">
+                        {/* Thumbnail */}
+                        <div className="w-full md:w-48 h-32 bg-muted flex-shrink-0">
+                          {media.thumbnailUrl || media.mediaUrl ? (
+                            <img
+                              src={media.thumbnailUrl || media.mediaUrl || ""}
+                              alt="Post"
+                              className="w-full h-full object-cover"
+                            />
                           ) : (
-                            <p className="text-xs text-muted-foreground italic ml-8">
-                              Sem resposta registrada
-                            </p>
-                          )}
-                          {item.postContext && (
-                            <p className="text-xs text-muted-foreground mt-2 truncate">
-                              📌 Post: {item.postContext}
-                            </p>
+                            <div className="w-full h-full flex items-center justify-center">
+                              {getMediaIcon(media.mediaType)}
+                            </div>
                           )}
                         </div>
+
+                        {/* Content */}
+                        <div className="flex-1 p-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge variant="secondary">{media.mediaType}</Badge>
+                            <span className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {formatDate(media.postedAt)}
+                            </span>
+                          </div>
+
+                          <p className="text-sm line-clamp-2 mb-3">
+                            {media.caption || <span className="italic text-muted-foreground">Sem legenda</span>}
+                          </p>
+
+                          <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" onClick={() => openMediaAnalysis(media)}>
+                              <Eye className="h-3 w-3 mr-1" />
+                              Ver Análise
+                            </Button>
+                          </div>
+                        </div>
                       </div>
+
+                      {/* Expandable Threads Section */}
+                      <Collapsible open={expandedMediaId === media.id} onOpenChange={() => toggleMediaExpand(media.id)}>
+                        <CollapsibleTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            className="w-full rounded-none border-t flex items-center justify-center gap-2 h-10"
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                            💬 Ver Discussão (Threads)
+                            {expandedMediaId === media.id ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="p-4 bg-muted/30 border-t space-y-3">
+                            {loadingInteractions && expandedMediaId === media.id ? (
+                              <div className="flex justify-center py-4">
+                                <Loader2 className="h-6 w-6 animate-spin" />
+                              </div>
+                            ) : mediaInteractions.length === 0 && expandedMediaId === media.id ? (
+                              <p className="text-center text-sm text-muted-foreground py-4">
+                                Nenhuma discussão encontrada para este post.
+                              </p>
+                            ) : expandedMediaId === media.id ? (
+                              mediaInteractions.map((interaction) => (
+                                <div key={interaction.id} className="bg-background rounded-lg p-3 space-y-2">
+                                  {/* User comment */}
+                                  <div className="flex items-start gap-3">
+                                    <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white text-xs font-semibold">
+                                      {(interaction.senderName || "E").charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="flex-1">
+                                      <span className="font-medium text-sm">
+                                        {interaction.senderUsername === "Seguidor" ? "Eleitor" : `@${interaction.senderUsername || "Usuário"}`}
+                                      </span>
+                                      <p className="text-sm bg-muted/50 rounded-lg p-2 mt-1">
+                                        {interaction.userMessage}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {/* Owner response */}
+                                  {interaction.myResponse ? (
+                                    <div className="ml-11 flex items-start gap-2">
+                                      <div className="flex-1 bg-primary/10 rounded-lg p-2 border-l-2 border-primary">
+                                        <p className="text-sm">
+                                          <span className="font-medium text-primary">Sua resposta:</span>{" "}
+                                          {interaction.myResponse}
+                                        </p>
+                                      </div>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => promoteToGoldMutation.mutate(interaction.id)}
+                                        disabled={promoteToGoldMutation.isPending}
+                                        className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                                      >
+                                        <Star className="h-4 w-4 mr-1" />
+                                        Promover
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <div className="ml-11">
+                                      <p className="text-xs text-muted-foreground italic flex items-center gap-1">
+                                        ⏳ Pendente de Aprendizado
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              ))
+                            ) : null}
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
                     </Card>
                   ))}
                 </div>
@@ -811,12 +756,8 @@ export default function Dataset() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>
-              {editingGuideline ? "Editar Diretriz" : "Nova Diretriz"}
-            </DialogTitle>
-            <DialogDescription>
-              Diretrizes têm prioridade máxima e guiam o comportamento da IA.
-            </DialogDescription>
+            <DialogTitle>{editingGuideline ? "Editar Diretriz" : "Nova Diretriz"}</DialogTitle>
+            <DialogDescription>Diretrizes têm prioridade máxima na IA.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="space-y-2">
@@ -830,14 +771,12 @@ export default function Dataset() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Prioridade (1-5)</Label>
+                <Label>Prioridade</Label>
                 <Select
                   value={guidelineForm.priority.toString()}
                   onValueChange={(v) => setGuidelineForm({ ...guidelineForm, priority: parseInt(v) })}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="5">5 - Máxima</SelectItem>
                     <SelectItem value="4">4 - Alta</SelectItem>
@@ -853,9 +792,7 @@ export default function Dataset() {
                   value={guidelineForm.category}
                   onValueChange={(v) => setGuidelineForm({ ...guidelineForm, category: v })}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="geral">Geral</SelectItem>
                     <SelectItem value="politica">Política</SelectItem>
@@ -868,13 +805,8 @@ export default function Dataset() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleAddGuideline}
-              disabled={addGuidelineMutation.isPending || updateGuidelineMutation.isPending}
-            >
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={handleAddGuideline} disabled={addGuidelineMutation.isPending || updateGuidelineMutation.isPending}>
               {(addGuidelineMutation.isPending || updateGuidelineMutation.isPending) && (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               )}
@@ -904,53 +836,37 @@ export default function Dataset() {
                   />
                 </div>
               )}
-
               <div className="space-y-3">
                 <div>
                   <Label className="text-xs text-muted-foreground">TIPO</Label>
                   <p className="font-medium">{selectedMedia.mediaType}</p>
                 </div>
-
                 <div>
-                  <Label className="text-xs text-muted-foreground">DATA DE PUBLICAÇÃO</Label>
+                  <Label className="text-xs text-muted-foreground">DATA</Label>
                   <p className="font-medium">{formatDate(selectedMedia.postedAt)}</p>
                 </div>
-
                 <div>
-                  <Label className="text-xs text-muted-foreground">LEGENDA COMPLETA</Label>
-                  <div className="bg-muted/50 rounded-lg p-3 mt-1 max-h-[150px] overflow-y-auto">
+                  <Label className="text-xs text-muted-foreground">LEGENDA</Label>
+                  <div className="bg-muted/50 rounded-lg p-3 mt-1 max-h-[120px] overflow-y-auto">
                     <p className="text-sm whitespace-pre-wrap">
                       {selectedMedia.caption || <span className="italic text-muted-foreground">Sem legenda</span>}
                     </p>
                   </div>
                 </div>
-
                 {selectedMedia.imageDescription && (
                   <div>
-                    <Label className="text-xs text-muted-foreground">🔍 DESCRIÇÃO DA IA (Imagem)</Label>
-                    <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 mt-1 border border-blue-200 dark:border-blue-800">
+                    <Label className="text-xs text-muted-foreground">🔍 DESCRIÇÃO IA</Label>
+                    <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 mt-1 border border-blue-200">
                       <p className="text-sm">{selectedMedia.imageDescription}</p>
                     </div>
                   </div>
                 )}
-
                 {selectedMedia.videoTranscription && (
                   <div>
-                    <Label className="text-xs text-muted-foreground">🎬 TRANSCRIÇÃO/CONTEXTO (Vídeo)</Label>
-                    <div className="bg-purple-50 dark:bg-purple-950/30 rounded-lg p-3 mt-1 border border-purple-200 dark:border-purple-800 max-h-[150px] overflow-y-auto">
+                    <Label className="text-xs text-muted-foreground">🎬 TRANSCRIÇÃO</Label>
+                    <div className="bg-purple-50 dark:bg-purple-950/30 rounded-lg p-3 mt-1 border border-purple-200 max-h-[120px] overflow-y-auto">
                       <p className="text-sm whitespace-pre-wrap">{selectedMedia.videoTranscription}</p>
                     </div>
-                  </div>
-                )}
-
-                {!selectedMedia.imageDescription && !selectedMedia.videoTranscription && (
-                  <div className="text-center p-4 bg-muted/30 rounded-lg">
-                    <p className="text-sm text-muted-foreground">
-                      Nenhuma análise de IA disponível para este post.
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Sincronize novamente para gerar análises.
-                    </p>
                   </div>
                 )}
               </div>

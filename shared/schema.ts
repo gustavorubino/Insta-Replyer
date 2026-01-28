@@ -91,17 +91,19 @@ export const mediaLibrary = pgTable("media_library", {
   syncedAt: timestamp("synced_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
-// Interaction Dialect - Last 200 real conversations
-// Source: Instagram Graph API - comments and DMs
+// Interaction Dialect - Last 500 real conversations (linked to posts)
+// Source: Instagram Graph API - comments on posts
+// Limit: 50 posts × 10 threads = 500 contextual interactions
 export const interactionDialect = pgTable("interaction_dialect", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull(),
+  mediaId: integer("media_id").references(() => mediaLibrary.id, { onDelete: "cascade" }), // FK to media_library
   channelType: text("channel_type").notNull(),            // 'public_comment' or 'private_dm'
-  senderName: text("sender_name"),                        // Who sent the message
-  senderUsername: text("sender_username"),                // @username of sender
+  senderName: text("sender_name"),                        // Who sent the message (fallback: "Eleitor")
+  senderUsername: text("sender_username"),                // @username of sender (fallback: "Seguidor")
   userMessage: text("user_message").notNull(),            // Message received
   myResponse: text("my_response"),                        // Response sent (if any)
-  postContext: text("post_context"),                      // For comments, the post caption
+  postContext: text("post_context"),                      // For comments, the post caption (deprecated, use mediaId)
   parentCommentId: text("parent_comment_id"),             // For threading: ID of parent comment
   isOwnerReply: boolean("is_owner_reply").default(false), // True if this is the owner's reply
   instagramCommentId: text("instagram_comment_id"),       // Unique comment ID from Instagram

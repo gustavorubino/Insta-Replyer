@@ -142,8 +142,9 @@ export interface IStorage {
   clearMediaLibrary(userId: string): Promise<number>;
   getMediaLibraryCount(userId: string): Promise<number>;
 
-  // Interaction Dialect (200 interactions per user)
+  // Interaction Dialect (500 interactions per user - 50 posts × 10 threads)
   getInteractionDialect(userId: string, channelType?: string): Promise<InteractionDialectEntry[]>;
+  getInteractionsByMediaId(mediaId: number): Promise<InteractionDialectEntry[]>;
   addInteractionDialect(entry: InsertInteractionDialectEntry): Promise<InteractionDialectEntry>;
   clearInteractionDialect(userId: string): Promise<number>;
   getInteractionDialectCount(userId: string): Promise<number>;
@@ -998,7 +999,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addInteractionDialect(entry: InsertInteractionDialectEntry): Promise<InteractionDialectEntry> {
-    const LIMIT = 200;
+    const LIMIT = 500; // 50 posts × 10 threads per post
 
     // Check current count
     const countResult = await db
@@ -1033,6 +1034,14 @@ export class DatabaseStorage implements IStorage {
       .where(eq(interactionDialect.userId, userId))
       .returning({ id: interactionDialect.id });
     return result.length;
+  }
+
+  async getInteractionsByMediaId(mediaId: number): Promise<InteractionDialectEntry[]> {
+    return db
+      .select()
+      .from(interactionDialect)
+      .where(eq(interactionDialect.mediaId, mediaId))
+      .orderBy(desc(interactionDialect.interactedAt));
   }
 
   async getInteractionDialectCount(userId: string): Promise<number> {

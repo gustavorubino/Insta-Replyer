@@ -5326,6 +5326,64 @@ Retorne APENAS o System Prompt mesclado, sem nenhum texto adicional.`;
     }
   });
 
+  // GET /api/brain/interactions/:mediaId - Get interactions for a specific media post
+  app.get("/api/brain/interactions/:mediaId", isAuthenticated, async (req, res) => {
+    try {
+      const mediaId = parseInt(req.params.mediaId);
+
+      if (isNaN(mediaId)) {
+        return res.status(400).json({ error: "Invalid media ID" });
+      }
+
+      const interactions = await storage.getInteractionsByMediaId(mediaId);
+      res.json(interactions);
+    } catch (error) {
+      console.error("Error fetching interactions:", error);
+      res.status(500).json({ error: "Failed to fetch interactions" });
+    }
+  });
+
+  // POST /api/brain/promote-to-gold - Promote an interaction to Manual Q&A (golden rules)
+  app.post("/api/brain/promote-to-gold", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const { interactionId } = req.body;
+
+      if (!interactionId || typeof interactionId !== "number") {
+        return res.status(400).json({ error: "interactionId is required" });
+      }
+
+      // Get the interaction
+      const interactions = await storage.getInteractionDialect(userId);
+      const interaction = interactions.find(i => i.id === interactionId);
+
+      if (!interaction) {
+        return res.status(404).json({ error: "Interaction not found" });
+      }
+
+      if (!interaction.myResponse) {
+        return res.status(400).json({ error: "Interaction has no response to promote" });
+      }
+
+      // Add to Manual Q&A
+      const manualQA = await storage.addManualQA({
+        userId,
+        question: interaction.userMessage,
+        answer: interaction.myResponse,
+        source: "promoted",
+      });
+
+      res.status(201).json({
+        success: true,
+        message: "Interação promovida para Correções de Ouro!",
+        manualQA,
+      });
+    } catch (error) {
+      console.error("Error promoting to gold:", error);
+      res.status(500).json({ error: "Failed to promote interaction" });
+    }
+  });
+
   // ============================================
   // User Guidelines API Endpoints
   // ============================================
