@@ -270,23 +270,23 @@ async function executeExecuteSql(query: string): Promise<string> {
     // Validação de segurança: apenas SELECT permitido
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery.startsWith("select")) {
-      return JSON.stringify({ 
+      return JSON.stringify({
         error: "Apenas queries SELECT são permitidas por segurança",
         suggestion: "Use: SELECT * FROM tabela LIMIT 100"
       });
     }
-    
+
     // Bloqueia comandos perigosos
     const dangerousKeywords = ["drop", "delete", "update", "insert", "alter", "truncate", "create"];
     for (const keyword of dangerousKeywords) {
       if (normalizedQuery.includes(keyword)) {
-        return JSON.stringify({ 
+        return JSON.stringify({
           error: `Comando '${keyword.toUpperCase()}' não permitido`,
           suggestion: "Apenas SELECT é permitido"
         });
       }
     }
-    
+
     const result = await db.execute(sql.raw(query));
     return JSON.stringify({
       success: true,
@@ -303,24 +303,24 @@ async function executeExecuteSql(query: string): Promise<string> {
 async function executeGetTableSchema(tableName: string): Promise<string> {
   try {
     const validTables = [
-      "users", "sessions", "instagram_messages", "ai_responses", 
+      "users", "sessions", "instagram_messages", "ai_responses",
       "ai_dataset", "learning_history", "knowledge_links", "knowledge_files", "settings"
     ];
-    
+
     if (!validTables.includes(tableName)) {
-      return JSON.stringify({ 
-        error: "Tabela inválida", 
-        valid_tables: validTables 
+      return JSON.stringify({
+        error: "Tabela inválida",
+        valid_tables: validTables
       });
     }
-    
+
     const result = await db.execute(sql.raw(`
       SELECT column_name, data_type, is_nullable, column_default
       FROM information_schema.columns 
       WHERE table_name = '${tableName}'
       ORDER BY ordinal_position
     `));
-    
+
     return JSON.stringify({
       table: tableName,
       columns: Array.isArray(result) ? result : result.rows,
@@ -350,7 +350,7 @@ async function executeGetAllUsers(): Promise<string> {
         createdAt: users.createdAt,
       })
       .from(users);
-    
+
     return JSON.stringify({
       total_users: allUsers.length,
       users: allUsers.map(u => ({
@@ -377,7 +377,7 @@ async function executeGetAllUsers(): Promise<string> {
 async function executeGetAllSettings(): Promise<string> {
   try {
     const allSettings = await db.select().from(settings);
-    
+
     return JSON.stringify({
       total_settings: allSettings.length,
       settings: allSettings.map(s => ({
@@ -396,28 +396,28 @@ async function executeGetAllSettings(): Promise<string> {
 async function executeGetCodeStructure(directory: string = "."): Promise<string> {
   try {
     const baseDir = path.resolve(process.cwd(), directory);
-    
+
     // Verifica se está dentro do projeto
     if (!baseDir.startsWith(process.cwd())) {
       return JSON.stringify({ error: "Caminho inválido - deve estar dentro do projeto" });
     }
-    
+
     const getFilesRecursively = (dir: string, depth: number = 0): any[] => {
       if (depth > 3) return []; // Limita profundidade para evitar loops
-      
+
       const items: any[] = [];
       try {
         const entries = fs.readdirSync(dir, { withFileTypes: true });
-        
+
         for (const entry of entries) {
           // Ignora node_modules e arquivos ocultos
           if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "dist") {
             continue;
           }
-          
+
           const fullPath = path.join(dir, entry.name);
           const relativePath = path.relative(process.cwd(), fullPath);
-          
+
           if (entry.isDirectory()) {
             items.push({
               type: "directory",
@@ -438,9 +438,9 @@ async function executeGetCodeStructure(directory: string = "."): Promise<string>
       }
       return items;
     };
-    
+
     const structure = getFilesRecursively(baseDir);
-    
+
     return JSON.stringify({
       base_directory: directory,
       structure: structure,
@@ -455,24 +455,24 @@ async function executeGetCodeStructure(directory: string = "."): Promise<string>
 async function executeReadCodeFile(filePath: string): Promise<string> {
   try {
     const fullPath = path.resolve(process.cwd(), filePath);
-    
+
     // Verifica se está dentro do projeto
     if (!fullPath.startsWith(process.cwd())) {
       return JSON.stringify({ error: "Caminho inválido - deve estar dentro do projeto" });
     }
-    
+
     // Verifica se arquivo existe
     if (!fs.existsSync(fullPath)) {
       return JSON.stringify({ error: "Arquivo não encontrado", path: filePath });
     }
-    
+
     // Lê o arquivo
     const content = fs.readFileSync(fullPath, "utf-8");
-    
+
     // Limita tamanho para evitar resposta muito grande
     const maxSize = 50000; // 50KB
     const truncated = content.length > maxSize;
-    
+
     return JSON.stringify({
       path: filePath,
       size: content.length,
@@ -728,7 +728,7 @@ async function executeGetTechnicalSuggestions(): Promise<string> {
       .select({ count: count() })
       .from(instagramMessages)
       .where(eq(instagramMessages.status, "pending"));
-    
+
     // Get average confidence
     const avgResult = await db
       .select({ avg: sql<number>`AVG(${aiResponses.confidenceScore})` })
@@ -832,11 +832,11 @@ export async function runCopilotAgent(history: ChatMessage[], userId: string, at
           // Check for double prefix
           const parts = img.split(',');
           if (parts.length > 2 && parts[0].includes('data:image') && parts[1].includes('data:image')) {
-             // Found double prefix (e.g. data:image...,data:image...)
-             // Keep the last part which is the actual base64
-             console.warn(`[Copilot] Double prefix detected in attachment ${index + 1}, fixing...`);
-             const actualBase64 = parts[parts.length - 1];
-             imageUrl = `data:image/jpeg;base64,${actualBase64}`;
+            // Found double prefix (e.g. data:image...,data:image...)
+            // Keep the last part which is the actual base64
+            console.warn(`[Copilot] Double prefix detected in attachment ${index + 1}, fixing...`);
+            const actualBase64 = parts[parts.length - 1];
+            imageUrl = `data:image/jpeg;base64,${actualBase64}`;
           }
         }
 
@@ -860,7 +860,7 @@ export async function runCopilotAgent(history: ChatMessage[], userId: string, at
   // Debug log for OpenAI content
   if (messages.length > 0) {
     const lastMsg = messages[messages.length - 1];
-    console.log("DEBUG COPILOT CONTENT:", JSON.stringify(lastMsg.content, null, 2));
+    console.log("DEBUG PAYLOAD:", JSON.stringify(lastMsg.content, null, 2));
   }
 
   // Tool execution loop (max 10 turns to allow multiple tool calls)

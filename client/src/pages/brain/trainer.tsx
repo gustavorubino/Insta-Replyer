@@ -15,6 +15,9 @@ import {
   Mic,
   Image as ImageIcon,
   X,
+  Database,
+  Dna,
+  Wand2,
 } from "lucide-react";
 import {
   Card,
@@ -171,6 +174,48 @@ export default function Trainer() {
     },
   });
 
+  // Mutation for saving architect response to identity (system prompt)
+  const saveToIdentityMutation = useMutation({
+    mutationFn: async (content: string) => {
+      await apiRequest("PATCH", "/api/settings", { systemPrompt: content });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({
+        title: "🧬 Salvo na Identidade",
+        description: "O conteúdo foi adicionado ao prompt do sistema.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Erro",
+        description: "Falha ao salvar na identidade.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation for saving architect response to database (dataset)
+  const saveToDatabasFromArchitectMutation = useMutation({
+    mutationFn: async (data: { question: string; answer: string }) => {
+      await apiRequest("POST", "/api/brain/dataset", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
+      toast({
+        title: "📚 Salvo na Database",
+        description: "A instrução foi adicionada à memória RAG.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Erro",
+        description: "Falha ao salvar na database.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleSendMessage = () => {
     if (!inputValue.trim() && attachments.length === 0) return;
 
@@ -188,9 +233,9 @@ export default function Trainer() {
     }
 
     simulateMutation.mutate({
-        message: inputValue,
-        history: newHistory,
-        attachments: attachments.length > 0 ? attachments : undefined
+      message: inputValue,
+      history: newHistory,
+      attachments: attachments.length > 0 ? attachments : undefined
     });
     setInputValue("");
     setAttachments([]);
@@ -248,49 +293,49 @@ export default function Trainer() {
     }
 
     try {
-        const recognition = new SpeechRecognition();
-        recognition.lang = "pt-BR";
-        recognition.continuous = true;
-        recognition.interimResults = true;
+      const recognition = new SpeechRecognition();
+      recognition.lang = "pt-BR";
+      recognition.continuous = true;
+      recognition.interimResults = true;
 
-        recognition.onresult = (event: any) => {
+      recognition.onresult = (event: any) => {
         let interimTranscript = "";
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-                const transcript = event.results[i][0].transcript;
-                setInputValue((prev) => prev + (prev && !prev.endsWith(" ") ? " " : "") + transcript);
-            } else {
-                interimTranscript += event.results[i][0].transcript;
-            }
+          if (event.results[i].isFinal) {
+            const transcript = event.results[i][0].transcript;
+            setInputValue((prev) => prev + (prev && !prev.endsWith(" ") ? " " : "") + transcript);
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
         }
-        };
+      };
 
-        recognition.onerror = (event: any) => {
-            console.error("Speech recognition error", event.error);
-            setIsListening(false);
-            if (event.error !== 'no-speech') { // Ignore no-speech errors which happen often
-                toast({
-                    title: "Erro no Microfone",
-                    description: "Não foi possível acessar o microfone ou ocorreu um erro.",
-                    variant: "destructive",
-                });
-            }
-        };
-
-        recognition.onend = () => {
-            setIsListening(false);
-        };
-
-        recognitionRef.current = recognition;
-        recognition.start();
-        setIsListening(true);
-    } catch (e) {
-        console.error(e);
-        toast({
-            title: "Erro",
-            description: "Falha ao iniciar o reconhecimento de voz.",
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsListening(false);
+        if (event.error !== 'no-speech') { // Ignore no-speech errors which happen often
+          toast({
+            title: "Erro no Microfone",
+            description: "Não foi possível acessar o microfone ou ocorreu um erro.",
             variant: "destructive",
-        });
+          });
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsListening(true);
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: "Erro",
+        description: "Falha ao iniciar o reconhecimento de voz.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -393,11 +438,10 @@ export default function Trainer() {
             <button
               key={m}
               onClick={() => handleModeChange(m)}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-full text-sm font-medium transition-all ${
-                mode === m
+              className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-full text-sm font-medium transition-all ${mode === m
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground/80"
-              }`}
+                }`}
             >
               {m === "simulator" && <Bot className="h-4 w-4" />}
               {m === "architect" && <PencilRuler className="h-4 w-4" />}
@@ -406,8 +450,8 @@ export default function Trainer() {
                 {m === "simulator"
                   ? "Simulador"
                   : m === "architect"
-                  ? "Arquiteto"
-                  : "Copiloto"}
+                    ? "Arquiteto"
+                    : "Copiloto"}
               </span>
             </button>
           ))}
@@ -470,27 +514,25 @@ export default function Trainer() {
                 {mode === "simulator"
                   ? "Envie uma mensagem para começar o treinamento."
                   : mode === "architect"
-                  ? "Comece descrevendo como você quer que o bot se comporte."
-                  : "Pergunte sobre estatísticas ou configurações do sistema."}
+                    ? "Comece descrevendo como você quer que o bot se comporte."
+                    : "Pergunte sobre estatísticas ou configurações do sistema."}
               </p>
             </div>
           ) : (
             messages.map((msg) => (
               <div
                 key={msg.id}
-                className={`flex gap-4 ${
-                  msg.role === "user" ? "justify-end" : "justify-start"
-                }`}
+                className={`flex gap-4 ${msg.role === "user" ? "justify-end" : "justify-start"
+                  }`}
               >
                 {msg.role === "assistant" && (
                   <div
-                    className={`h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                      mode === "architect"
+                    className={`h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 ${mode === "architect"
                         ? "bg-purple-100 text-purple-600"
                         : mode === "copilot"
-                        ? "bg-blue-100 text-blue-600"
-                        : "bg-primary/10 text-primary"
-                    }`}
+                          ? "bg-blue-100 text-blue-600"
+                          : "bg-primary/10 text-primary"
+                      }`}
                   >
                     {mode === "architect" ? (
                       <PencilRuler className="h-6 w-6" />
@@ -503,16 +545,14 @@ export default function Trainer() {
                 )}
 
                 <div
-                  className={`flex flex-col gap-1 max-w-[85%] ${
-                    msg.role === "user" ? "items-end" : "items-start"
-                  }`}
+                  className={`flex flex-col gap-1 max-w-[85%] ${msg.role === "user" ? "items-end" : "items-start"
+                    }`}
                 >
                   <div
-                    className={`px-5 py-3 shadow-sm ${
-                      msg.role === "user"
+                    className={`px-5 py-3 shadow-sm ${msg.role === "user"
                         ? "bg-primary text-primary-foreground rounded-2xl rounded-tr-md"
                         : "bg-transparent text-foreground p-0 shadow-none"
-                    }`}
+                      }`}
                   >
                     {msg.role === "user" ? (
                       <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
@@ -539,20 +579,52 @@ export default function Trainer() {
                   )}
 
                   {msg.role === "assistant" && mode === "architect" && (
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex flex-wrap items-center gap-2 mt-2 p-2 bg-muted/30 rounded-lg border border-purple-200/50">
+                      <span className="text-xs text-muted-foreground w-full mb-1">Onde salvar esta instrução?</span>
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
-                        className="h-6 px-2 text-xs text-purple-600 hover:text-purple-700"
+                        className="h-7 px-3 text-xs border-purple-300 hover:bg-purple-50 hover:border-purple-400"
+                        onClick={() => saveToIdentityMutation.mutate(msg.content)}
+                        disabled={saveToIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending || applyPromptMutation.isPending}
+                      >
+                        {saveToIdentityMutation.isPending ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <Dna className="h-3 w-3 mr-1" />
+                        )}
+                        🧬 Salvar na Identidade
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-3 text-xs border-blue-300 hover:bg-blue-50 hover:border-blue-400"
+                        onClick={() => saveToDatabasFromArchitectMutation.mutate({
+                          question: msg.originalUserMessage || "Instrução do Arquiteto",
+                          answer: msg.content,
+                        })}
+                        disabled={saveToIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending || applyPromptMutation.isPending}
+                      >
+                        {saveToDatabasFromArchitectMutation.isPending ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <Database className="h-3 w-3 mr-1" />
+                        )}
+                        📚 Salvar na Database
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-3 text-xs border-amber-300 hover:bg-amber-50 hover:border-amber-400"
                         onClick={() => handleApplyPrompt(msg.content)}
-                        disabled={applyPromptMutation.isPending}
+                        disabled={saveToIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending || applyPromptMutation.isPending}
                       >
                         {applyPromptMutation.isPending ? (
                           <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                         ) : (
-                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          <Wand2 className="h-3 w-3 mr-1" />
                         )}
-                        Aplicar Prompt
+                        🪄 Aplicar Sugestão
                       </Button>
                     </div>
                   )}
@@ -562,14 +634,14 @@ export default function Trainer() {
           )}
           {simulateMutation.isPending && (
             <div className="flex justify-start gap-4">
-               <div className="h-10 w-10 rounded-lg bg-muted/50 flex items-center justify-center">
-                  <Bot className="h-6 w-6 text-muted-foreground animate-pulse" />
-               </div>
-               <div className="flex items-center gap-1 h-10 px-2">
-                  <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                  <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                  <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce"></span>
-               </div>
+              <div className="h-10 w-10 rounded-lg bg-muted/50 flex items-center justify-center">
+                <Bot className="h-6 w-6 text-muted-foreground animate-pulse" />
+              </div>
+              <div className="flex items-center gap-1 h-10 px-2">
+                <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce"></span>
+              </div>
             </div>
           )}
         </div>
@@ -577,19 +649,19 @@ export default function Trainer() {
         {/* Attachment Previews */}
         {attachments.length > 0 && (
           <div className="absolute bottom-20 left-0 right-0 px-4 flex justify-center z-10 pointer-events-none">
-             <div className="flex gap-2 p-2 bg-background/95 backdrop-blur-sm rounded-xl border shadow-sm pointer-events-auto">
-                {attachments.map((src, i) => (
-                  <div key={i} className="relative h-16 w-16 rounded-lg overflow-hidden border group bg-muted">
-                    <img src={src} alt="preview" className="h-full w-full object-cover" />
-                    <button
-                      onClick={() => removeAttachment(i)}
-                      className="absolute top-0.5 right-0.5 bg-black/50 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-             </div>
+            <div className="flex gap-2 p-2 bg-background/95 backdrop-blur-sm rounded-xl border shadow-sm pointer-events-auto">
+              {attachments.map((src, i) => (
+                <div key={i} className="relative h-16 w-16 rounded-lg overflow-hidden border group bg-muted">
+                  <img src={src} alt="preview" className="h-full w-full object-cover" />
+                  <button
+                    onClick={() => removeAttachment(i)}
+                    className="absolute top-0.5 right-0.5 bg-black/50 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -616,13 +688,13 @@ export default function Trainer() {
 
             {/* Microphone Button */}
             <Button
-                variant="ghost"
-                size="icon"
-                className={`h-10 w-10 rounded-full shrink-0 transition-colors mb-0.5 ${isListening ? "text-red-600 bg-red-100 hover:bg-red-200 animate-pulse" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
-                onClick={toggleListening}
-                disabled={simulateMutation.isPending}
+              variant="ghost"
+              size="icon"
+              className={`h-10 w-10 rounded-full shrink-0 transition-colors mb-0.5 ${isListening ? "text-red-600 bg-red-100 hover:bg-red-200 animate-pulse" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
+              onClick={toggleListening}
+              disabled={simulateMutation.isPending}
             >
-                <Mic className="h-5 w-5" />
+              <Mic className="h-5 w-5" />
             </Button>
 
             <Textarea
@@ -632,8 +704,8 @@ export default function Trainer() {
                 mode === "simulator"
                   ? "Digite uma mensagem..."
                   : mode === "architect"
-                  ? "Descreva o comportamento..."
-                  : "Pergunte algo..."
+                    ? "Descreva o comportamento..."
+                    : "Pergunte algo..."
               }
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}

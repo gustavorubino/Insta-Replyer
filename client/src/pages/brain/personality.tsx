@@ -7,6 +7,8 @@ import {
   CheckCircle,
   AlertCircle,
   Bot,
+  Pencil,
+  X,
 } from "lucide-react";
 import {
   Card,
@@ -41,6 +43,7 @@ export default function Personality() {
   });
 
   const [localSettings, setLocalSettings] = useState<SettingsData | null>(null);
+  const [isEditingPrompt, setIsEditingPrompt] = useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -54,6 +57,7 @@ export default function Personality() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      setIsEditingPrompt(false); // Reset to readOnly after save
       toast({
         title: t.settings.saved,
         description: t.settings.savedDesc,
@@ -109,10 +113,31 @@ export default function Personality() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Brain className="h-5 w-5" />
-                Prompt do Sistema
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Brain className="h-5 w-5" />
+                  Prompt do Sistema
+                </CardTitle>
+                {!isEditingPrompt ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsEditingPrompt(true)}
+                    title="Editar prompt"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsEditingPrompt(false)}
+                    title="Cancelar edição"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
               <CardDescription>
                 {t.settings.ai.systemPromptDesc}
               </CardDescription>
@@ -127,7 +152,8 @@ export default function Personality() {
                   })
                 }
                 placeholder={t.settings.ai.systemPromptPlaceholder}
-                className="min-h-[300px] font-mono text-sm"
+                className={`min-h-[300px] font-mono text-sm ${!isEditingPrompt ? "cursor-not-allowed opacity-75" : ""}`}
+                readOnly={!isEditingPrompt}
               />
               <p className="text-xs text-muted-foreground">
                 {t.settings.ai.systemPromptHelper}
