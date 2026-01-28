@@ -69,6 +69,7 @@ export default function Trainer() {
   // Multimodal State
   const [attachments, setAttachments] = useState<string[]>([]);
   const [isListening, setIsListening] = useState(false);
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<number>>(new Set());
   const recognitionRef = useRef<any>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -439,8 +440,8 @@ export default function Trainer() {
               key={m}
               onClick={() => handleModeChange(m)}
               className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-full text-sm font-medium transition-all ${mode === m
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground/80"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground/80"
                 }`}
             >
               {m === "simulator" && <Bot className="h-4 w-4" />}
@@ -528,10 +529,10 @@ export default function Trainer() {
                 {msg.role === "assistant" && (
                   <div
                     className={`h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 ${mode === "architect"
-                        ? "bg-purple-100 text-purple-600"
-                        : mode === "copilot"
-                          ? "bg-blue-100 text-blue-600"
-                          : "bg-primary/10 text-primary"
+                      ? "bg-purple-100 text-purple-600"
+                      : mode === "copilot"
+                        ? "bg-blue-100 text-blue-600"
+                        : "bg-primary/10 text-primary"
                       }`}
                   >
                     {mode === "architect" ? (
@@ -550,8 +551,8 @@ export default function Trainer() {
                 >
                   <div
                     className={`px-5 py-3 shadow-sm ${msg.role === "user"
-                        ? "bg-primary text-primary-foreground rounded-2xl rounded-tr-md"
-                        : "bg-transparent text-foreground p-0 shadow-none"
+                      ? "bg-primary text-primary-foreground rounded-2xl rounded-tr-md"
+                      : "bg-transparent text-foreground p-0 shadow-none"
                       }`}
                   >
                     {msg.role === "user" ? (
@@ -578,56 +579,104 @@ export default function Trainer() {
                     </div>
                   )}
 
-                  {msg.role === "assistant" && mode === "architect" && (
-                    <div className="flex flex-wrap items-center gap-2 mt-2 p-2 bg-muted/30 rounded-lg border border-purple-200/50">
-                      <span className="text-xs text-muted-foreground w-full mb-1">Onde salvar esta instrução?</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-3 text-xs border-purple-300 hover:bg-purple-50 hover:border-purple-400"
-                        onClick={() => saveToIdentityMutation.mutate(msg.content)}
-                        disabled={saveToIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending || applyPromptMutation.isPending}
-                      >
-                        {saveToIdentityMutation.isPending ? (
-                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                        ) : (
-                          <Dna className="h-3 w-3 mr-1" />
+                  {msg.role === "assistant" && mode === "architect" && !dismissedSuggestions.has(index) && (() => {
+                    // Inteligência de decisão: analisar conteúdo para sugerir destino
+                    const content = msg.content.toLowerCase();
+                    const isIdentityContent =
+                      content.includes("personalidade") ||
+                      content.includes("tom de voz") ||
+                      content.includes("comportamento") ||
+                      content.includes("você é") ||
+                      content.includes("você deve") ||
+                      content.includes("sempre") ||
+                      content.includes("nunca") ||
+                      content.includes("regra") ||
+                      content.includes("system prompt") ||
+                      content.includes("identidade");
+
+                    const isDatabaseContent =
+                      content.includes("preço") ||
+                      content.includes("horário") ||
+                      content.includes("endereço") ||
+                      content.includes("telefone") ||
+                      content.includes("produto") ||
+                      content.includes("serviço") ||
+                      content.includes("faq") ||
+                      content.includes("pergunta frequente") ||
+                      content.includes("informação") ||
+                      content.includes("dado");
+
+                    const suggestion = isIdentityContent && !isDatabaseContent
+                      ? "IDENTIDADE"
+                      : isDatabaseContent && !isIdentityContent
+                        ? "DATABASE (RAG)"
+                        : null;
+
+                    const suggestionEmoji = suggestion === "IDENTIDADE" ? "🧬" : suggestion === "DATABASE (RAG)" ? "📚" : "🤔";
+
+                    const handleDismiss = () => {
+                      setDismissedSuggestions(prev => new Set([...prev, index]));
+                    };
+
+                    return (
+                      <div className="flex flex-col gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-purple-200/50">
+                        {suggestion && (
+                          <div className="flex items-center gap-2 text-xs bg-gradient-to-r from-purple-50 to-blue-50 p-2 rounded-md border border-purple-100">
+                            <Wand2 className="h-4 w-4 text-purple-500" />
+                            <span className="text-muted-foreground">Sugestão da IA:</span>
+                            <span className="font-semibold text-purple-700">{suggestionEmoji} {suggestion}</span>
+                          </div>
                         )}
-                        🧬 Salvar na Identidade
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-3 text-xs border-blue-300 hover:bg-blue-50 hover:border-blue-400"
-                        onClick={() => saveToDatabasFromArchitectMutation.mutate({
-                          question: msg.originalUserMessage || "Instrução do Arquiteto",
-                          answer: msg.content,
-                        })}
-                        disabled={saveToIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending || applyPromptMutation.isPending}
-                      >
-                        {saveToDatabasFromArchitectMutation.isPending ? (
-                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                        ) : (
-                          <Database className="h-3 w-3 mr-1" />
-                        )}
-                        📚 Salvar na Database
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-3 text-xs border-amber-300 hover:bg-amber-50 hover:border-amber-400"
-                        onClick={() => handleApplyPrompt(msg.content)}
-                        disabled={saveToIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending || applyPromptMutation.isPending}
-                      >
-                        {applyPromptMutation.isPending ? (
-                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                        ) : (
-                          <Wand2 className="h-3 w-3 mr-1" />
-                        )}
-                        🪄 Aplicar Sugestão
-                      </Button>
-                    </div>
-                  )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-muted-foreground">Onde salvar:</span>
+                          <Button
+                            variant={suggestion === "IDENTIDADE" ? "default" : "outline"}
+                            size="sm"
+                            className={`h-7 px-3 text-xs ${suggestion === "IDENTIDADE"
+                              ? "bg-purple-600 hover:bg-purple-700 text-white"
+                              : "border-purple-300 hover:bg-purple-50 hover:border-purple-400"}`}
+                            onClick={() => saveToIdentityMutation.mutate(msg.content)}
+                            disabled={saveToIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending}
+                          >
+                            {saveToIdentityMutation.isPending ? (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <Dna className="h-3 w-3 mr-1" />
+                            )}
+                            🧬 Identidade
+                          </Button>
+                          <Button
+                            variant={suggestion === "DATABASE (RAG)" ? "default" : "outline"}
+                            size="sm"
+                            className={`h-7 px-3 text-xs ${suggestion === "DATABASE (RAG)"
+                              ? "bg-blue-600 hover:bg-blue-700 text-white"
+                              : "border-blue-300 hover:bg-blue-50 hover:border-blue-400"}`}
+                            onClick={() => saveToDatabasFromArchitectMutation.mutate({
+                              question: msg.originalUserMessage || "Instrução do Arquiteto",
+                              answer: msg.content,
+                            })}
+                            disabled={saveToIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending}
+                          >
+                            {saveToDatabasFromArchitectMutation.isPending ? (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <Database className="h-3 w-3 mr-1" />
+                            )}
+                            📚 Database
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-3 text-xs border-gray-300 hover:bg-gray-50 hover:border-gray-400 text-gray-600"
+                            onClick={handleDismiss}
+                          >
+                            <X className="h-3 w-3 mr-1" />
+                            ❌ Não Aplicar
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             ))
