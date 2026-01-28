@@ -437,6 +437,16 @@ A confiança deve ser um número entre 0 e 1, onde:
             // Assume it's a raw base64 string and missing prefix
             console.warn(`[OpenAI] Attachment ${index + 1} missing prefix, adding data:image/jpeg;base64,...`);
             imageUrl = `data:image/jpeg;base64,${img}`;
+          } else if (isDataUri) {
+            // Check for double prefix (e.g. data:image...,data:image...)
+            // Common issue with some clipboard pastes or frontend handling
+            const parts = img.split(',');
+            if (parts.length > 2 && parts[0].includes('data:image') && parts[1].includes('data:image')) {
+               console.warn(`[OpenAI] Double prefix detected in attachment ${index + 1}, fixing...`);
+               // Keep the last part which is the actual base64
+               const actualBase64 = parts[parts.length - 1];
+               imageUrl = `data:image/jpeg;base64,${actualBase64}`;
+            }
           }
 
           contentParts.push({
@@ -451,6 +461,9 @@ A confiança deve ser um número entre 0 e 1, onde:
 
       userContent = contentParts;
       console.log(`[OpenAI] Sending request with vision (${hasPostImage ? 'post image ' : ''}${hasAttachments ? `${attachments.length} attachments` : ''})`);
+
+      // Log EXACT content for debugging as requested
+      console.log("DEBUG OPENAI CONTENT:", JSON.stringify(userContent, null, 2));
 
       // Log structure for debugging (safely)
       const contentSummary = contentParts.map(p => {

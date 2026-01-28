@@ -1,4 +1,4 @@
-import { callOpenAI, ChatCompletionMessageParam, Tool } from "./openai";
+import { callOpenAI, ChatCompletionMessageParam, Tool, MessageContent, ImageContent, TextContent } from "./openai";
 import { storage } from "./storage";
 import { db } from "./db";
 import { aiDataset, instagramMessages, aiResponses, learningHistory, knowledgeLinks, knowledgeFiles, users, settings } from "@shared/schema";
@@ -789,7 +789,7 @@ async function executeGetTechnicalSuggestions(): Promise<string> {
   }
 }
 
-export async function runCopilotAgent(history: ChatMessage[], userId: string): Promise<string> {
+export async function runCopilotAgent(history: ChatMessage[], userId: string, attachments?: string[]): Promise<string> {
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: COPILOT_SYSTEM_PROMPT },
     ...history.map((msg) => ({
@@ -797,6 +797,71 @@ export async function runCopilotAgent(history: ChatMessage[], userId: string): P
       content: msg.content,
     })),
   ];
+
+  // If there are attachments, we need to modify the last user message to include them
+  if (attachments && attachments.length > 0) {
+    // Find the last user message
+    let lastUserMessageIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUserMessageIndex = i;
+        break;
+      }
+    }
+
+    if (lastUserMessageIndex !== -1) {
+      const lastMessage = messages[lastUserMessageIndex];
+      const existingContent = lastMessage.content as string; // Assuming it starts as string
+
+      // Create new multimodal content
+      const newContent: (TextContent | ImageContent)[] = [
+        { type: "text", text: existingContent }
+      ];
+
+      // Add images
+      attachments.forEach((img, index) => {
+        let imageUrl = img;
+        // Robust Base64 prefix logic
+        const isUrl = img.startsWith('http') || img.startsWith('https');
+        const isDataUri = img.startsWith('data:');
+
+        if (!isUrl && !isDataUri) {
+          // It's a raw base64 string, add prefix
+          imageUrl = `data:image/jpeg;base64,${img}`;
+        } else if (isDataUri) {
+          // Check for double prefix
+          const parts = img.split(',');
+          if (parts.length > 2 && parts[0].includes('data:image') && parts[1].includes('data:image')) {
+             // Found double prefix (e.g. data:image...,data:image...)
+             // Keep the last part which is the actual base64
+             console.warn(`[Copilot] Double prefix detected in attachment ${index + 1}, fixing...`);
+             const actualBase64 = parts[parts.length - 1];
+             imageUrl = `data:image/jpeg;base64,${actualBase64}`;
+          }
+        }
+
+        console.log(`[Copilot] Processing attachment ${index + 1}: length=${imageUrl.length}`);
+
+        newContent.push({
+          type: "image_url",
+          image_url: {
+            url: imageUrl,
+            detail: "low"
+          }
+        });
+      });
+
+      // Update the message content
+      messages[lastUserMessageIndex].content = newContent;
+      console.log(`[Copilot] Converted last user message to multimodal with ${attachments.length} images.`);
+    }
+  }
+
+  // Debug log for OpenAI content
+  if (messages.length > 0) {
+    const lastMsg = messages[messages.length - 1];
+    console.log("DEBUG COPILOT CONTENT:", JSON.stringify(lastMsg.content, null, 2));
+  }
 
   // Tool execution loop (max 10 turns to allow multiple tool calls)
   for (let i = 0; i < 10; i++) {
