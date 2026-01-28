@@ -102,7 +102,22 @@ export const interactionDialect = pgTable("interaction_dialect", {
   userMessage: text("user_message").notNull(),            // Message received
   myResponse: text("my_response"),                        // Response sent (if any)
   postContext: text("post_context"),                      // For comments, the post caption
+  parentCommentId: text("parent_comment_id"),             // For threading: ID of parent comment
+  isOwnerReply: boolean("is_owner_reply").default(false), // True if this is the owner's reply
+  instagramCommentId: text("instagram_comment_id"),       // Unique comment ID from Instagram
   interactedAt: timestamp("interacted_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// User Guidelines - Priority rules that override all other behavior
+// These are manually entered by the user and have MAXIMUM priority
+export const userGuidelines = pgTable("user_guidelines", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  rule: text("rule").notNull(),                           // The rule text
+  priority: integer("priority").notNull().default(1),     // 1-5, higher = more important
+  isActive: boolean("is_active").notNull().default(true), // Can be toggled on/off
+  category: text("category").default("geral"),            // Category: 'politica', 'comportamento', 'marca', etc
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
 // Learning History (for AI improvement)
@@ -286,6 +301,15 @@ export type InsertMediaLibraryEntry = z.infer<typeof insertMediaLibrarySchema>;
 
 export type InteractionDialectEntry = typeof interactionDialect.$inferSelect;
 export type InsertInteractionDialectEntry = z.infer<typeof insertInteractionDialectSchema>;
+
+// Insert schema for user guidelines
+export const insertGuidelineSchema = createInsertSchema(userGuidelines).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type UserGuideline = typeof userGuidelines.$inferSelect;
+export type InsertUserGuideline = z.infer<typeof insertGuidelineSchema>;
 
 // Combined type for message with AI response
 export type MessageWithResponse = InstagramMessage & {

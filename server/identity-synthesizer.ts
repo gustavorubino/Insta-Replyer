@@ -235,9 +235,10 @@ export async function syncAllKnowledge(
     let interactionCount = 0;
 
     try {
-        // For each post, get comments
+        // For each post, get comments with more fields
         for (const post of posts.slice(0, 10)) { // Top 10 posts
-            const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp&access_token=${accessToken}&limit=20`;
+            // Include 'from' field for better username data, and 'replies' for owner responses
+            const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=20`;
 
             try {
                 const commentsResponse = await fetch(commentsUrl);
@@ -246,28 +247,58 @@ export async function syncAllKnowledge(
                         data: Array<{
                             id: string;
                             text: string;
-                            username: string;
+                            username?: string;
                             timestamp: string;
+                            from?: { id: string; username?: string };
+                            replies?: {
+                                data: Array<{
+                                    id: string;
+                                    text: string;
+                                    username?: string;
+                                    timestamp: string;
+                                    from?: { id: string; username?: string };
+                                }>;
+                            };
                         }>;
                     };
 
                     for (const comment of (commentsData.data || [])) {
                         if (interactionCount >= 200) break;
 
+                        // Get username from available fields (prioritize 'from.username')
+                        const senderUsername = comment.from?.username || comment.username || null;
+
+                        // Check if there's a reply from the owner (could be in replies)
+                        let ownerReply: string | null = null;
+                        if (comment.replies?.data) {
+                            // The first reply is usually from the owner
+                            for (const reply of comment.replies.data) {
+                                // Check if this reply is from the page owner
+                                const replyUsername = reply.from?.username || reply.username || "";
+                                if (replyUsername === username) {
+                                    ownerReply = reply.text;
+                                    break;
+                                }
+                            }
+                        }
+
                         await storage.addInteractionDialect({
                             userId,
                             channelType: 'public_comment',
-                            senderName: comment.username,
-                            senderUsername: comment.username,
+                            senderName: senderUsername,
+                            senderUsername: senderUsername,
                             userMessage: comment.text,
-                            myResponse: null, // We'd need to fetch replies
+                            myResponse: ownerReply,
                             postContext: post.caption?.substring(0, 200) || null,
+                            instagramCommentId: comment.id,
+                            parentCommentId: null,
+                            isOwnerReply: false,
                         });
                         interactionCount++;
                     }
                 }
             } catch (commentErr) {
-                console.log(`[SyncKnowledge] Erro ao buscar comentários do post ${post.id}`);
+                console.log(`[SyncKnowledge] Erro ao buscar comentários do post ${post.id}:`, commentErr);
             }
         }
     } catch (err) {
@@ -287,7 +318,7 @@ export async function syncAllKnowledge(
 }
 
 // ============================================
-// SYNTHESIZE IDENTITY (Reads 3 Tables)
+// SYNTHESIZE IDENTITY (Reads 4 Tables - Including Guidelines)
 // ============================================
 
 interface SynthesisResult {
@@ -297,18 +328,20 @@ interface SynthesisResult {
         mediaLibrary: number;
         interactions: number;
         manualQA: number;
+        guidelines: number;
     };
 }
 
 export async function synthesizeIdentity(userId: string): Promise<SynthesisResult> {
     console.log(`[IdentitySynthesizer] Gerando personalidade para userId: ${userId}`);
 
-    // 1. Fetch all 3 knowledge sources
+    // 1. Fetch all 4 knowledge sources (Guidelines have HIGHEST priority)
+    const guidelines = await storage.getGuidelines(userId);
     const mediaLibrary = await storage.getMediaLibrary(userId);
     const interactions = await storage.getInteractionDialect(userId, 'public_comment');
     const manualQA = await storage.getManualQA(userId);
 
-    console.log(`[IdentitySynthesizer] Fontes: ${mediaLibrary.length} posts, ${interactions.length} interações, ${manualQA.length} correções`);
+    console.log(`[IdentitySynthesizer] Fontes: ${guidelines.length} diretrizes, ${mediaLibrary.length} posts, ${interactions.length} interações, ${manualQA.length} correções`);
 
     // 2. Extract content from each source
     const captions = mediaLibrary
@@ -324,11 +357,22 @@ export async function synthesizeIdentity(userId: string): Promise<SynthesisResul
         .map(q => `Q: ${q.question}\nA: ${q.answer}`)
         .slice(0, 20);
 
+    // Format guidelines by priority (5 = highest)
+    const activeGuidelines = guidelines
+        .filter(g => g.isActive)
+        .sort((a, b) => b.priority - a.priority)
+        .map(g => `[P${g.priority}/${g.category}] ${g.rule}`);
+
     // 3. Extract patterns
     const patterns = extractPatterns([...captions, ...publicResponses]);
 
     // 4. Build context for GPT
     const contextParts: string[] = [];
+
+    // GUIDELINES GO FIRST - HIGHEST PRIORITY
+    if (activeGuidelines.length > 0) {
+        contextParts.push(`## ⚠️ DIRETRIZES PRIORITÁRIAS (SEGUIR OBRIGATORIAMENTE)\nEstas são regras absolutas que devem ser seguidas em TODAS as respostas:\n${activeGuidelines.join('\n')}`);
+    }
 
     if (captions.length > 0) {
         contextParts.push(`## CONTEXTO DOS POSTS (${captions.length} legendas)\n${captions.slice(0, 10).join('\n---\n')}`);
@@ -357,11 +401,14 @@ ${contextParts.join('\n\n')}
 - Temas: ${patterns.topics.join(', ') || 'N/A'}
 
 Crie um System Prompt em português que:
-1. Define a personalidade e tom de voz
-2. Lista as regras de comportamento (baseadas nas REGRAS DE OURO)
-3. Especifica como usar emojis e saudações
-4. Define os temas e expertise da pessoa
-5. Seja específico e prático para guiar respostas em DMs e comentários
+1. **PRIMEIRO**: Lista as DIRETRIZES PRIORITÁRIAS que devem ser seguidas obrigatoriamente
+2. Define a personalidade e tom de voz
+3. Lista as regras de comportamento (baseadas nas REGRAS DE OURO)
+4. Especifica como usar emojis e saudações
+5. Define os temas e expertise da pessoa
+6. Seja específico e prático para guiar respostas em DMs e comentários
+
+IMPORTANTE: As diretrizes prioritárias devem aparecer no início do prompt e devem ser claramente marcadas como obrigatórias.
 
 Responda APENAS com o System Prompt final.`;
 
@@ -384,6 +431,7 @@ Responda APENAS com o System Prompt final.`;
             systemPrompt,
             patterns,
             sourceCounts: {
+                guidelines: guidelines.length,
                 mediaLibrary: mediaLibrary.length,
                 interactions: interactions.length,
                 manualQA: manualQA.length,

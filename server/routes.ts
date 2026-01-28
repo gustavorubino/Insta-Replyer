@@ -4764,11 +4764,11 @@ export async function registerRoutes(
       }
 
       const username = user.instagramUsername || syncResult.username;
-      const bio = syncResult.bio;
 
       console.log(`[Generate Personality] Gerando para @${username} com ${syncResult.captions.length} legendas...`);
 
-      const result = await synthesizeIdentity(userId, syncResult.captions, bio, username);
+      // Use the updated synthesizeIdentity that reads from all 4 tables
+      const result = await synthesizeIdentity(userId);
 
       // Save the generated systemPrompt to user's aiContext
       await authStorage.updateUser(userId, {
@@ -5323,6 +5323,108 @@ Retorne APENAS o System Prompt mesclado, sem nenhum texto adicional.`;
         error: error?.message || "Failed to synthesize identity",
         code: error?.message?.includes("Nenhuma fonte") ? "INSUFFICIENT_DATA" : undefined,
       });
+    }
+  });
+
+  // ============================================
+  // User Guidelines API Endpoints
+  // ============================================
+
+  // GET /api/brain/guidelines - List all user guidelines
+  app.get("/api/brain/guidelines", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const guidelines = await storage.getGuidelines(userId);
+      res.json(guidelines);
+    } catch (error) {
+      console.error("Error fetching guidelines:", error);
+      res.status(500).json({ error: "Failed to fetch guidelines" });
+    }
+  });
+
+  // POST /api/brain/guidelines - Add new guideline
+  app.post("/api/brain/guidelines", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const { rule, priority, category } = req.body;
+
+      if (!rule || typeof rule !== "string" || rule.trim().length === 0) {
+        return res.status(400).json({ error: "Rule is required" });
+      }
+
+      const guideline = await storage.addGuideline({
+        userId,
+        rule: rule.trim(),
+        priority: priority || 1,
+        category: category || "geral",
+        isActive: true,
+      });
+
+      res.status(201).json(guideline);
+    } catch (error) {
+      console.error("Error adding guideline:", error);
+      res.status(500).json({ error: "Failed to add guideline" });
+    }
+  });
+
+  // PATCH /api/brain/guidelines/:id - Update guideline
+  app.patch("/api/brain/guidelines/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const id = parseInt(req.params.id);
+
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid ID" });
+      }
+
+      const { rule, priority, category, isActive } = req.body;
+      const updateData: any = {};
+
+      if (rule !== undefined) updateData.rule = rule;
+      if (priority !== undefined) updateData.priority = priority;
+      if (category !== undefined) updateData.category = category;
+      if (isActive !== undefined) updateData.isActive = isActive;
+
+      const updated = await storage.updateGuideline(id, userId, updateData);
+
+      if (!updated) {
+        return res.status(404).json({ error: "Guideline not found" });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating guideline:", error);
+      res.status(500).json({ error: "Failed to update guideline" });
+    }
+  });
+
+  // DELETE /api/brain/guidelines/:id - Delete guideline
+  app.delete("/api/brain/guidelines/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const id = parseInt(req.params.id);
+
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid ID" });
+      }
+
+      await storage.deleteGuideline(id, userId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting guideline:", error);
+      res.status(500).json({ error: "Failed to delete guideline" });
+    }
+  });
+
+  // GET /api/brain/guidelines/count - Get guidelines count
+  app.get("/api/brain/guidelines/count", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const count = await storage.getGuidelinesCount(userId);
+      res.json({ count, limit: 50 }); // Soft limit of 50 guidelines
+    } catch (error) {
+      console.error("Error fetching guidelines count:", error);
+      res.status(500).json({ error: "Failed to fetch guidelines count" });
     }
   });
 

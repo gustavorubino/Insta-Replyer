@@ -35,6 +35,9 @@ import {
   type InsertMediaLibraryEntry,
   type InteractionDialectEntry,
   type InsertInteractionDialectEntry,
+  userGuidelines,
+  type UserGuideline,
+  type InsertUserGuideline,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, ne, or, isNull } from "drizzle-orm";
@@ -144,6 +147,13 @@ export interface IStorage {
   addInteractionDialect(entry: InsertInteractionDialectEntry): Promise<InteractionDialectEntry>;
   clearInteractionDialect(userId: string): Promise<number>;
   getInteractionDialectCount(userId: string): Promise<number>;
+
+  // User Guidelines (priority rules)
+  getGuidelines(userId: string): Promise<UserGuideline[]>;
+  addGuideline(entry: InsertUserGuideline): Promise<UserGuideline>;
+  updateGuideline(id: number, userId: string, data: Partial<InsertUserGuideline>): Promise<UserGuideline | undefined>;
+  deleteGuideline(id: number, userId: string): Promise<void>;
+  getGuidelinesCount(userId: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1032,6 +1042,51 @@ export class DatabaseStorage implements IStorage {
       .where(eq(interactionDialect.userId, userId));
     return result[0]?.count || 0;
   }
+
+  // ============================================
+  // User Guidelines (Priority Rules)
+  // ============================================
+
+  async getGuidelines(userId: string): Promise<UserGuideline[]> {
+    return db
+      .select()
+      .from(userGuidelines)
+      .where(eq(userGuidelines.userId, userId))
+      .orderBy(desc(userGuidelines.priority), desc(userGuidelines.createdAt));
+  }
+
+  async addGuideline(entry: InsertUserGuideline): Promise<UserGuideline> {
+    const [created] = await db.insert(userGuidelines).values(entry).returning();
+    return created;
+  }
+
+  async updateGuideline(
+    id: number,
+    userId: string,
+    data: Partial<InsertUserGuideline>
+  ): Promise<UserGuideline | undefined> {
+    const [updated] = await db
+      .update(userGuidelines)
+      .set(data)
+      .where(and(eq(userGuidelines.id, id), eq(userGuidelines.userId, userId)))
+      .returning();
+    return updated;
+  }
+
+  async deleteGuideline(id: number, userId: string): Promise<void> {
+    await db
+      .delete(userGuidelines)
+      .where(and(eq(userGuidelines.id, id), eq(userGuidelines.userId, userId)));
+  }
+
+  async getGuidelinesCount(userId: string): Promise<number> {
+    const result = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(userGuidelines)
+      .where(eq(userGuidelines.userId, userId));
+    return result[0]?.count || 0;
+  }
 }
 
 export const storage = new DatabaseStorage();
+
