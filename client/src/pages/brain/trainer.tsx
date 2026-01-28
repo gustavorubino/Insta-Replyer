@@ -262,10 +262,39 @@ export default function Trainer() {
     },
   });
 
+  // Function to extract only technical prompt from markdown code blocks
+  const extractTechnicalPrompt = (content: string): string => {
+    // Match all markdown code blocks (```...```)
+    const codeBlockRegex = /```(?:\w+)?\n?([\s\S]*?)```/g;
+    const matches = [];
+    let match;
+
+    while ((match = codeBlockRegex.exec(content)) !== null) {
+      matches.push(match[1].trim());
+    }
+
+    // If we found code blocks, return them joined
+    if (matches.length > 0) {
+      console.log("[Architect] Extracted", matches.length, "code blocks from content");
+      return matches.join("\n\n").trim();
+    }
+
+    // Fallback: try to remove conversational prefixes and return the content
+    const cleanedContent = content
+      .replace(/^(Ótimo!|Perfeito!|Excelente!|Claro!|Certo!|Ok!|Entendido!|Com base no que discutimos[^.]*\.|Aqui está[^:]*:|Segue[^:]*:|Vou criar[^.]*\.)[\s\n]*/gi, "")
+      .replace(/^(Se isso está de acordo|Se precisar de mais|Caso tenha|Qualquer dúvida)[^.]*\.[\s\n]*/gi, "")
+      .trim();
+
+    console.log("[Architect] No code blocks found, using cleaned content");
+    return cleanedContent;
+  };
+
   // Handler to open identity modal instead of saving directly
   const handleSaveToIdentity = (content: string) => {
-    console.log("[Architect] Opening identity modal for content:", content.substring(0, 100) + "...");
-    setPendingIdentityContent(content);
+    // Extract only technical prompt, removing conversational text
+    const technicalPrompt = extractTechnicalPrompt(content);
+    console.log("[Architect] Opening identity modal for technical prompt:", technicalPrompt.substring(0, 100) + "...");
+    setPendingIdentityContent(technicalPrompt);
     setIsIdentityModalOpen(true);
   };
 
@@ -678,7 +707,7 @@ export default function Trainer() {
                     const suggestionReason = recommendation?.reason;
 
                     return (
-                      <div className="flex flex-col gap-2 mt-3 p-3 bg-gradient-to-r from-purple-50/80 to-blue-50/80 dark:from-purple-950/30 dark:to-blue-950/30 rounded-lg border border-purple-200/50 dark:border-purple-800/50">
+                      <div className="flex flex-col gap-3 mt-3 p-4 bg-gradient-to-r from-purple-50/80 to-blue-50/80 dark:from-purple-950/30 dark:to-blue-950/30 rounded-lg border border-purple-200/50 dark:border-purple-800/50">
                         {/* Recommendation text - always show when isFinalInstruction */}
                         <div className="flex items-start gap-2 text-sm">
                           <span className="text-lg">🤖</span>
@@ -695,6 +724,7 @@ export default function Trainer() {
                           </div>
                         </div>
 
+                        {/* Buttons Row */}
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-xs text-muted-foreground">Onde salvar:</span>
                           <Button
@@ -719,11 +749,14 @@ export default function Trainer() {
                             className={`h-7 px-3 text-xs ${suggestionTarget === "database"
                               ? "bg-blue-600 hover:bg-blue-700 text-white"
                               : "border-blue-300 hover:bg-blue-50 hover:border-blue-400"}`}
-                            onClick={() => saveToDatabasFromArchitectMutation.mutate({
-                              question: msg.originalUserMessage || "Instrução do Arquiteto",
-                              answer: msg.content,
-                            })}
-                            disabled={saveToIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending}
+                            onClick={() => {
+                              const cleanedContent = extractTechnicalPrompt(msg.content);
+                              saveToDatabasFromArchitectMutation.mutate({
+                                question: msg.originalUserMessage || "Instrução do Arquiteto",
+                                answer: cleanedContent,
+                              });
+                            }}
+                            disabled={replaceIdentityMutation.isPending || mergeIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending}
                           >
                             {saveToDatabasFromArchitectMutation.isPending ? (
                               <Loader2 className="h-3 w-3 mr-1 animate-spin" />
@@ -741,6 +774,24 @@ export default function Trainer() {
                             <X className="h-3 w-3 mr-1" />
                             ❌ Não Aplicar
                           </Button>
+                        </div>
+
+                        {/* Legend - Guide of Decision */}
+                        <div className="mt-2 pt-2 border-t border-purple-100 dark:border-purple-800/50">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-muted-foreground">
+                            <div className="flex items-start gap-1.5">
+                              <span className="text-purple-500">🧬</span>
+                              <span><strong className="text-foreground">Identidade:</strong> Define o "Cérebro" e tom de voz (Quem a IA é)</span>
+                            </div>
+                            <div className="flex items-start gap-1.5">
+                              <span className="text-blue-500">📚</span>
+                              <span><strong className="text-foreground">Database:</strong> Adiciona fatos e memórias (O que a IA sabe)</span>
+                            </div>
+                            <div className="flex items-start gap-1.5">
+                              <span className="text-gray-500">❌</span>
+                              <span><strong className="text-foreground">Não Aplicar:</strong> Descarta a instrução atual</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     );
