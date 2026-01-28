@@ -582,6 +582,67 @@ export default function Trainer() {
                   {msg.role === "assistant" && mode === "architect" && !dismissedSuggestions.has(index) && (() => {
                     // Inteligência de decisão: analisar conteúdo para sugerir destino
                     const content = msg.content.toLowerCase();
+
+                    // Detectar se é apenas uma PERGUNTA ou CONVERSA (não deve mostrar opções de salvar)
+                    const isJustQuestion =
+                      // Perguntas diretas
+                      content.includes("poderia me explicar") ||
+                      content.includes("poderia explicar") ||
+                      content.includes("me conte") ||
+                      content.includes("me fale") ||
+                      content.includes("qual é o") ||
+                      content.includes("qual o") ||
+                      content.includes("como você") ||
+                      content.includes("o que você") ||
+                      content.includes("você pode me") ||
+                      content.includes("gostaria de saber") ||
+                      content.includes("me diga") ||
+                      // Saudações e introduções
+                      (content.includes("olá") && content.includes("ajudar")) ||
+                      (content.includes("oi") && content.includes("ajudar")) ||
+                      content.includes("estou aqui para ajudar") ||
+                      content.includes("vamos começar") ||
+                      content.includes("como posso ajudar") ||
+                      // Perguntas específicas do arquiteto
+                      content.includes("qual é o objetivo") ||
+                      content.includes("qual será o contexto") ||
+                      content.includes("em que contexto") ||
+                      content.includes("para qual tipo de") ||
+                      content.includes("me dê mais detalhes") ||
+                      content.includes("poderia detalhar");
+
+                    // Detectar se tem CONTEÚDO SALVÁVEL (instruções, prompts, regras)
+                    const hasSavableContent =
+                      // Marcadores de prompt/instrução
+                      content.includes("```") || // Blocos de código (prompts)
+                      content.includes("# ") || // Headers markdown (estrutura de prompt)
+                      content.includes("## ") ||
+                      // Indicadores de instruções concretas
+                      content.includes("aqui está o prompt") ||
+                      content.includes("aqui está a instrução") ||
+                      content.includes("system prompt:") ||
+                      content.includes("prompt sugerido") ||
+                      content.includes("instrução sugerida") ||
+                      // Regras e comportamentos definidos
+                      (content.includes("você é") && content.includes("deve")) ||
+                      (content.includes("regra") && content.includes(":")) ||
+                      content.includes("sempre responda") ||
+                      content.includes("nunca responda") ||
+                      content.includes("tom de voz:") ||
+                      content.includes("personalidade:") ||
+                      // Listas de instruções
+                      (content.includes("1.") && content.includes("2.")) ||
+                      (content.includes("- ") && content.split("- ").length > 3);
+
+                    // Só mostrar opções se tem conteúdo salvável E não é apenas uma pergunta
+                    if (isJustQuestion && !hasSavableContent) {
+                      return null; // Não mostrar nada para perguntas simples
+                    }
+
+                    if (!hasSavableContent) {
+                      return null; // Não mostrar se não tem nada para salvar
+                    }
+
                     const isIdentityContent =
                       content.includes("personalidade") ||
                       content.includes("tom de voz") ||
