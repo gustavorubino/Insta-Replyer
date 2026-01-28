@@ -26,6 +26,24 @@ app.use(
 
 app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 
+// Security headers - Allow Instagram/Meta API connections
+app.use((req, res, next) => {
+  // Content Security Policy - Allow connections to Instagram Graph API
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src 'self' https://fonts.gstatic.com; " +
+    "img-src 'self' data: blob: https: http:; " +
+    "connect-src 'self' https://graph.instagram.com https://graph.facebook.com https://api.instagram.com https://*.cdninstagram.com wss: ws:; " +
+    "media-src 'self' blob: https: http:; " +
+    "frame-src 'self' https://www.instagram.com https://www.facebook.com;"
+  );
+  next();
+});
+
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -47,18 +65,18 @@ const LOG_SENSITIVE_FIELDS = [
 function redactSensitiveData(obj: any): any {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== 'object') return obj;
-  
+
   if (Array.isArray(obj)) {
     return obj.map(item => redactSensitiveData(item));
   }
-  
+
   const redacted: any = {};
   for (const [key, value] of Object.entries(obj)) {
     const lowercaseKey = key.toLowerCase();
-    const isSensitive = LOG_SENSITIVE_FIELDS.some(field => 
+    const isSensitive = LOG_SENSITIVE_FIELDS.some(field =>
       lowercaseKey.includes(field.toLowerCase())
     );
-    
+
     if (isSensitive && value) {
       redacted[key] = '[REDACTED]';
     } else if (typeof value === 'object' && value !== null) {
@@ -138,10 +156,10 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
-      
+
       // Auto-fix users with missing instagramRecipientId
       autoFixMissingRecipientIds();
-      
+
       // Start token refresh job (runs daily at 3am)
       startTokenRefreshJob();
     },

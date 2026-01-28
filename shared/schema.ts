@@ -50,7 +50,7 @@ export const aiResponses = pgTable("ai_responses", {
   approvedAt: timestamp("approved_at"),
 });
 
-// AI Dataset (Memory) for RAG
+// AI Dataset (Memory) for RAG - LEGACY, kept for backward compatibility
 export const aiDataset = pgTable("ai_dataset", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull(),
@@ -58,6 +58,51 @@ export const aiDataset = pgTable("ai_dataset", {
   answer: text("answer").notNull(),
   embedding: jsonb("embedding"), // Stores vector as array of numbers
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// ============================================
+// NEW SaaS Knowledge Architecture (3 Tables)
+// ============================================
+
+// Manual Q&A - Human-corrected responses (500 FIFO per user)
+// Source: Approval Queue corrections and Simulator training
+export const manualQA = pgTable("manual_qa", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  question: text("question").notNull(),        // Original message/comment
+  answer: text("answer").notNull(),            // Corrected/approved response
+  source: text("source").notNull().default("approval_queue"), // 'approval_queue' or 'simulator'
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// Media Library - Last 50 posts with AI-processed content
+// Source: Instagram Graph API sync
+export const mediaLibrary = pgTable("media_library", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  instagramMediaId: text("instagram_media_id").notNull(), // Unique post ID from Meta
+  caption: text("caption"),                               // Post caption/text
+  mediaType: text("media_type").notNull(),                // 'image', 'video', 'carousel'
+  mediaUrl: text("media_url"),                            // URL to media
+  thumbnailUrl: text("thumbnail_url"),                    // Thumbnail for videos
+  videoTranscription: text("video_transcription"),        // AI transcription of video audio
+  imageDescription: text("image_description"),            // AI description of visual content
+  postedAt: timestamp("posted_at"),                       // When post was published
+  syncedAt: timestamp("synced_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// Interaction Dialect - Last 200 real conversations
+// Source: Instagram Graph API - comments and DMs
+export const interactionDialect = pgTable("interaction_dialect", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  channelType: text("channel_type").notNull(),            // 'public_comment' or 'private_dm'
+  senderName: text("sender_name"),                        // Who sent the message
+  senderUsername: text("sender_username"),                // @username of sender
+  userMessage: text("user_message").notNull(),            // Message received
+  myResponse: text("my_response"),                        // Response sent (if any)
+  postContext: text("post_context"),                      // For comments, the post caption
+  interactedAt: timestamp("interacted_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
 // Learning History (for AI improvement)
@@ -191,6 +236,22 @@ export const insertInstagramProfileSchema = createInsertSchema(instagramProfiles
   createdAt: true,
 });
 
+// Insert Schemas for new SaaS Knowledge Tables
+export const insertManualQASchema = createInsertSchema(manualQA).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertMediaLibrarySchema = createInsertSchema(mediaLibrary).omit({
+  id: true,
+  syncedAt: true,
+});
+
+export const insertInteractionDialectSchema = createInsertSchema(interactionDialect).omit({
+  id: true,
+  interactedAt: true,
+});
+
 // Types
 export type InstagramMessage = typeof instagramMessages.$inferSelect;
 export type InsertInstagramMessage = z.infer<typeof insertInstagramMessageSchema>;
@@ -215,6 +276,16 @@ export type InsertKnowledgeFile = z.infer<typeof insertKnowledgeFileSchema>;
 
 export type InstagramProfile = typeof instagramProfiles.$inferSelect;
 export type InsertInstagramProfile = z.infer<typeof insertInstagramProfileSchema>;
+
+// Types for new SaaS Knowledge Tables
+export type ManualQA = typeof manualQA.$inferSelect;
+export type InsertManualQA = z.infer<typeof insertManualQASchema>;
+
+export type MediaLibraryEntry = typeof mediaLibrary.$inferSelect;
+export type InsertMediaLibraryEntry = z.infer<typeof insertMediaLibrarySchema>;
+
+export type InteractionDialectEntry = typeof interactionDialect.$inferSelect;
+export type InsertInteractionDialectEntry = z.infer<typeof insertInteractionDialectSchema>;
 
 // Combined type for message with AI response
 export type MessageWithResponse = InstagramMessage & {

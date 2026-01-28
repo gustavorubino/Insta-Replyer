@@ -7,6 +7,9 @@ import {
   knowledgeLinks,
   knowledgeFiles,
   aiDataset,
+  manualQA,
+  mediaLibrary,
+  interactionDialect,
   type User,
   type UpsertUser,
   type InstagramMessage,
@@ -26,6 +29,12 @@ import {
   type InstagramProfile,
   type InsertInstagramProfile,
   instagramProfiles,
+  type ManualQA,
+  type InsertManualQA,
+  type MediaLibraryEntry,
+  type InsertMediaLibraryEntry,
+  type InteractionDialectEntry,
+  type InsertInteractionDialectEntry,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, ne, or, isNull } from "drizzle-orm";
@@ -114,6 +123,27 @@ export interface IStorage {
   createInstagramProfile(data: InsertInstagramProfile): Promise<InstagramProfile>;
   updateInstagramProfile(id: number, data: Partial<InstagramProfile>): Promise<InstagramProfile | undefined>;
   deleteInstagramProfile(id: number): Promise<void>;
+
+  // ============================================
+  // NEW SaaS Knowledge Tables
+  // ============================================
+
+  // Manual Q&A (FIFO 500 limit per user)
+  getManualQA(userId: string): Promise<ManualQA[]>;
+  addManualQA(entry: InsertManualQA): Promise<ManualQA>;
+  getManualQACount(userId: string): Promise<number>;
+
+  // Media Library (50 posts per user)
+  getMediaLibrary(userId: string): Promise<MediaLibraryEntry[]>;
+  addMediaLibraryEntry(entry: InsertMediaLibraryEntry): Promise<MediaLibraryEntry>;
+  clearMediaLibrary(userId: string): Promise<number>;
+  getMediaLibraryCount(userId: string): Promise<number>;
+
+  // Interaction Dialect (200 interactions per user)
+  getInteractionDialect(userId: string, channelType?: string): Promise<InteractionDialectEntry[]>;
+  addInteractionDialect(entry: InsertInteractionDialectEntry): Promise<InteractionDialectEntry>;
+  clearInteractionDialect(userId: string): Promise<number>;
+  getInteractionDialectCount(userId: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -855,6 +885,152 @@ export class DatabaseStorage implements IStorage {
 
   async deleteInstagramProfile(id: number): Promise<void> {
     await db.delete(instagramProfiles).where(eq(instagramProfiles.id, id));
+  }
+
+  // ============================================
+  // NEW SaaS Knowledge Tables Implementation
+  // ============================================
+
+  // Manual Q&A with FIFO (500 limit per user)
+  async getManualQA(userId: string): Promise<ManualQA[]> {
+    return db
+      .select()
+      .from(manualQA)
+      .where(eq(manualQA.userId, userId))
+      .orderBy(desc(manualQA.createdAt));
+  }
+
+  async addManualQA(entry: InsertManualQA): Promise<ManualQA> {
+    const LIMIT = 500;
+
+    // Check current count
+    const countResult = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(manualQA)
+      .where(eq(manualQA.userId, entry.userId));
+
+    const currentCount = countResult[0]?.count || 0;
+
+    // FIFO: Delete oldest if at limit
+    if (currentCount >= LIMIT) {
+      const toDelete = currentCount - LIMIT + 1;
+      const oldest = await db
+        .select({ id: manualQA.id })
+        .from(manualQA)
+        .where(eq(manualQA.userId, entry.userId))
+        .orderBy(manualQA.createdAt)
+        .limit(toDelete);
+
+      for (const item of oldest) {
+        await db.delete(manualQA).where(eq(manualQA.id, item.id));
+      }
+    }
+
+    const [created] = await db.insert(manualQA).values(entry).returning();
+    return created;
+  }
+
+  async getManualQACount(userId: string): Promise<number> {
+    const result = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(manualQA)
+      .where(eq(manualQA.userId, userId));
+    return result[0]?.count || 0;
+  }
+
+  // Media Library (50 posts per user)
+  async getMediaLibrary(userId: string): Promise<MediaLibraryEntry[]> {
+    return db
+      .select()
+      .from(mediaLibrary)
+      .where(eq(mediaLibrary.userId, userId))
+      .orderBy(desc(mediaLibrary.syncedAt));
+  }
+
+  async addMediaLibraryEntry(entry: InsertMediaLibraryEntry): Promise<MediaLibraryEntry> {
+    const [created] = await db.insert(mediaLibrary).values(entry).returning();
+    return created;
+  }
+
+  async clearMediaLibrary(userId: string): Promise<number> {
+    const result = await db
+      .delete(mediaLibrary)
+      .where(eq(mediaLibrary.userId, userId))
+      .returning({ id: mediaLibrary.id });
+    return result.length;
+  }
+
+  async getMediaLibraryCount(userId: string): Promise<number> {
+    const result = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(mediaLibrary)
+      .where(eq(mediaLibrary.userId, userId));
+    return result[0]?.count || 0;
+  }
+
+  // Interaction Dialect (200 interactions per user)
+  async getInteractionDialect(userId: string, channelType?: string): Promise<InteractionDialectEntry[]> {
+    if (channelType) {
+      return db
+        .select()
+        .from(interactionDialect)
+        .where(and(
+          eq(interactionDialect.userId, userId),
+          eq(interactionDialect.channelType, channelType)
+        ))
+        .orderBy(desc(interactionDialect.interactedAt));
+    }
+    return db
+      .select()
+      .from(interactionDialect)
+      .where(eq(interactionDialect.userId, userId))
+      .orderBy(desc(interactionDialect.interactedAt));
+  }
+
+  async addInteractionDialect(entry: InsertInteractionDialectEntry): Promise<InteractionDialectEntry> {
+    const LIMIT = 200;
+
+    // Check current count
+    const countResult = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(interactionDialect)
+      .where(eq(interactionDialect.userId, entry.userId));
+
+    const currentCount = countResult[0]?.count || 0;
+
+    // FIFO: Delete oldest if at limit
+    if (currentCount >= LIMIT) {
+      const toDelete = currentCount - LIMIT + 1;
+      const oldest = await db
+        .select({ id: interactionDialect.id })
+        .from(interactionDialect)
+        .where(eq(interactionDialect.userId, entry.userId))
+        .orderBy(interactionDialect.interactedAt)
+        .limit(toDelete);
+
+      for (const item of oldest) {
+        await db.delete(interactionDialect).where(eq(interactionDialect.id, item.id));
+      }
+    }
+
+    const [created] = await db.insert(interactionDialect).values(entry).returning();
+    return created;
+  }
+
+  async clearInteractionDialect(userId: string): Promise<number> {
+    const result = await db
+      .delete(interactionDialect)
+      .where(eq(interactionDialect.userId, userId))
+      .returning({ id: interactionDialect.id });
+    return result.length;
+  }
+
+  async getInteractionDialectCount(userId: string): Promise<number> {
+    const result = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(interactionDialect)
+      .where(eq(interactionDialect.userId, userId));
+    return result[0]?.count || 0;
   }
 }
 

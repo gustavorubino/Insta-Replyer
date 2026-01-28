@@ -1255,7 +1255,20 @@ export async function registerRoutes(
           correctedResponse: response,
         });
 
-        // 2. NEW: Automatically add to User Dataset for future RAG (Memory)
+        // 2. NEW SaaS: Add to Manual Q&A (Golden Rules - FIFO 500)
+        try {
+          await storage.addManualQA({
+            userId: message.userId,
+            question: originalContent,
+            answer: response,
+            source: "approval_queue",
+          });
+          console.log(`[ManualQA] Added golden correction for user ${message.userId}`);
+        } catch (e) {
+          console.error("[ManualQA] Failed to add golden correction:", e);
+        }
+
+        // 3. Also add to User Dataset for RAG (Memory)
         try {
           // Generate embedding for the question/content
           const embedding = await generateEmbedding(originalContent);
@@ -4891,6 +4904,20 @@ export async function registerRoutes(
         embedding: embedding as any,
       });
 
+      // Also add to Manual Q&A for SaaS Knowledge Architecture
+      // This ensures corrections from simulator also populate golden rules
+      try {
+        await storage.addManualQA({
+          userId,
+          question,
+          answer,
+          source: "simulator",
+        });
+        console.log("[ManualQA] Added golden correction from simulator for user", userId);
+      } catch (e) {
+        console.error("[ManualQA] Failed to add from simulator:", e);
+      }
+
       console.log("[Dataset] ✅ Entry saved successfully:", { id: entry.id, userId, question: question.substring(0, 50) });
       res.status(201).json(entry);
     } catch (error) {
@@ -5162,6 +5189,140 @@ Retorne APENAS o System Prompt mesclado, sem nenhum texto adicional.`;
     } catch (error) {
       console.error("Error simulating AI response:", error);
       res.status(500).json({ error: "Failed to simulate response" });
+    }
+  });
+
+  // ============================================
+  // SaaS Knowledge Tables API Endpoints
+  // ============================================
+
+  // GET /api/brain/knowledge/stats - Get counts for all 3 tables
+  app.get("/api/brain/knowledge/stats", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+
+      const [manualQACount, mediaLibraryCount, interactionCount] = await Promise.all([
+        storage.getManualQACount(userId),
+        storage.getMediaLibraryCount(userId),
+        storage.getInteractionDialectCount(userId),
+      ]);
+
+      res.json({
+        manualQA: { count: manualQACount, limit: 500 },
+        mediaLibrary: { count: mediaLibraryCount, limit: 50 },
+        interactionDialect: { count: interactionCount, limit: 200 },
+      });
+    } catch (error) {
+      console.error("Error fetching knowledge stats:", error);
+      res.status(500).json({ error: "Failed to fetch knowledge stats" });
+    }
+  });
+
+  // GET /api/brain/manual-qa - List all manual Q&A corrections
+  app.get("/api/brain/manual-qa", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const entries = await storage.getManualQA(userId);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching manual QA:", error);
+      res.status(500).json({ error: "Failed to fetch manual QA" });
+    }
+  });
+
+  // GET /api/brain/media-library - List all media library entries
+  app.get("/api/brain/media-library", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const entries = await storage.getMediaLibrary(userId);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching media library:", error);
+      res.status(500).json({ error: "Failed to fetch media library" });
+    }
+  });
+
+  // GET /api/brain/interaction-dialect - List all interaction dialect entries
+  app.get("/api/brain/interaction-dialect", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const channelType = req.query.channelType as string | undefined;
+      const entries = await storage.getInteractionDialect(userId, channelType);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching interaction dialect:", error);
+      res.status(500).json({ error: "Failed to fetch interaction dialect" });
+    }
+  });
+
+  // POST /api/brain/sync-knowledge - Sync all knowledge from Instagram (with progress)
+  app.post("/api/brain/sync-knowledge", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const user = await authStorage.getUser(userId);
+
+      if (!user?.instagramAccessToken || !user?.instagramAccountId) {
+        return res.status(400).json({
+          error: "Conecte sua conta Instagram primeiro",
+          code: "NOT_CONNECTED"
+        });
+      }
+
+      // Decrypt access token if needed
+      let accessToken = user.instagramAccessToken;
+      if (isEncrypted(accessToken)) {
+        accessToken = decrypt(accessToken);
+      }
+
+      // Import identity synthesizer
+      const { syncAllKnowledge } = await import("./identity-synthesizer");
+
+      // Run sync (this is a blocking operation for now, could be made async with SSE)
+      const result = await syncAllKnowledge(
+        userId,
+        accessToken,
+        user.instagramAccountId
+      );
+
+      res.json({
+        success: true,
+        message: `Sincronizado: ${result.mediaCount} posts, ${result.interactionCount} interações`,
+        ...result,
+      });
+    } catch (error: any) {
+      console.error("Error syncing knowledge:", error);
+      res.status(500).json({
+        error: error?.message || "Failed to sync knowledge",
+      });
+    }
+  });
+
+  // POST /api/brain/synthesize-identity - Generate personality from knowledge tables
+  app.post("/api/brain/synthesize-identity", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+
+      // Import identity synthesizer
+      const { synthesizeIdentity } = await import("./identity-synthesizer");
+
+      const result = await synthesizeIdentity(userId);
+
+      // Save the generated system prompt to user settings
+      await storage.setSetting(`${userId}_aiContext`, result.systemPrompt);
+
+      res.json({
+        success: true,
+        message: "Personalidade sintetizada com sucesso!",
+        systemPrompt: result.systemPrompt,
+        patterns: result.patterns,
+        sourceCounts: result.sourceCounts,
+      });
+    } catch (error: any) {
+      console.error("Error synthesizing identity:", error);
+      res.status(500).json({
+        error: error?.message || "Failed to synthesize identity",
+        code: error?.message?.includes("Nenhuma fonte") ? "INSUFFICIENT_DATA" : undefined,
+      });
     }
   });
 
