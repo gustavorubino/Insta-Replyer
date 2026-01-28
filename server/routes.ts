@@ -41,7 +41,7 @@ function addWebhookProcessingResult(result: WebhookProcessingResult, webhookTime
   if (webhookTimestamp) {
     targetWebhook = recentWebhooks.find(w => w.timestamp === webhookTimestamp) || recentWebhooks[0];
   }
-  
+
   if (targetWebhook) {
     if (!targetWebhook.processingResults) {
       targetWebhook.processingResults = [];
@@ -61,17 +61,17 @@ function getBaseUrl(req: Request): string {
   if (process.env.APP_BASE_URL) {
     return process.env.APP_BASE_URL;
   }
-  
+
   // PRODUCTION DOMAIN - hardcoded for reliability with Instagram OAuth
   // Instagram requires exact match of redirect_uri, so we must be precise
   const PRODUCTION_DOMAIN = "insta-replyer--guguinharubino.replit.app";
-  
+
   // Get host - take first value if multiple (e.g., "domain.app, proxy.dev" -> "domain.app")
   const hostHeader = req.headers["x-forwarded-host"] || req.headers.host;
   const host = typeof hostHeader === "string"
     ? hostHeader.split(",")[0].trim()
     : String(hostHeader || "");
-  
+
   // If the request is coming to the production domain, use it
   // Also check if we're in a Replit deployment (not dev preview)
   if (host.includes(PRODUCTION_DOMAIN) || host.endsWith(".replit.app")) {
@@ -82,13 +82,13 @@ function getBaseUrl(req: Request): string {
     // If it's another .replit.app, use what we got
     return `https://${host}`;
   }
-  
+
   // For development/preview, use the detected values
   const protoHeader = req.headers["x-forwarded-proto"];
-  const protocol = typeof protoHeader === "string" 
-    ? protoHeader.split(",")[0].trim() 
+  const protocol = typeof protoHeader === "string"
+    ? protoHeader.split(",")[0].trim()
     : "https";
-  
+
   return `${protocol}://${host}`;
 }
 
@@ -161,15 +161,15 @@ function verifyWebhookSignature(payload: string, signature: string | undefined):
   if (!INSTAGRAM_APP_SECRET) {
     return { valid: false, debug: "INSTAGRAM_APP_SECRET not configured" };
   }
-  
+
   const signatureHash = signature.replace("sha256=", "");
   const expectedHash = crypto
     .createHmac("sha256", INSTAGRAM_APP_SECRET)
     .update(payload)
     .digest("hex");
-  
+
   const debug = `Secret length: ${INSTAGRAM_APP_SECRET.length}, Received hash: ${signatureHash.substring(0, 16)}..., Expected hash: ${expectedHash.substring(0, 16)}..., Payload length: ${payload.length}`;
-  
+
   try {
     const valid = crypto.timingSafeEqual(
       Buffer.from(signatureHash),
@@ -190,11 +190,11 @@ async function sendInstagramMessage(
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
     console.log(`Sending Instagram DM to ${recipientIgsid}...`);
-    
+
     // Use the Instagram Graph API to send messages
     // The endpoint is POST /{ig-user-id}/messages
     const url = `https://graph.instagram.com/v21.0/${instagramAccountId}/messages`;
-    
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -206,10 +206,10 @@ async function sendInstagramMessage(
         access_token: accessToken,
       }),
     });
-    
+
     const data = await response.json();
     console.log(`Instagram send message response:`, JSON.stringify(data));
-    
+
     if (response.ok && data.message_id) {
       console.log(`Message sent successfully! ID: ${data.message_id}`);
       return { success: true, messageId: data.message_id };
@@ -218,7 +218,7 @@ async function sendInstagramMessage(
       const errorType = String(data.error.type || '');
       const errorMsg = String(data.error.message || 'Erro desconhecido');
       console.error(`Instagram DM API error [${errorCode}]:`, errorMsg);
-      
+
       let userFriendlyError = errorMsg;
       if (errorCode === 100) {
         userFriendlyError = 'Destinatário inválido ou conversa não permitida.';
@@ -231,7 +231,7 @@ async function sendInstagramMessage(
       } else if (errorCode === 551) {
         userFriendlyError = 'Esta pessoa restringiu quem pode enviar mensagens para ela.';
       }
-      
+
       return { success: false, error: userFriendlyError };
     } else {
       return { success: false, error: 'Erro desconhecido ao enviar mensagem' };
@@ -250,11 +250,11 @@ async function replyToInstagramComment(
 ): Promise<{ success: boolean; commentId?: string; error?: string }> {
   try {
     console.log(`Replying to Instagram comment ${commentId}...`);
-    
+
     // Use the Instagram Graph API to reply to comments
     // The endpoint is POST /{comment-id}/replies
     const url = `https://graph.instagram.com/v21.0/${commentId}/replies`;
-    
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -265,10 +265,10 @@ async function replyToInstagramComment(
         access_token: accessToken,
       }),
     });
-    
+
     const data = await response.json();
     console.log(`Instagram reply comment response:`, JSON.stringify(data));
-    
+
     if (response.ok && data.id) {
       console.log(`Comment reply sent successfully! ID: ${data.id}`);
       return { success: true, commentId: data.id };
@@ -278,7 +278,7 @@ async function replyToInstagramComment(
       const errorType = String(data.error.type || '');
       const errorMsg = String(data.error.message || 'Erro desconhecido');
       console.error(`Instagram API error [${errorCode}/${errorSubcode}]:`, errorMsg);
-      
+
       let userFriendlyError = errorMsg;
       if (errorCode === 100 && errorSubcode === 33) {
         userFriendlyError = 'Comentário não encontrado ou foi deletado do Instagram.';
@@ -293,7 +293,7 @@ async function replyToInstagramComment(
       } else if (errorMsg.toLowerCase().includes('comment was deleted') || errorMsg.toLowerCase().includes('does not exist')) {
         userFriendlyError = 'Este comentário foi deletado ou não existe mais no Instagram.';
       }
-      
+
       return { success: false, error: userFriendlyError };
     } else {
       return { success: false, error: 'Erro desconhecido ao responder comentário' };
@@ -309,31 +309,31 @@ async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: 
   const user = req.user as any;
   // Use actualUserId for OIDC users with existing email accounts, fallback to claims.sub or id
   const userId = user.actualUserId || user.claims?.sub || user.id;
-  
+
   // Fetch user from database to get isAdmin status and ALL Instagram IDs for filtering
   const dbUser = await authStorage.getUser(userId);
-  
+
   // Collect ALL possible sender IDs that belong to this user
   // This includes: instagramAccountId (Graph API ID) and instagramRecipientId (DM webhook ID)
   // These can be different for the same account depending on context
   const excludeSenderIds: string[] = [];
   const excludeSenderUsernames: string[] = [];
-  
+
   if (dbUser?.instagramAccountId) {
     excludeSenderIds.push(dbUser.instagramAccountId);
   }
   if (dbUser?.instagramRecipientId) {
     excludeSenderIds.push(dbUser.instagramRecipientId);
   }
-  
+
   // Also exclude by username as fallback (Instagram uses different IDs in different contexts)
   if (dbUser?.instagramUsername) {
     excludeSenderUsernames.push(dbUser.instagramUsername.toLowerCase());
   }
-  
+
   // Debug logging for message filtering
   console.log(`[getUserContext] userId: ${userId}, isAdmin: ${dbUser?.isAdmin}, excludeSenderIds: [${excludeSenderIds.join(', ')}], excludeUsernames: [${excludeSenderUsernames.join(', ')}]`);
-  
+
   return {
     userId,
     isAdmin: dbUser?.isAdmin || false,
@@ -346,11 +346,11 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+
   // Setup authentication FIRST before other routes
   await setupAuth(app);
   registerAuthRoutes(app);
-  
+
   // Register Object Storage routes for file uploads
   registerObjectStorageRoutes(app);
 
@@ -365,7 +365,7 @@ export async function registerRoutes(
       if (cleanedWebhooks > 0) {
         console.log(`Cleaned up ${cleanedWebhooks} expired pending webhook marker(s)`);
       }
-      
+
       // AUTO-FIX: Copy instagramRecipientId to instagramAccountId for users where it's null
       // This fixes issues where Business Discovery API fails because instagramAccountId is missing
       const allUsers = await authStorage.getAllUsers?.() || [];
@@ -384,7 +384,7 @@ export async function registerRoutes(
       console.error("Cleanup error:", e);
     }
   })();
-  
+
   setInterval(async () => {
     try {
       const cleanedOAuth = await storage.cleanupExpiredOAuthStates();
@@ -619,7 +619,7 @@ export async function registerRoutes(
 </html>
     `);
   });
-  
+
   // Get dashboard stats
   app.get("/api/stats", isAuthenticated, async (req, res) => {
     try {
@@ -654,8 +654,8 @@ export async function registerRoutes(
         apiKeySource: config.apiKeySource || "none",
         baseURLConfigured: !!config.baseURL,
         baseURLSource: config.baseURLSource || "none",
-        message: config.apiKey 
-          ? "IA configurada corretamente" 
+        message: config.apiKey
+          ? "IA configurada corretamente"
           : "Falta configurar: AI_INTEGRATIONS_OPENAI_API_KEY ou OPENAI_API_KEY nos Secrets do Deployment"
       });
     } catch (error) {
@@ -669,7 +669,7 @@ export async function registerRoutes(
     try {
       // Use the actual generateAIResponse function to test
       const testResult = await generateAIResponse("Olá", "dm", "TestUser");
-      
+
       if (testResult.error || testResult.errorCode) {
         return res.json({
           success: false,
@@ -687,7 +687,7 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       console.error("[AI Test] Internal error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
         diagnosis: error?.message || "Erro interno ao testar conexão com IA"
       });
@@ -740,8 +740,8 @@ export async function registerRoutes(
       }
 
       const result = await storage.clearAllMessages();
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: "All messages cleared",
         deleted: result
       });
@@ -833,7 +833,7 @@ export async function registerRoutes(
 
       const targetUserId = req.params.userId;
       const user = await authStorage.getUser(targetUserId);
-      
+
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -864,7 +864,7 @@ export async function registerRoutes(
 
       const targetUserId = req.params.userId;
       const user = await authStorage.getUser(targetUserId);
-      
+
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -907,7 +907,7 @@ export async function registerRoutes(
 
       const targetUserId = req.params.userId;
       const user = await authStorage.getUser(targetUserId);
-      
+
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -917,8 +917,8 @@ export async function registerRoutes(
       }
 
       // Decrypt token if needed
-      const accessToken = isEncrypted(user.instagramAccessToken) 
-        ? decrypt(user.instagramAccessToken) 
+      const accessToken = isEncrypted(user.instagramAccessToken)
+        ? decrypt(user.instagramAccessToken)
         : user.instagramAccessToken;
       const instagramAccountId = user.instagramAccountId;
 
@@ -952,7 +952,7 @@ export async function registerRoutes(
           console.log(`[Admin] Trying ${attempt.name}...`);
           const response = await fetch(attempt.url);
           const data = await response.json() as any;
-          
+
           if (!data.error && (data.username || data.profile_picture_url)) {
             console.log(`[Admin] ${attempt.name} succeeded:`, JSON.stringify(data));
             if (data.username) instagramUsername = data.username;
@@ -972,9 +972,9 @@ export async function registerRoutes(
         await authStorage.updateUser(targetUserId, {
           showTokenWarning: true
         });
-        
-        return res.status(400).json({ 
-          error: "Token inválido ou expirado", 
+
+        return res.status(400).json({
+          error: "Token inválido ou expirado",
           details: "O usuário precisa reconectar o Instagram para atualizar os dados.",
           showTokenWarning: true
         });
@@ -994,8 +994,8 @@ export async function registerRoutes(
         console.log(`[Admin] Updated Instagram data for user ${targetUserId}:`, updates);
       }
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: "Instagram data refreshed",
         data: {
           username: instagramUsername,
@@ -1018,7 +1018,7 @@ export async function registerRoutes(
 
       const targetUserId = req.params.userId;
       const user = await authStorage.getUser(targetUserId);
-      
+
       if (!user) {
         return res.status(404).json({ error: "Usuário não encontrado" });
       }
@@ -1043,8 +1043,8 @@ export async function registerRoutes(
 
         console.log(`[Admin] ✅ Token renovado para ${user.email}, expira em ${result.expiresAt.toISOString()}`);
 
-        res.json({ 
-          success: true, 
+        res.json({
+          success: true,
           message: "Token renovado com sucesso",
           expiresAt: result.expiresAt.toISOString(),
           daysUntilExpiry: Math.round((result.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
@@ -1060,8 +1060,8 @@ export async function registerRoutes(
 
         console.log(`[Admin] ❌ Falha ao renovar token de ${user.email}: ${result.error}`);
 
-        res.status(400).json({ 
-          success: false, 
+        res.status(400).json({
+          success: false,
           error: result.error || "Falha ao renovar token",
           message: "O usuário precisa reconectar o Instagram manualmente"
         });
@@ -1111,7 +1111,7 @@ export async function registerRoutes(
         parentCommentText: message.parentCommentText,
         parentCommentUsername: message.parentCommentUsername,
       } : undefined;
-      
+
       // Fetch conversation history for DMs
       let conversationHistory: ConversationHistoryEntry[] | undefined;
       if (message.type === "dm" && message.senderId) {
@@ -1125,7 +1125,7 @@ export async function registerRoutes(
             timestamp: m.createdAt,
           }));
       }
-      
+
       const aiResult = await generateAIResponse(
         getMessageContentForAI(message),
         message.type as "dm" | "comment",
@@ -1146,12 +1146,12 @@ export async function registerRoutes(
       const messageUser = await authStorage.getUser(userId);
       const userOperationMode = messageUser?.operationMode || "manual";
       const userThreshold = parseFloat(messageUser?.autoApproveThreshold || "0.9");
-      
-      const shouldAutoSend = 
+
+      const shouldAutoSend =
         userOperationMode === "auto" || // 100% automatic mode
-        (userOperationMode === "semi_auto" && 
-         aiResult.confidenceScore >= userThreshold);
-      
+        (userOperationMode === "semi_auto" &&
+          aiResult.confidenceScore >= userThreshold);
+
       if (shouldAutoSend) {
         // Auto-approve and send
         await storage.updateMessageStatus(message.id, "auto_sent");
@@ -1196,9 +1196,9 @@ export async function registerRoutes(
       }
 
       // Send the message via Instagram API (only for DMs with senderId)
-      let sendResult: { success: boolean; messageId?: string; error?: string } = { 
-        success: false, 
-        error: "No senderId available" 
+      let sendResult: { success: boolean; messageId?: string; error?: string } = {
+        success: false,
+        error: "No senderId available"
       };
       if (message.type === "dm" && message.senderId) {
         // Get the message owner's Instagram credentials
@@ -1222,10 +1222,10 @@ export async function registerRoutes(
             response,
             messageOwner.instagramAccessToken
           );
-          sendResult = { 
-            success: result.success, 
-            messageId: result.commentId, 
-            error: result.error 
+          sendResult = {
+            success: result.success,
+            messageId: result.commentId,
+            error: result.error
           };
         } else {
           sendResult = { success: false, error: "Instagram not connected for this user" };
@@ -1278,10 +1278,10 @@ export async function registerRoutes(
       if (sendResult.success) {
         res.json({ success: true, messageSent: true });
       } else {
-        res.json({ 
-          success: false, 
-          messageSent: false, 
-          error: sendResult.error 
+        res.json({
+          success: false,
+          messageSent: false,
+          error: sendResult.error
         });
       }
     } catch (error) {
@@ -1452,28 +1452,28 @@ export async function registerRoutes(
   app.get("/api/settings", isAuthenticated, async (req, res) => {
     try {
       const { userId, isAdmin } = await getUserContext(req);
-      
+
       // Get user-specific settings from user record
       const user = await authStorage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
-      
+
       // Get global settings (defined by admin)
       const globalOperationMode = await storage.getSetting("global_operationMode");
       const globalAutoApproveThreshold = await storage.getSetting("global_autoApproveThreshold");
       const globalAiTone = await storage.getSetting("global_aiTone");
       const globalAiContext = await storage.getSetting("global_aiContext");
-      
+
       // Merge: user personalization takes precedence over global defaults
       // If user has not set a value (null/undefined), use global default
       const operationMode = user.operationMode || globalOperationMode?.value || "manual";
       const autoApproveThreshold = user.autoApproveThreshold || globalAutoApproveThreshold?.value || "0.9";
       const aiTone = user.aiTone || globalAiTone?.value || "";
       const aiContext = user.aiContext || globalAiContext?.value || "";
-      
+
       const isInstagramConnected = !!(user.instagramAccountId && user.instagramAccessToken);
-      
+
       res.json({
         instagramConnected: isInstagramConnected,
         instagramUsername: user.instagramUsername || "",
@@ -1509,7 +1509,7 @@ export async function registerRoutes(
     try {
       const { userId } = await getUserContext(req);
       const updates = req.body;
-      
+
       const userUpdates: Record<string, string | null> = {};
 
       if (updates.operationMode !== undefined) {
@@ -1542,7 +1542,7 @@ export async function registerRoutes(
     try {
       const user = req.user as any;
       const userId = user.claims?.sub || user.id;
-      
+
       const demoMessages = [
         {
           userId,
@@ -1576,7 +1576,7 @@ export async function registerRoutes(
 
       for (const msg of demoMessages) {
         const message = await storage.createMessage(msg);
-        
+
         const aiResult = await generateAIResponse(
           getMessageContentForAI(message),
           message.type as "dm" | "comment",
@@ -1666,10 +1666,10 @@ export async function registerRoutes(
       const { randomBytes, createHmac } = await import("crypto");
       const nonce = randomBytes(16).toString("hex");
       const expiresAt = Date.now() + (60 * 60 * 1000); // 1 hour expiry
-      
+
       // Store the OAuth state in the database (key: oauth_state_{nonce}, value: userId:expiresAt)
       await storage.setSetting(`oauth_state_${nonce}`, `${userId}:${expiresAt}`);
-      
+
       // Create state parameter with nonce and full HMAC signature for security
       const signature = createHmac("sha256", process.env.SESSION_SECRET)
         .update(nonce)
@@ -1716,58 +1716,58 @@ export async function registerRoutes(
         console.error("Instagram OAuth callback: Missing or malformed state parameter");
         return res.redirect("/settings?instagram_error=invalid_state");
       }
-      
+
       if (!process.env.SESSION_SECRET) {
         console.error("Instagram OAuth callback: SESSION_SECRET not configured");
         return res.redirect("/settings?instagram_error=server_config_error");
       }
-      
+
       const [nonce, signature] = state.split(".");
-      
+
       if (!nonce || !signature) {
         console.error("Instagram OAuth callback: Invalid state format");
         return res.redirect("/settings?instagram_error=invalid_state");
       }
-      
+
       // Verify the full HMAC signature using timing-safe comparison
       const { createHmac, timingSafeEqual } = await import("crypto");
       const expectedSignature = createHmac("sha256", process.env.SESSION_SECRET)
         .update(nonce)
         .digest("hex");
-      
+
       // Use timing-safe comparison to prevent timing attacks
       const signatureValid = signature.length === expectedSignature.length &&
         timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
-      
+
       if (!signatureValid) {
         console.error("Instagram OAuth callback: State signature mismatch (possible CSRF)");
         // Clean up the nonce if it exists (may be an attack attempt)
         await storage.deleteSetting(`oauth_state_${nonce}`);
         return res.redirect("/settings?instagram_error=invalid_state");
       }
-      
+
       // Look up the nonce in the database
       const stateData = await storage.getSetting(`oauth_state_${nonce}`);
-      
+
       if (!stateData?.value) {
         console.error("Instagram OAuth callback: State nonce not found (replay or expired)");
         return res.redirect("/settings?instagram_error=state_expired");
       }
-      
+
       const [stateUserId, expiresAtStr] = stateData.value.split(":");
       const expiresAt = parseInt(expiresAtStr);
-      
+
       // Delete the used nonce immediately (prevent replay attacks)
       await storage.deleteSetting(`oauth_state_${nonce}`);
-      
+
       if (Date.now() >= expiresAt) {
         console.error("Instagram OAuth callback: State expired");
         return res.redirect("/settings?instagram_error=state_expired");
       }
-      
+
       const userId = stateUserId;
       console.log(`Instagram OAuth callback: state validated successfully`);
-      
+
       if (!userId) {
         console.error("Instagram OAuth callback: No userId in state data");
         return res.redirect("/settings?instagram_error=invalid_state");
@@ -1806,11 +1806,11 @@ export async function registerRoutes(
 
       // Exchange for long-lived token (60 days)
       const longLivedUrl = `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${INSTAGRAM_APP_SECRET}&access_token=${shortLivedToken}`;
-      
+
       const longLivedResponse = await fetch(longLivedUrl);
       const longLivedData = await longLivedResponse.json() as any;
       const longLivedToken = longLivedData.access_token || shortLivedToken;
-      
+
       // Calculate token expiration date (expires_in is in seconds, default 60 days)
       const expiresIn = longLivedData.expires_in || 5184000; // 60 days in seconds
       const tokenExpiresAt = new Date();
@@ -1823,15 +1823,15 @@ export async function registerRoutes(
       const igUserResponse = await fetch(igUserUrl);
       const igUserData = await igUserResponse.json() as any;
       console.log("Instagram user data received:", JSON.stringify(igUserData));
-      
+
       // Use 'id' from the response (Instagram API returns 'id', not 'user_id')
       const instagramAccountId = String(igUserData.id || instagramUserId);
       let instagramUsername = igUserData.username || "";
-      
+
       // FALLBACK: If username not returned, try additional API calls
       if (!instagramUsername && instagramAccountId) {
         console.log("Username not in primary response, trying fallback APIs...");
-        
+
         // Try 1: Facebook Graph API with username field
         try {
           const fbUserUrl = `https://graph.facebook.com/v21.0/${instagramAccountId}?fields=username,name&access_token=${longLivedToken}`;
@@ -1844,7 +1844,7 @@ export async function registerRoutes(
         } catch (e) {
           console.log("Facebook Graph API username fetch failed:", e);
         }
-        
+
         // Try 2: Instagram API with just id and username
         if (!instagramUsername) {
           try {
@@ -1859,18 +1859,18 @@ export async function registerRoutes(
             console.log("Instagram API username by ID fetch failed:", e);
           }
         }
-        
+
         if (!instagramUsername) {
           console.log("WARNING: Could not fetch Instagram username from any API");
         }
       }
-      
+
       console.log(`Final Instagram data - ID: ${instagramAccountId}, Username: ${instagramUsername || "(not available)"}`);
 
-      
+
       // Try to get profile picture from the response or via alternative API calls
       let profilePictureUrl = igUserData.profile_picture_url;
-      
+
       // For Instagram Business accounts, try Facebook Graph API if Instagram API didn't return profile pic
       if (!profilePictureUrl && instagramAccountId) {
         try {
@@ -1889,7 +1889,7 @@ export async function registerRoutes(
           console.log("Could not fetch profile picture from Facebook Graph API:", e);
         }
       }
-      
+
       // Fallback: try Instagram API with explicit profile_pic field
       if (!profilePictureUrl) {
         try {
@@ -1929,14 +1929,14 @@ export async function registerRoutes(
         // If different, auto-association will update on first webhook
         instagramRecipientId: instagramAccountId,
       };
-      
+
       console.log(`Storing Instagram profile pic: ${profilePictureUrl ? "found" : "not available"}`);
 
       console.log(`instagramRecipientId AUTO-CONFIGURED to: ${instagramAccountId}`);
       console.log(`OAuth IDs for reference - tokenUserId: ${tokenUserId}, instagramAccountId: ${instagramAccountId}`);
 
       await authStorage.updateUser(userId, updates);
-      
+
       // Store a pending webhook association marker with timestamp
       // This enables secure auto-association within a 15-minute window
       await storage.setSetting(`pending_webhook_${userId}`, new Date().toISOString());
@@ -1986,108 +1986,108 @@ export async function registerRoutes(
             console.log(`Post ${post.id}: comments_count=${post.comments_count}`);
             // Try to get comments - using graph.instagram.com for Instagram Business Login tokens
             try {
-                // Helper function to process comments from API response
-                const processComments = async (comments: any[]) => {
-                  for (const comment of comments) {
-                    try {
-                      const existingMessage = await storage.getMessageByInstagramId(comment.id);
+              // Helper function to process comments from API response
+              const processComments = async (comments: any[]) => {
+                for (const comment of comments) {
+                  try {
+                    const existingMessage = await storage.getMessageByInstagramId(comment.id);
 
-                      const postCaption = post.caption || null;
-                      // Use thumbnail_url for videos, media_url for images
-                      const postThumbnailUrl = post.thumbnail_url || post.media_url || null;
+                    const postCaption = post.caption || null;
+                    // Use thumbnail_url for videos, media_url for images
+                    const postThumbnailUrl = post.thumbnail_url || post.media_url || null;
 
-                      if (!existingMessage) {
-                        // Extract username from different possible fields
-                        const username = comment.username || comment.from?.username || "instagram_user";
-                        const displayName = comment.from?.name || comment.username || "Usuário do Instagram";
-                        
-                        console.log(`Processing comment ${comment.id}: username=${username}, from=${JSON.stringify(comment.from)}`);
-                        
-                        const newMessage = await storage.createMessage({
+                    if (!existingMessage) {
+                      // Extract username from different possible fields
+                      const username = comment.username || comment.from?.username || "instagram_user";
+                      const displayName = comment.from?.name || comment.username || "Usuário do Instagram";
+
+                      console.log(`Processing comment ${comment.id}: username=${username}, from=${JSON.stringify(comment.from)}`);
+
+                      const newMessage = await storage.createMessage({
+                        userId,
+                        instagramId: comment.id,
+                        type: "comment",
+                        senderName: displayName,
+                        senderUsername: username,
+                        content: comment.text,
+                        postId: post.id,
+                        postPermalink: post.permalink || null,
+                        postCaption,
+                        postThumbnailUrl,
+                        status: "pending",
+                      });
+
+                      try {
+                        const aiResult = await generateAIResponse(
+                          comment.text,
+                          "comment",
+                          comment.username || "Unknown",
                           userId,
-                          instagramId: comment.id,
-                          type: "comment",
-                          senderName: displayName,
-                          senderUsername: username,
-                          content: comment.text,
-                          postId: post.id,
-                          postPermalink: post.permalink || null,
-                          postCaption,
-                          postThumbnailUrl,
-                          status: "pending",
+                          {
+                            postCaption,
+                            postPermalink: post.permalink || null,
+                            postThumbnailUrl, // Include image for AI vision analysis
+                          }
+                        );
+
+                        await storage.createAiResponse({
+                          messageId: newMessage.id,
+                          suggestedResponse: aiResult.suggestedResponse,
+                          confidenceScore: aiResult.confidenceScore,
                         });
-
-                        try {
-                          const aiResult = await generateAIResponse(
-                            comment.text,
-                            "comment",
-                            comment.username || "Unknown",
-                            userId,
-                            {
-                              postCaption,
-                              postPermalink: post.permalink || null,
-                              postThumbnailUrl, // Include image for AI vision analysis
-                            }
-                          );
-
-                          await storage.createAiResponse({
-                            messageId: newMessage.id,
-                            suggestedResponse: aiResult.suggestedResponse,
-                            confidenceScore: aiResult.confidenceScore,
-                          });
-                        } catch (aiError: any) {
-                          console.error("AI response error for comment:", aiError);
-                          results.errors.push(`AI error for comment ${comment.id}: ${aiError.message}`);
-                        }
-
-                        results.comments++;
-                      } else {
-                        // If message exists but is missing post info, update it
-                        if ((!existingMessage.postCaption && postCaption) ||
-                            (!existingMessage.postThumbnailUrl && postThumbnailUrl)) {
-                          console.log(`Updating existing message ${existingMessage.id} with post details`);
-                          await storage.updateMessage(existingMessage.id, {
-                            postCaption: postCaption || existingMessage.postCaption,
-                            postThumbnailUrl: postThumbnailUrl || existingMessage.postThumbnailUrl,
-                            postPermalink: post.permalink || existingMessage.postPermalink
-                          });
-                        }
+                      } catch (aiError: any) {
+                        console.error("AI response error for comment:", aiError);
+                        results.errors.push(`AI error for comment ${comment.id}: ${aiError.message}`);
                       }
-                    } catch (commentError: any) {
-                      console.error("Error processing comment:", commentError);
-                      results.errors.push(`Error processing comment: ${commentError.message}`);
+
+                      results.comments++;
+                    } else {
+                      // If message exists but is missing post info, update it
+                      if ((!existingMessage.postCaption && postCaption) ||
+                        (!existingMessage.postThumbnailUrl && postThumbnailUrl)) {
+                        console.log(`Updating existing message ${existingMessage.id} with post details`);
+                        await storage.updateMessage(existingMessage.id, {
+                          postCaption: postCaption || existingMessage.postCaption,
+                          postThumbnailUrl: postThumbnailUrl || existingMessage.postThumbnailUrl,
+                          postPermalink: post.permalink || existingMessage.postPermalink
+                        });
+                      }
                     }
+                  } catch (commentError: any) {
+                    console.error("Error processing comment:", commentError);
+                    results.errors.push(`Error processing comment: ${commentError.message}`);
                   }
-                };
-
-                // Fetch comments with pagination support - include 'from' field for user info
-                let commentsUrl: string | null = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from&access_token=${accessToken}&limit=50`;
-                let pageCount = 0;
-                const maxPages = 3; // Limit to 3 pages per post to avoid timeout
-                
-                while (commentsUrl && pageCount < maxPages) {
-                  console.log(`Fetching comments for post ${post.id} (page ${pageCount + 1})`);
-                  const commentsResponse = await fetch(commentsUrl);
-                  const commentsData = await commentsResponse.json() as any;
-                  
-                  // Log full comments response for debugging
-                  console.log(`Comments response for ${post.id} (page ${pageCount + 1}):`, JSON.stringify(commentsData).substring(0, 300));
-
-                  if (commentsData.error) {
-                    console.error("Comments fetch error:", commentsData.error);
-                    break;
-                  }
-
-                  if (commentsData.data && commentsData.data.length > 0) {
-                    console.log(`Found ${commentsData.data.length} comments on page ${pageCount + 1}`);
-                    await processComments(commentsData.data);
-                  }
-
-                  // Check for next page
-                  commentsUrl = commentsData.paging?.next || null;
-                  pageCount++;
                 }
-              } catch (postError: any) {
+              };
+
+              // Fetch comments with pagination support - include 'from' field for user info
+              let commentsUrl: string | null = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from&access_token=${accessToken}&limit=50`;
+              let pageCount = 0;
+              const maxPages = 3; // Limit to 3 pages per post to avoid timeout
+
+              while (commentsUrl && pageCount < maxPages) {
+                console.log(`Fetching comments for post ${post.id} (page ${pageCount + 1})`);
+                const commentsResponse = await fetch(commentsUrl);
+                const commentsData = await commentsResponse.json() as any;
+
+                // Log full comments response for debugging
+                console.log(`Comments response for ${post.id} (page ${pageCount + 1}):`, JSON.stringify(commentsData).substring(0, 300));
+
+                if (commentsData.error) {
+                  console.error("Comments fetch error:", commentsData.error);
+                  break;
+                }
+
+                if (commentsData.data && commentsData.data.length > 0) {
+                  console.log(`Found ${commentsData.data.length} comments on page ${pageCount + 1}`);
+                  await processComments(commentsData.data);
+                }
+
+                // Check for next page
+                commentsUrl = commentsData.paging?.next || null;
+                pageCount++;
+              }
+            } catch (postError: any) {
               console.error("Error fetching comments for post:", postError);
             }
           }
@@ -2120,7 +2120,7 @@ export async function registerRoutes(
   app.post("/api/instagram/disconnect", isAuthenticated, async (req, res) => {
     try {
       const { userId } = await getUserContext(req);
-      
+
       // Clear user's Instagram credentials
       await authStorage.updateUser(userId, {
         instagramAccountId: null,
@@ -2204,8 +2204,8 @@ export async function registerRoutes(
         console.log(`Updated Instagram profile for user ${userId}:`, Object.keys(updates));
       }
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         profilePictureUrl,
         username,
         updated: Object.keys(updates).length > 0
@@ -2237,12 +2237,12 @@ export async function registerRoutes(
       if (!userId) {
         return res.status(401).json({ error: "Não autenticado" });
       }
-      
+
       const currentUser = await authStorage.getUser(userId);
       if (!currentUser?.isAdmin) {
         return res.status(403).json({ error: "Acesso negado. Apenas administradores." });
       }
-      
+
       res.json({
         status: "ok",
         message: "Lista dos últimos webhooks recebidos (admin only)",
@@ -2281,17 +2281,17 @@ export async function registerRoutes(
       apiKeySource: aiConfig.apiKeySource || "(none)",
       baseUrlSource: aiConfig.baseURLSource || "(none)",
     };
-    
-    let testResult: { 
-      success: boolean; 
-      response?: string; 
+
+    let testResult: {
+      success: boolean;
+      response?: string;
       error?: string;
       errorCode?: string;
     } = { success: false };
-    
+
     try {
       const result = await generateAIResponse("Olá, tudo bem?", "dm", "TestUser");
-      
+
       // Check for structured error
       if (result.error || result.errorCode) {
         testResult = {
@@ -2311,15 +2311,15 @@ export async function registerRoutes(
         error: e instanceof Error ? e.message : String(e),
       };
     }
-    
+
     // Return appropriate status code
     const statusCode = testResult.success ? 200 : (safeConfig.hasApiKey ? 502 : 503);
-    
+
     res.status(statusCode).json({
       config: safeConfig,
       testResult,
       timestamp: new Date().toISOString(),
-      hint: !safeConfig.hasApiKey 
+      hint: !safeConfig.hasApiKey
         ? "Configure OPENAI_API_KEY ou AI_INTEGRATIONS_OPENAI_API_KEY nos Secrets do Deployment"
         : undefined,
     });
@@ -2329,7 +2329,7 @@ export async function registerRoutes(
   app.get("/api/health", async (req, res) => {
     const startTime = Date.now();
     const checks: Record<string, { status: string; latency?: number; error?: string }> = {};
-    
+
     // Check database
     try {
       const dbStart = Date.now();
@@ -2338,7 +2338,7 @@ export async function registerRoutes(
     } catch (e) {
       checks.database = { status: "error", error: String(e) };
     }
-    
+
     // Check environment variables
     const requiredEnvVars = [
       'DATABASE_URL',
@@ -2347,20 +2347,20 @@ export async function registerRoutes(
       'INSTAGRAM_APP_SECRET'
     ];
     const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
-    checks.environment = missingEnvVars.length === 0 
+    checks.environment = missingEnvVars.length === 0
       ? { status: "ok" }
       : { status: "warning", error: `Missing: ${missingEnvVars.join(', ')}` };
-    
+
     // Check webhook configuration
     checks.webhook = {
       status: WEBHOOK_VERIFY_TOKEN ? "ok" : "warning",
       error: WEBHOOK_VERIFY_TOKEN ? undefined : "WEBHOOK_VERIFY_TOKEN not set"
     };
-    
+
     // Overall status
     const hasErrors = Object.values(checks).some(c => c.status === "error");
     const hasWarnings = Object.values(checks).some(c => c.status === "warning");
-    
+
     res.status(hasErrors ? 503 : 200).json({
       status: hasErrors ? "unhealthy" : hasWarnings ? "degraded" : "healthy",
       timestamp: new Date().toISOString(),
@@ -2380,8 +2380,8 @@ export async function registerRoutes(
     console.log("╔══════════════════════════════════════════════════════════════╗");
     console.log("║  📥 WEBHOOK VERIFICATION REQUEST                             ║");
     console.log("╚══════════════════════════════════════════════════════════════╝");
-    console.log("Webhook verification request:", { 
-      mode, 
+    console.log("Webhook verification request:", {
+      mode,
       tokenReceived: token,
       tokenExpected: WEBHOOK_VERIFY_TOKEN,
       challenge: challenge ? "present" : "missing",
@@ -2418,12 +2418,12 @@ export async function registerRoutes(
     console.log("[WEBHOOK-RAW] Timestamp:", new Date().toISOString());
     console.log("[WEBHOOK-RAW] Headers:", JSON.stringify(req.headers, null, 2));
     console.log("[WEBHOOK-RAW] Body:", JSON.stringify(req.body, null, 2));
-    
-    
+
+
     // Store webhook for debugging
     const webhookTimestamp = new Date().toISOString();
     currentWebhookTimestamp = webhookTimestamp; // Set context for processing
-    
+
     const logEntry: WebhookLogEntry = {
       timestamp: webhookTimestamp,
       headers: {
@@ -2438,18 +2438,18 @@ export async function registerRoutes(
     while (recentWebhooks.length > 50) {
       recentWebhooks.pop();
     }
-    
+
     try {
       // Verify webhook signature from Meta
       const signature = req.headers["x-hub-signature-256"] as string | undefined;
       const rawBody = (req as any).rawBody;
-      
+
       // Convert Buffer to string for signature verification
       const bodyString = rawBody ? rawBody.toString("utf8") : JSON.stringify(req.body);
-      
+
       const verification = verifyWebhookSignature(bodyString, signature);
       console.log("Webhook signature verification:", verification.debug);
-      
+
       // TODO: Re-enable signature verification after confirming correct App Secret
       // For now, log but don't reject to test webhook processing
       if (!verification.valid) {
@@ -2458,7 +2458,7 @@ export async function registerRoutes(
       }
 
       const { object, entry } = req.body;
-      
+
       // Log completo do webhook recebido para debug
       console.log("=== WEBHOOK INSTAGRAM RECEBIDO ===");
       console.log("Object:", object);
@@ -2474,14 +2474,14 @@ export async function registerRoutes(
       for (const entryItem of entry || []) {
         const changes = entryItem.changes || [];
         const messaging = entryItem.messaging || [];
-        
+
         console.log(`Entry ID: ${entryItem.id}, Changes: ${changes.length}, Messaging: ${messaging.length}`);
 
         // Process comments and mentions (Instagram Graph API format)
         for (const change of changes) {
           console.log(`=== CHANGE RECEIVED: field="${change.field}" ===`);
           console.log("Change value:", JSON.stringify(change.value).substring(0, 500));
-          
+
           if (change.field === "comments") {
             console.log(">>> Processing COMMENT webhook");
             await processWebhookComment(change.value, entryItem.id);
@@ -2499,7 +2499,7 @@ export async function registerRoutes(
           console.log("=== MESSAGING EVENT RECEIVED ===");
           console.log("Messaging event:", JSON.stringify(messageEvent).substring(0, 500));
           console.log(`Entry ID (account that received webhook): ${entryItem.id}`);
-          
+
           if (messageEvent.message) {
             console.log(">>> Processing DM webhook");
             await processWebhookMessage(messageEvent, entryItem.id);
@@ -2578,15 +2578,15 @@ export async function registerRoutes(
         }, currentWebhookTimestamp);
         return;
       }
-      
+
       const allUsers = await authStorage.getAllUsers?.() || [];
       console.log("[COMMENT-WEBHOOK] Buscando usuários no banco...");
       console.log("  - Total de usuários no sistema:", allUsers.length);
-      
+
       // Log all users with Instagram connected for debugging
       const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccountId);
       console.log("  - Usuários com Instagram conectado:", usersWithInstagram.length);
-      
+
       console.log("[COMMENT-WEBHOOK] Lista de usuários com Instagram:");
       usersWithInstagram.forEach((u: any, index: number) => {
         const matches = u.instagramAccountId === pageId;
@@ -2595,16 +2595,16 @@ export async function registerRoutes(
         console.log(`      pageId recebido:    "${pageId}"`);
         console.log(`      Match: ${matches ? "✅ SIM" : "❌ NÃO"}`);
       });
-      
+
       // Match by pageId (entry.id = Instagram account ID that received the webhook)
-      let instagramUser = allUsers.find((u: any) => 
+      let instagramUser = allUsers.find((u: any) =>
         u.instagramAccountId && u.instagramAccountId === pageId
       );
 
       // FALLBACK #1: Try matching by instagramRecipientId
       if (!instagramUser) {
         console.log("[COMMENT-WEBHOOK] ⚠️ Não encontrado por instagramAccountId, tentando instagramRecipientId...");
-        instagramUser = allUsers.find((u: any) => 
+        instagramUser = allUsers.find((u: any) =>
           u.instagramRecipientId && u.instagramRecipientId === pageId
         );
         if (instagramUser) {
@@ -2624,14 +2624,14 @@ export async function registerRoutes(
         console.log("[COMMENT-WEBHOOK] ⚠️ Tentando auto-associação inteligente...");
         const usersWithToken = allUsers.filter((u: any) => u.instagramAccessToken);
         console.log(`  - Usuários com token: ${usersWithToken.length}`);
-        
+
         if (usersWithToken.length === 1) {
           // STRATEGY 1: Only one user with Instagram - use them
           instagramUser = usersWithToken[0];
           console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIANDO: Único usuário com token: ${instagramUser.email}`);
           console.log(`  Current instagramAccountId: ${instagramUser.instagramAccountId}`);
           console.log(`  New pageId from webhook: ${pageId}`);
-          
+
           // Update their instagramAccountId for future matches
           try {
             await authStorage.updateUser(instagramUser.id, { instagramAccountId: pageId });
@@ -2642,11 +2642,11 @@ export async function registerRoutes(
         } else if (usersWithToken.length > 1) {
           // STRATEGY 2: Multiple users - try pending webhook markers (time-based association)
           console.log("[COMMENT-WEBHOOK] 🔍 Múltiplos usuários - tentando associação por janela de tempo...");
-          
+
           const ASSOCIATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours - expanded for better UX
           const now = Date.now();
           const eligibleUsers: { user: any; pendingTime: number }[] = [];
-          
+
           for (const u of usersWithToken) {
             // Check if user has a pending webhook marker within the time window
             try {
@@ -2654,7 +2654,7 @@ export async function registerRoutes(
               if (pendingSetting?.value) {
                 const pendingTime = new Date(pendingSetting.value).getTime();
                 const elapsedMs = now - pendingTime;
-                
+
                 if (elapsedMs <= ASSOCIATION_WINDOW_MS) {
                   console.log(`  [✓] Usuário ${u.email} tem marcador pendente de ${Math.round(elapsedMs / 1000)}s atrás`);
                   eligibleUsers.push({ user: u, pendingTime });
@@ -2670,16 +2670,16 @@ export async function registerRoutes(
               console.log(`  [!] Erro ao verificar marcador do usuário ${u.id}:`, err);
             }
           }
-          
+
           if (eligibleUsers.length === 1) {
             // Exactly one user within the time window - auto-associate
             instagramUser = eligibleUsers[0].user;
             console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIANDO por janela de tempo: ${instagramUser.email}`);
-            
+
             try {
               await authStorage.updateUser(instagramUser.id, { instagramAccountId: pageId });
               console.log(`[COMMENT-WEBHOOK] ✅ instagramAccountId atualizado para ${pageId}`);
-              
+
               // Clear the pending marker
               await storage.deleteSetting(`pending_webhook_${instagramUser.id}`);
               console.log(`[COMMENT-WEBHOOK] ✅ Marcador pendente removido`);
@@ -2691,7 +2691,7 @@ export async function registerRoutes(
             eligibleUsers.sort((a, b) => b.pendingTime - a.pendingTime);
             instagramUser = eligibleUsers[0].user;
             console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIANDO (mais recente): ${instagramUser.email}`);
-            
+
             try {
               await authStorage.updateUser(instagramUser.id, { instagramAccountId: pageId });
               console.log(`[COMMENT-WEBHOOK] ✅ instagramAccountId atualizado para ${pageId}`);
@@ -2711,30 +2711,30 @@ export async function registerRoutes(
       if (!instagramUser) {
         console.log("[COMMENT-WEBHOOK] 🔍 FALLBACK #3: Tentando identificar por API...");
         const usersWithToken = allUsers.filter((u: any) => u.instagramAccessToken && u.instagramUsername);
-        
+
         for (const u of usersWithToken) {
           try {
             // IMPORTANT: Decrypt token before using (tokens are encrypted in the database)
             const encryptedToken = u.instagramAccessToken;
             const accessToken = isEncrypted(encryptedToken) ? decrypt(encryptedToken) : encryptedToken;
-            
+
             // Try to fetch info about pageId using this user's token
             const testUrl = `https://graph.instagram.com/v21.0/${pageId}?fields=id,username&access_token=${encodeURIComponent(accessToken)}`;
             console.log(`  Testando com token de ${u.email}...`);
-            
+
             const response = await fetch(testUrl);
             if (response.ok) {
               const data = await response.json() as any;
               console.log(`  Resposta da API:`, JSON.stringify(data));
-              
+
               // If we can access this pageId with this user's token, it likely belongs to them
               if (data.username && data.username.toLowerCase() === u.instagramUsername?.toLowerCase()) {
                 console.log(`[COMMENT-WEBHOOK] ✅ FALLBACK #3: Usuário identificado por username match: ${u.email}`);
                 instagramUser = u;
-                
+
                 // Update IDs for future matches
                 try {
-                  await authStorage.updateUser(u.id, { 
+                  await authStorage.updateUser(u.id, {
                     instagramAccountId: pageId,
                     instagramRecipientId: u.instagramRecipientId || pageId
                   });
@@ -2747,9 +2747,9 @@ export async function registerRoutes(
                 // Token works for this account - likely the owner
                 console.log(`[COMMENT-WEBHOOK] ✅ FALLBACK #3: Usuário identificado por acesso à API: ${u.email}`);
                 instagramUser = u;
-                
+
                 try {
-                  await authStorage.updateUser(u.id, { 
+                  await authStorage.updateUser(u.id, {
                     instagramAccountId: pageId,
                     instagramRecipientId: u.instagramRecipientId || pageId
                   });
@@ -2772,21 +2772,21 @@ export async function registerRoutes(
       if (!instagramUser) {
         console.log("[COMMENT-WEBHOOK] 🔍 FALLBACK #4: Tentando dedução por exclusão...");
         const usersWithToken = allUsers.filter((u: any) => u.instagramAccessToken);
-        
+
         if (usersWithToken.length === 2) {
           // Find which user's instagramAccountId or instagramRecipientId matches pageId
-          const matchingUser = usersWithToken.find((u: any) => 
+          const matchingUser = usersWithToken.find((u: any) =>
             u.instagramAccountId === pageId || u.instagramRecipientId === pageId
           );
-          
+
           if (!matchingUser) {
             // Neither user matches - this pageId is new
             // Try to determine which user by checking who DOESN'T have this pageId
-            const userWithDifferentId = usersWithToken.find((u: any) => 
+            const userWithDifferentId = usersWithToken.find((u: any) =>
               u.instagramAccountId && u.instagramAccountId !== pageId
             );
             const userWithoutId = usersWithToken.find((u: any) => !u.instagramAccountId);
-            
+
             // If one user has a different ID and another doesn't have one, use the one without
             if (userWithDifferentId && userWithoutId && userWithDifferentId.id !== userWithoutId.id) {
               instagramUser = userWithoutId;
@@ -2798,7 +2798,7 @@ export async function registerRoutes(
                 const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
                 return bTime - aTime;
               });
-              
+
               // Use the user whose instagramAccountId is CLOSER to pageId (in case of number-based IDs)
               // Or simply use the one without a matching instagramAccountId (new user)
               for (const u of sortedByActivity) {
@@ -2806,7 +2806,7 @@ export async function registerRoutes(
                   // This user doesn't have this pageId - it might be theirs
                   console.log(`[COMMENT-WEBHOOK] ⚠️ FALLBACK #4: Tentando ${u.email} (último ativo)`);
                   instagramUser = u;
-                  
+
                   try {
                     await authStorage.updateUser(u.id, { instagramAccountId: pageId });
                     console.log(`[COMMENT-WEBHOOK] ✅ instagramAccountId atualizado para ${pageId}`);
@@ -2835,7 +2835,7 @@ export async function registerRoutes(
         }, currentWebhookTimestamp);
         return;
       }
-      
+
       console.log("[COMMENT-WEBHOOK] ✅ Usuário encontrado!");
       console.log("  - User ID:", instagramUser.id);
       console.log("  - Email:", instagramUser.email);
@@ -2852,7 +2852,7 @@ export async function registerRoutes(
       console.log("  - instagramAccountId (dono da conta):", instagramUser.instagramAccountId);
       console.log("  - fromUsername:", username);
       console.log("  - instagramUsername:", instagramUser.instagramUsername);
-      
+
       if (fromUserId && fromUserId === instagramUser.instagramAccountId) {
         console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Comentário do próprio dono (match por ID)");
         console.log("  - Comment ID:", commentId);
@@ -2864,10 +2864,10 @@ export async function registerRoutes(
         }, currentWebhookTimestamp);
         return;
       }
-      
+
       // Also check by username match
-      if (username && instagramUser.instagramUsername && 
-          username.toLowerCase() === instagramUser.instagramUsername.toLowerCase()) {
+      if (username && instagramUser.instagramUsername &&
+        username.toLowerCase() === instagramUser.instagramUsername.toLowerCase()) {
         console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Comentário do próprio dono (match por username)");
         console.log("  - Comment ID:", commentId);
         addWebhookProcessingResult({
@@ -2878,13 +2878,13 @@ export async function registerRoutes(
         }, currentWebhookTimestamp);
         return;
       }
-      
+
       console.log("[COMMENT-WEBHOOK] ✅ Comentário de terceiro, processando...");
 
       // Try to fetch profile picture using multiple strategies
       let senderAvatar: string | undefined;
       let senderFollowersCount: number | undefined;
-      
+
       // Strategy 1: Look up cached avatar from previous messages by the same username
       // This is the most reliable method since we may already have the avatar from a DM
       if (username && username !== "instagram_user") {
@@ -2900,30 +2900,30 @@ export async function registerRoutes(
           console.log(`[Profile Fetch] Erro ao buscar cache para @${username}:`, e);
         }
       }
-      
+
       // Strategy 2: Try direct IGSID lookup (if fromUserId is available)
       if (!senderAvatar && fromUserId && instagramUser.instagramAccessToken) {
         try {
           console.log(`[Profile Fetch] Tentando busca direta por IGSID ${fromUserId}...`);
           const encToken = instagramUser.instagramAccessToken;
           const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
-          
+
           // Try Instagram Graph API direct lookup
           const directUrl = `https://graph.instagram.com/v21.0/${fromUserId}?fields=profile_pic,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`;
           const directRes = await fetch(directUrl);
           const directData = await directRes.json() as any;
-          
+
           if (directRes.ok && (directData.profile_pic || directData.profile_picture_url)) {
             senderAvatar = directData.profile_pic || directData.profile_picture_url;
             console.log(`[Profile Fetch] SUCCESS via IGSID direto para ${fromUserId}`);
           } else if (directData?.error) {
             console.log(`[Profile Fetch] IGSID direto falhou: ${directData.error.message}`);
-            
+
             // Fallback: Try Facebook Graph API
             const fbUrl = `https://graph.facebook.com/v21.0/${fromUserId}?fields=profile_pic&access_token=${encodeURIComponent(accessToken)}`;
             const fbRes = await fetch(fbUrl);
             const fbData = await fbRes.json() as any;
-            
+
             if (fbRes.ok && fbData.profile_pic) {
               senderAvatar = fbData.profile_pic;
               console.log(`[Profile Fetch] SUCCESS via Facebook Graph API para ${fromUserId}`);
@@ -2933,7 +2933,7 @@ export async function registerRoutes(
           console.log(`[Profile Fetch] Erro busca direta IGSID ${fromUserId}:`, e);
         }
       }
-      
+
       // Strategy 3: Use Business Discovery API by username (works for public business/creator accounts)
       // Also tries to fetch follower count
       if ((!senderAvatar || !senderFollowersCount) && username && username !== "instagram_user" && instagramUser.instagramAccessToken) {
@@ -2944,7 +2944,7 @@ export async function registerRoutes(
           const discoveryUrl = `https://graph.instagram.com/v21.0/${instagramUser.instagramAccountId}?fields=business_discovery.username(${username}){profile_picture_url,name,username,followers_count}&access_token=${encodeURIComponent(accessToken)}`;
           const discoveryRes = await fetch(discoveryUrl);
           const discoveryData = await discoveryRes.json();
-          
+
           if (discoveryRes.ok && discoveryData?.business_discovery) {
             if (discoveryData.business_discovery.profile_picture_url && !senderAvatar) {
               senderAvatar = discoveryData.business_discovery.profile_picture_url;
@@ -2961,7 +2961,7 @@ export async function registerRoutes(
           console.log(`[Profile Fetch] Erro Business Discovery para @${username}:`, e);
         }
       }
-      
+
       // Strategy 4: Generate placeholder avatar based on initials (fallback)
       if (!senderAvatar && username && username !== "instagram_user") {
         // Use UI Avatars service for a nice placeholder based on username initials
@@ -2973,7 +2973,7 @@ export async function registerRoutes(
         senderAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=${bgColor}&color=fff&size=128&bold=true`;
         console.log(`[Profile Fetch] Usando avatar placeholder para @${username}`);
       }
-      
+
       // Log final result
       console.log(`[Profile Fetch] Resultado final para @${username}: ${senderAvatar ? 'foto encontrada' : 'sem foto'}`);
 
@@ -2992,21 +2992,21 @@ export async function registerRoutes(
           const mediaUrl = `https://graph.instagram.com/v21.0/${mediaId}?fields=permalink,caption,thumbnail_url,media_url,media_type&access_token=${encodeURIComponent(accessToken)}`;
           const mediaRes = await fetch(mediaUrl);
           const mediaData = await mediaRes.json() as any;
-          
+
           if (mediaRes.ok && mediaData) {
             postPermalink = mediaData.permalink || null;
             postCaption = mediaData.caption || null;
             postMediaType = mediaData.media_type?.toLowerCase() || null;
-            
+
             // Use thumbnail_url for videos, media_url for images
             postThumbnailUrl = mediaData.thumbnail_url || mediaData.media_url || null;
-            
+
             // For videos, also store the video URL for transcription
             if (postMediaType === 'video' && mediaData.media_url) {
               postVideoUrl = mediaData.media_url;
               console.log(`[COMMENT-WEBHOOK] 🎬 Post é um VÍDEO - URL disponível para transcrição`);
             }
-            
+
             console.log(`[COMMENT-WEBHOOK] ✅ Detalhes do post encontrados:`);
             console.log(`    - Permalink: ${postPermalink}`);
             console.log(`    - Legenda: ${postCaption?.substring(0, 50)}${(postCaption?.length || 0) > 50 ? '...' : ''}`);
@@ -3024,7 +3024,7 @@ export async function registerRoutes(
       let parentCommentId: string | null = null;
       let parentCommentText: string | null = null;
       let parentCommentUsername: string | null = null;
-      
+
       // Instagram sends parent_id when comment is a reply to another comment
       const parentId = commentData.parent_id;
       if (parentId && instagramUser.instagramAccessToken) {
@@ -3032,12 +3032,12 @@ export async function registerRoutes(
           console.log(`[COMMENT-WEBHOOK] 📝 Este é uma resposta ao comentário ${parentId}`);
           const encToken = instagramUser.instagramAccessToken;
           const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
-          
+
           // Fetch parent comment details from Instagram API
           const parentUrl = `https://graph.instagram.com/v21.0/${parentId}?fields=text,username,from&access_token=${encodeURIComponent(accessToken)}`;
           const parentRes = await fetch(parentUrl);
           const parentData = await parentRes.json() as any;
-          
+
           if (parentRes.ok && parentData) {
             parentCommentId = parentId;
             parentCommentText = parentData.text || null;
@@ -3100,13 +3100,13 @@ export async function registerRoutes(
 
       // Generate AI response with post context (including image for vision and transcription)
       console.log("[COMMENT-WEBHOOK] Gerando resposta IA...");
-      console.log("[COMMENT-WEBHOOK] Contexto da publicação:", { 
-        postCaption: postCaption?.substring(0, 100), 
-        postThumbnailUrl: postThumbnailUrl?.substring(0, 50), 
+      console.log("[COMMENT-WEBHOOK] Contexto da publicação:", {
+        postCaption: postCaption?.substring(0, 100),
+        postThumbnailUrl: postThumbnailUrl?.substring(0, 50),
         postMediaType,
         hasTranscription: !!postVideoTranscription,
-        parentCommentText, 
-        parentCommentUsername 
+        parentCommentText,
+        parentCommentUsername
       });
       const aiResult = await generateAIResponse(text, "comment", displayName, instagramUser.id, {
         postCaption,
@@ -3129,19 +3129,19 @@ export async function registerRoutes(
       // Check for auto-send using user-specific settings
       const userOperationMode = instagramUser.operationMode || "manual";
       const userThreshold = parseFloat(instagramUser.autoApproveThreshold || "0.9");
-      
+
       console.log("[COMMENT-WEBHOOK] Verificando auto-envio...");
       console.log("  - Modo de operação:", userOperationMode);
       console.log("  - Threshold:", userThreshold);
       console.log("  - Confiança IA:", aiResult.confidenceScore);
-      
-      const shouldAutoSend = 
+
+      const shouldAutoSend =
         userOperationMode === "auto" || // 100% automatic mode
-        (userOperationMode === "semi_auto" && 
-         aiResult.confidenceScore >= userThreshold);
-      
+        (userOperationMode === "semi_auto" &&
+          aiResult.confidenceScore >= userThreshold);
+
       console.log("  - Deve auto-enviar:", shouldAutoSend);
-      
+
       if (shouldAutoSend && instagramUser.instagramAccessToken) {
         // Get the AI response to update it
         const aiResponse = await storage.getAiResponse(newMessage.id);
@@ -3155,7 +3155,7 @@ export async function registerRoutes(
             aiResult.suggestedResponse,
             autoToken
           );
-          
+
           if (sendResult.success) {
             await storage.updateMessageStatus(newMessage.id, "auto_sent");
             await storage.updateAiResponse(aiResponse.id, {
@@ -3175,7 +3175,7 @@ export async function registerRoutes(
       console.log("║    COMENTÁRIO PROCESSADO COM SUCESSO                         ║");
       console.log("╚══════════════════════════════════════════════════════════════╝");
       console.log("[COMMENT-WEBHOOK] Comment ID:", commentId);
-      
+
       addWebhookProcessingResult({
         action: 'processed',
         reason: `Comentário de @${username} salvo e resposta IA gerada`,
@@ -3198,7 +3198,7 @@ export async function registerRoutes(
   async function fetchInstagramUserInfo(senderId: string, accessToken: string, recipientId?: string): Promise<{ name: string; username: string; avatar?: string; followersCount?: number }> {
     try {
       console.log(`Fetching user info for sender ${senderId}, token length: ${accessToken.length}`);
-      
+
       // Try multiple endpoints to get user info
       const endpoints = [
         // Direct IGSID lookup with profile_pic - correct field name
@@ -3231,16 +3231,16 @@ export async function registerRoutes(
           console.log(`Trying ${endpoint.name}...`);
           const response = await fetch(endpoint.url);
           const data = await response.json();
-          
+
           if (response.ok && !data.error) {
             console.log(`${endpoint.name} SUCCESS:`, JSON.stringify(data));
-            
+
             // Handle conversations API response
             if (data.data?.[0]?.participants?.data) {
               const participant = data.data[0].participants.data.find((p: any) => p.id === senderId);
               if (participant?.username || participant?.name) {
                 let avatarUrl = participant.profile_pic;
-                
+
                 // Try Business Discovery API to get profile picture and followers (works for Business/Creator accounts)
                 let followersCount: number | undefined;
 
@@ -3270,7 +3270,7 @@ export async function registerRoutes(
                     console.log(`Business Discovery error: ${e}`);
                   }
                 }
-                
+
                 return {
                   name: participant.name || participant.username,
                   username: participant.username || senderId,
@@ -3279,7 +3279,7 @@ export async function registerRoutes(
                 };
               }
             }
-            
+
             // Handle direct user response
             if (data.username || data.name) {
               return {
@@ -3295,12 +3295,12 @@ export async function registerRoutes(
           console.log(`${endpoint.name} error:`, err);
         }
       }
-      
+
       console.log("All API attempts failed for user info lookup");
     } catch (error) {
       console.error("Error fetching Instagram user info:", error);
     }
-    
+
     // Fallback - generate a friendlier display name
     const shortId = senderId.slice(-6);
     return {
@@ -3309,7 +3309,7 @@ export async function registerRoutes(
     };
   }
 
-// Helper function to process incoming DMs from webhooks
+  // Helper function to process incoming DMs from webhooks
   // entryId: The ID of the Instagram account that received this webhook (entry.id)
   async function processWebhookMessage(messageData: any, entryId?: string) {
     try {
@@ -3360,14 +3360,14 @@ export async function registerRoutes(
 
       // Find the user who owns this Instagram account by matching instagramAccountId with recipient
       const allUsers = await authStorage.getAllUsers?.() || [];
-      
-      
+
+
       console.log(`Looking for user with Instagram account: ${recipientId}`);
       console.log(`Total users found: ${allUsers.length}`);
       console.log(`Users with Instagram accounts: ${allUsers.filter((u: any) => u.instagramAccountId).map((u: any) => ({ id: u.id, instagramAccountId: u.instagramAccountId }))}`);
-      
+
       // Try to match by instagramAccountId first
-      let instagramUser = allUsers.find((u: any) => 
+      let instagramUser = allUsers.find((u: any) =>
         u.instagramAccountId && u.instagramAccountId === recipientId
       );
 
@@ -3387,12 +3387,12 @@ export async function registerRoutes(
 
       // If not found by instagramAccountId, try by instagramRecipientId
       if (!instagramUser) {
-        instagramUser = allUsers.find((u: any) => 
+        instagramUser = allUsers.find((u: any) =>
           u.instagramRecipientId && u.instagramRecipientId === recipientId
         );
         if (instagramUser) {
           console.log(`Matched user ${instagramUser.id} by instagramRecipientId`);
-          
+
           // SYNC FIX: Also update instagramAccountId to match recipientId
           // This ensures comments (which use instagramAccountId) will also work
           if (instagramUser.instagramAccountId !== recipientId) {
@@ -3413,12 +3413,12 @@ export async function registerRoutes(
       if (!instagramUser) {
         console.log("=== NO USER MATCH FOR WEBHOOK - ATTEMPTING AUTO-ASSOCIATION ===");
         console.log(`Webhook recipient ID: ${recipientId}`);
-        
+
         // STRATEGY 1: If there's only ONE user with Instagram connected, auto-associate
         const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccessToken);
         console.log(`Users with Instagram connected: ${usersWithInstagram.length}`);
-        
-        
+
+
         if (usersWithInstagram.length === 1) {
           // Only one user with Instagram - definitely this user's webhook
           const targetUser = usersWithInstagram[0];
@@ -3427,8 +3427,8 @@ export async function registerRoutes(
           console.log(`  Current instagramAccountId: ${targetUser.instagramAccountId}`);
           console.log(`  Current instagramRecipientId: ${targetUser.instagramRecipientId}`);
           console.log(`  New webhook recipientId: ${recipientId}`);
-          
-          
+
+
           try {
             // SYNC FIX: Update BOTH instagramRecipientId AND instagramAccountId
             // This ensures both DMs and comments will work with the same ID
@@ -3441,8 +3441,8 @@ export async function registerRoutes(
             instagramUser.instagramAccountId = recipientId;
             console.log(`✅ AUTO-ASSOCIATED instagramRecipientId=${recipientId} for user ${targetUser.id}`);
             console.log(`✅ SYNC: Also updated instagramAccountId=${recipientId}`);
-            
-            
+
+
             // Clear any previous unmapped webhook alert
             await storage.deleteSetting("lastUnmappedWebhookRecipientId");
             await storage.deleteSetting("lastUnmappedWebhookTimestamp");
@@ -3454,7 +3454,7 @@ export async function registerRoutes(
           const ASSOCIATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours - expanded for better UX
           const now = Date.now();
           const eligibleUsers: any[] = [];
-          
+
           for (const u of usersWithInstagram) {
             // Check if user has a pending webhook marker within the time window
             try {
@@ -3462,7 +3462,7 @@ export async function registerRoutes(
               if (pendingSetting?.value) {
                 const pendingTime = new Date(pendingSetting.value).getTime();
                 const elapsedMs = now - pendingTime;
-                
+
                 if (elapsedMs <= ASSOCIATION_WINDOW_MS) {
                   console.log(`User ${u.id} (${u.email}) has pending webhook marker from ${Math.round(elapsedMs / 1000)}s ago`);
                   eligibleUsers.push({ user: u, pendingTime });
@@ -3475,12 +3475,12 @@ export async function registerRoutes(
               console.log(`Could not check pending webhook for user ${u.id}:`, err);
             }
           }
-          
+
           if (eligibleUsers.length === 1) {
             const targetUser = eligibleUsers[0].user;
             instagramUser = targetUser;
             console.log(`SECURE AUTO-ASSOCIATING webhook ID ${recipientId} with user ${targetUser.id} (${targetUser.email})`);
-            
+
             try {
               // SYNC FIX: Update BOTH instagramRecipientId AND instagramAccountId
               await authStorage.updateUser(targetUser.id, {
@@ -3540,7 +3540,7 @@ export async function registerRoutes(
       // We check both conditions to avoid false positives
       const senderMatchesUser = (senderId === instagramUser.instagramAccountId || senderId === instagramUser.instagramRecipientId);
       const recipientMatchesUser = (recipientId === instagramUser.instagramAccountId || recipientId === instagramUser.instagramRecipientId);
-      
+
       if (senderMatchesUser) {
         // Sender is the user = OUTGOING message, skip it
         console.log(`SKIPPING OUTGOING MESSAGE: Sender ${senderId} matches user's own Instagram account`);
@@ -3549,7 +3549,7 @@ export async function registerRoutes(
         console.log(`  instagramRecipientId: ${instagramUser.instagramRecipientId}`);
         return;
       }
-      
+
       if (!recipientMatchesUser) {
         // Recipient doesn't match user = something is wrong, log and skip
         console.log(`WARNING: Recipient ${recipientId} doesn't match user's Instagram account - unexpected webhook routing`);
@@ -3567,15 +3567,15 @@ export async function registerRoutes(
       let senderName = senderId || "Instagram User";
       let senderUsername = senderId || "unknown";
       let senderAvatar: string | undefined = undefined;
-      
+
       // OPTIMIZATION: Check if senderId matches any known user's Instagram account
       // This handles cross-account lookups where API calls fail due to permissions
       // Exclude the current instagramUser (recipient) to avoid self-matching
-      let knownInstagramUser = allUsers.find((u: any) => 
+      let knownInstagramUser = allUsers.find((u: any) =>
         u.id !== instagramUser.id && // Don't match the recipient
         (u.instagramAccountId === senderId || u.instagramRecipientId === senderId)
       );
-      
+
       // Use cached data only if we have usable username info
       if (knownInstagramUser && knownInstagramUser.instagramUsername) {
         console.log(`Sender ${senderId} matched known user: ${knownInstagramUser.email}`);
@@ -3586,7 +3586,7 @@ export async function registerRoutes(
           senderAvatar = knownInstagramUser.instagramProfilePic || knownInstagramUser.profileImageUrl || undefined;
         }
         console.log(`Using cached profile data: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}`);
-        
+
         // If we don't have a cached avatar, try to fetch it using the SENDER's own token (not recipient's)
         // This is more reliable for cross-account lookups since each user can access their own profile
         if (!senderAvatar) {
@@ -3597,7 +3597,7 @@ export async function registerRoutes(
               const encSenderToken = knownInstagramUser.instagramAccessToken;
               const senderToken = isEncrypted(encSenderToken) ? decrypt(encSenderToken) : encSenderToken;
               console.log(`Using sender's own token (decrypted: ${isEncrypted(encSenderToken)}) to fetch profile picture...`);
-              
+
               // Use Facebook Graph API for business accounts
               const fbProfileUrl = `https://graph.facebook.com/v21.0/${senderId}?fields=profile_picture_url&access_token=${senderToken}`;
               const profileRes = await fetch(fbProfileUrl);
@@ -3605,7 +3605,7 @@ export async function registerRoutes(
               if (profileData.profile_picture_url) {
                 senderAvatar = profileData.profile_picture_url;
                 console.log(`Got profile picture using sender's own token (Facebook API)`);
-                
+
                 // Update the cache for future use
                 try {
                   await authStorage.updateUser(knownInstagramUser.id, {
@@ -3623,7 +3623,7 @@ export async function registerRoutes(
                 if (igData.profile_picture_url) {
                   senderAvatar = igData.profile_picture_url;
                   console.log(`Got profile picture using sender's own token (Instagram API)`);
-                  
+
                   try {
                     await authStorage.updateUser(knownInstagramUser.id, {
                       instagramProfilePic: igData.profile_picture_url
@@ -3638,7 +3638,7 @@ export async function registerRoutes(
               console.log(`Could not fetch avatar using sender's token:`, e);
             }
           }
-          
+
           // Fallback: try with recipient's token (less likely to work for cross-account)
           if (!senderAvatar && instagramUser.instagramAccessToken) {
             try {
@@ -3650,7 +3650,7 @@ export async function registerRoutes(
               if (profileData.profile_pic) {
                 senderAvatar = profileData.profile_pic;
                 console.log(`Fetched profile picture using recipient's token (fallback)`);
-                
+
                 // Update the cache for future use
                 try {
                   await authStorage.updateUser(knownInstagramUser.id, {
@@ -3669,19 +3669,19 @@ export async function registerRoutes(
       } else if (senderId && instagramUser.instagramAccessToken) {
         const encDmToken2 = instagramUser.instagramAccessToken;
         const accessToken = isEncrypted(encDmToken2) ? decrypt(encDmToken2) : encDmToken2;
-        
+
         // Verify token is not still encrypted (should have been decrypted)
         const tokenParts = accessToken.split(":");
         if (tokenParts.length === 3 && tokenParts[0].length === 24) {
           console.error(`ERROR: Token appears to still be encrypted (length=${accessToken.length}). Decryption may have failed.`);
         }
-        
+
         // Use the user's Instagram Account ID (from OAuth) for API calls, NOT the webhook recipientId
         // The instagramAccountId is the authenticated account that can access the conversations API
         const userInstagramId = instagramUser.instagramAccountId || undefined;
-        
+
         console.log(`Will use instagramAccountId ${userInstagramId} for API calls (webhook recipientId was ${recipientId})`);
-        
+
         // First, try direct IGSID lookup for profile_pic (correct field name)
         try {
           console.log(`Fetching profile picture for IGSID ${senderId}...`);
@@ -3689,7 +3689,7 @@ export async function registerRoutes(
           const profileRes = await fetch(profileUrl);
           const profileData = await profileRes.json();
           console.log(`Direct IGSID profile response:`, JSON.stringify(profileData));
-          
+
           if (profileData.profile_pic) {
             senderAvatar = profileData.profile_pic;
             console.log(`Got profile picture from direct IGSID lookup!`);
@@ -3697,7 +3697,7 @@ export async function registerRoutes(
         } catch (e) {
           console.log(`Direct IGSID lookup failed:`, e);
         }
-        
+
         // Then get username from conversations API using instagramAccountId
         const userInfo = await fetchInstagramUserInfo(senderId, accessToken, userInstagramId);
         senderName = userInfo.name;
@@ -3710,16 +3710,16 @@ export async function registerRoutes(
         senderFollowersCount = userInfo.followersCount;
 
         console.log(`Resolved sender info: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}, followers: ${senderFollowersCount || 'N/A'}`);
-        
+
         // OPTIMIZATION: If we got a valid username from API, try to match with registered users
         // This helps when the senderId differs from stored IDs but username matches
         if (senderUsername && senderUsername !== senderId && senderUsername !== "instagram_user") {
-          const matchedByUsername = allUsers.find((u: any) => 
-            u.id !== instagramUser.id && 
-            u.instagramUsername && 
+          const matchedByUsername = allUsers.find((u: any) =>
+            u.id !== instagramUser.id &&
+            u.instagramUsername &&
             u.instagramUsername.toLowerCase() === senderUsername.toLowerCase()
           );
-          
+
           if (matchedByUsername) {
             console.log(`Matched sender by username @${senderUsername} to user ${matchedByUsername.email}`);
             // Use cached data from the matched user if better
@@ -3738,14 +3738,14 @@ export async function registerRoutes(
       // Process attachments (photos, videos, audio, gifs, etc.)
       let mediaUrl: string | null = null;
       let mediaType: string | null = null;
-      
+
       if (attachments && attachments.length > 0) {
         const attachment = attachments[0]; // Process first attachment
         console.log("Processing attachment:", JSON.stringify(attachment));
-        
+
         // Instagram attachment types: image, video, audio, file, fallback, reel, ig_reel, story_mention, animated_gif
         const rawType = attachment.type?.toLowerCase() || 'unknown';
-        
+
         // Normalize media type
         if (rawType.includes('image') || rawType === 'photo') {
           mediaType = 'image';
@@ -3764,7 +3764,7 @@ export async function registerRoutes(
         } else {
           mediaType = rawType;
         }
-        
+
         // Try to download and store media
         const payloadUrl = attachment.payload?.url;
         if (payloadUrl) {
@@ -3842,12 +3842,12 @@ export async function registerRoutes(
       // Check for auto-send using user-specific settings
       const userOperationMode = instagramUser.operationMode || "manual";
       const userThreshold = parseFloat(instagramUser.autoApproveThreshold || "0.9");
-      
-      const shouldAutoSend = 
+
+      const shouldAutoSend =
         userOperationMode === "auto" || // 100% automatic mode
-        (userOperationMode === "semi_auto" && 
-         aiResult.confidenceScore >= userThreshold);
-      
+        (userOperationMode === "semi_auto" &&
+          aiResult.confidenceScore >= userThreshold);
+
       if (shouldAutoSend && senderId) {
         // Get the AI response to update it
         const aiResponse = await storage.getAiResponse(newMessage.id);
@@ -3861,7 +3861,7 @@ export async function registerRoutes(
             autoSendToken,
             instagramUser.instagramAccountId!
           );
-          
+
           if (sendResult.success) {
             await storage.updateMessageStatus(newMessage.id, "auto_sent");
             await storage.updateAiResponse(aiResponse.id, {
@@ -3959,7 +3959,7 @@ export async function registerRoutes(
 
       const appId = process.env.INSTAGRAM_APP_ID;
       const appSecret = process.env.INSTAGRAM_APP_SECRET;
-      
+
       if (!appId || !appSecret) {
         return res.json({
           error: "Missing INSTAGRAM_APP_ID or INSTAGRAM_APP_SECRET",
@@ -3973,7 +3973,7 @@ export async function registerRoutes(
 
       // Get app access token
       const appToken = `${appId}|${appSecret}`;
-      
+
       // Check current subscriptions
       const subUrl = `https://graph.facebook.com/v21.0/${appId}/subscriptions?access_token=${encodeURIComponent(appToken)}`;
       const subRes = await fetch(subUrl);
@@ -3983,12 +3983,12 @@ export async function registerRoutes(
 
       // Find instagram subscriptions
       const instagramSub = subData.data?.find((s: any) => s.object === "instagram");
-      
+
       // Check required fields
       const requiredFields = ["comments", "mentions", "messages"];
       const subscribedFields = instagramSub?.fields?.map((f: any) => f.name) || [];
       const missingFields = requiredFields.filter(f => !subscribedFields.includes(f));
-      
+
       // Diagnosis
       let diagnosis: any = { status: "ok" };
       if (!instagramSub) {
@@ -4018,8 +4018,8 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       console.error("Error checking subscriptions:", error);
-      res.status(500).json({ 
-        error: "Failed to check subscriptions", 
+      res.status(500).json({
+        error: "Failed to check subscriptions",
         details: error.message,
         diagnosis: {
           status: "error",
@@ -4073,9 +4073,9 @@ export async function registerRoutes(
 
       const allUsers = await authStorage.getAllUsers?.() || [];
       const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccessToken);
-      
+
       const results: any[] = [];
-      
+
       for (const user of usersWithInstagram) {
         if (user.instagramRecipientId && user.instagramAccountId !== user.instagramRecipientId) {
           try {
@@ -4144,7 +4144,7 @@ export async function registerRoutes(
       }
 
       if (!targetUser.instagramRecipientId) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: "User has no instagramRecipientId set. User needs to receive at least one DM first.",
           currentIds: {
             instagramAccountId: targetUser.instagramAccountId,
@@ -4191,7 +4191,7 @@ export async function registerRoutes(
       const { instagramAccountId, instagramRecipientId, instagramUsername } = req.body;
 
       if (!instagramAccountId && !instagramRecipientId && !instagramUsername) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: "Provide at least one field to set",
           usage: {
             instagramAccountId: "The ID used for comments webhooks (entry.id)",
@@ -4498,7 +4498,7 @@ export async function registerRoutes(
 
       // Normalize file type - extract from MIME type or file extension
       let normalizedFileType = fileType.toLowerCase();
-      
+
       // Handle MIME types like "application/pdf" or "text/plain"
       if (normalizedFileType.includes("/")) {
         if (normalizedFileType === "application/pdf") {
@@ -4513,7 +4513,7 @@ export async function registerRoutes(
           }
         }
       }
-      
+
       // Validate file type
       const allowedTypes = ["pdf", "txt"];
       if (!allowedTypes.includes(normalizedFileType)) {
@@ -4539,23 +4539,23 @@ export async function registerRoutes(
           await storage.updateKnowledgeFile(file.id, { progress: 30 });
           const objectStorage = new ObjectStorageService();
           const objectFile = await objectStorage.getObjectEntityFile(objectPath);
-          
+
           // Download the file content - 50%
           await storage.updateKnowledgeFile(file.id, { progress: 50 });
           const chunks: Buffer[] = [];
           const stream = objectFile.createReadStream();
-          
+
           await new Promise<void>((resolve, reject) => {
             stream.on("data", (chunk: Buffer) => chunks.push(chunk));
             stream.on("end", () => resolve());
             stream.on("error", reject);
           });
-          
+
           const buffer = Buffer.concat(chunks);
 
           // Processing content - 70%
           await storage.updateKnowledgeFile(file.id, { progress: 70 });
-          
+
           let extracted;
           if (fileType.toLowerCase() === "pdf") {
             extracted = await extractFromPdf(buffer);
@@ -4812,8 +4812,13 @@ export async function registerRoutes(
       const currentMode = mode || "simulator";
 
       if (currentMode === "architect") {
-        const response = await runArchitectAgent(history || []);
-        return res.json({ response, confidence: 1.0 });
+        const result = await runArchitectAgent(history || []);
+        return res.json({
+          response: result.response,
+          confidence: 1.0,
+          isFinalInstruction: result.isFinalInstruction,
+          recommendation: result.recommendation,
+        });
       }
 
       if (currentMode === "copilot") {

@@ -14,17 +14,45 @@ export interface ChatMessage {
 
 // --- Architect Mode ---
 
+export interface ArchitectResponse {
+  response: string;
+  isFinalInstruction: boolean;
+  recommendation: {
+    target: "identity" | "database" | null;
+    reason: string;
+  } | null;
+}
+
 const ARCHITECT_SYSTEM_PROMPT = `Você é um Engenheiro de Prompt Sênior. Seu objetivo é entrevistar o usuário para construir o 'System Prompt' perfeito.
 
 Você deve definir não apenas a identidade, mas as REGRAS LÓGICAS DE COMPORTAMENTO (ex: como reagir a insultos, como tratar concorrentes, gatilhos de ironia vs seriedade).
 
-Diretrizes:
+## Diretrizes:
 1. Faça perguntas progressivas para entender o que o usuário deseja.
 2. Sugira melhorias nas ideias do usuário.
 3. Quando o usuário estiver satisfeito com as definições, gere o prompt final técnico em um bloco de código markdown para que ele possa copiar ou aplicar.
-4. Mantenha o tom profissional e consultivo.`;
+4. Mantenha o tom profissional e consultivo.
 
-export async function runArchitectAgent(history: ChatMessage[]): Promise<string> {
+## IMPORTANTE - Marcação de Instrução Final:
+Quando você entregar uma INSTRUÇÃO FINAL PRONTA para ser aplicada (prompt completo, regras definidas, comportamento especificado), você DEVE incluir no FINAL da sua resposta um bloco JSON oculto com este formato exato:
+
+\`\`\`json:architect_metadata
+{
+  "is_final_instruction": true,
+  "recommendation": {
+    "target": "identity" | "database",
+    "reason": "Justificativa curta de porque salvar neste destino"
+  }
+}
+\`\`\`
+
+Regras para a recomendação:
+- Use "identity" para: personalidade, tom de voz, comportamento geral, regras globais, system prompts
+- Use "database" para: informações factuais, FAQs, preços, horários, dados específicos do negócio
+
+Se você está apenas fazendo perguntas de esclarecimento, conversando ou não tem uma instrução final, NÃO inclua este bloco JSON.`;
+
+export async function runArchitectAgent(history: ChatMessage[]): Promise<ArchitectResponse> {
   // Convert history to OpenAI format
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: ARCHITECT_SYSTEM_PROMPT },
@@ -35,7 +63,37 @@ export async function runArchitectAgent(history: ChatMessage[]): Promise<string>
   ];
 
   const response = await callOpenAI(messages);
-  return response.content || "Desculpe, não consegui gerar uma resposta.";
+  const content = response.content || "Desculpe, não consegui gerar uma resposta.";
+
+  // Parse the metadata block if present
+  const metadataMatch = content.match(/```json:architect_metadata\s*\n([\s\S]*?)\n```/);
+
+  let isFinalInstruction = false;
+  let recommendation: ArchitectResponse["recommendation"] = null;
+  let cleanResponse = content;
+
+  if (metadataMatch) {
+    try {
+      const metadata = JSON.parse(metadataMatch[1]);
+      isFinalInstruction = metadata.is_final_instruction === true;
+      if (metadata.recommendation) {
+        recommendation = {
+          target: metadata.recommendation.target,
+          reason: metadata.recommendation.reason || "",
+        };
+      }
+      // Remove the metadata block from the visible response
+      cleanResponse = content.replace(/```json:architect_metadata\s*\n[\s\S]*?\n```\s*/, "").trim();
+    } catch (e) {
+      console.error("[Architect] Failed to parse metadata:", e);
+    }
+  }
+
+  return {
+    response: cleanResponse,
+    isFinalInstruction,
+    recommendation,
+  };
 }
 
 // --- Copilot Mode ---

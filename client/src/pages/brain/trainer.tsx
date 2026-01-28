@@ -17,7 +17,6 @@ import {
   X,
   Database,
   Dna,
-  Wand2,
 } from "lucide-react";
 import {
   Card,
@@ -51,6 +50,11 @@ interface ChatMessage {
   content: string;
   confidence?: number;
   originalUserMessage?: string; // For assistant messages, link back to what triggered it
+  isFinalInstruction?: boolean; // For architect mode - indicates if this is a final instruction ready to be saved
+  recommendation?: {
+    target: "identity" | "database" | null;
+    reason: string;
+  } | null;
 }
 
 export default function Trainer() {
@@ -123,6 +127,8 @@ export default function Trainer() {
         content: data.response,
         confidence: data.confidence,
         originalUserMessage: variables.message,
+        isFinalInstruction: data.isFinalInstruction,
+        recommendation: data.recommendation,
       };
       setMessages((prev) => [...prev, botMsg]);
     },
@@ -579,121 +585,40 @@ export default function Trainer() {
                     </div>
                   )}
 
-                  {msg.role === "assistant" && mode === "architect" && !dismissedSuggestions.has(index) && (() => {
-                    // Inteligência de decisão: analisar conteúdo para sugerir destino
-                    const content = msg.content.toLowerCase();
-
-                    // Detectar se é apenas uma PERGUNTA ou CONVERSA (não deve mostrar opções de salvar)
-                    const isJustQuestion =
-                      // Perguntas diretas
-                      content.includes("poderia me explicar") ||
-                      content.includes("poderia explicar") ||
-                      content.includes("me conte") ||
-                      content.includes("me fale") ||
-                      content.includes("qual é o") ||
-                      content.includes("qual o") ||
-                      content.includes("como você") ||
-                      content.includes("o que você") ||
-                      content.includes("você pode me") ||
-                      content.includes("gostaria de saber") ||
-                      content.includes("me diga") ||
-                      // Saudações e introduções
-                      (content.includes("olá") && content.includes("ajudar")) ||
-                      (content.includes("oi") && content.includes("ajudar")) ||
-                      content.includes("estou aqui para ajudar") ||
-                      content.includes("vamos começar") ||
-                      content.includes("como posso ajudar") ||
-                      // Perguntas específicas do arquiteto
-                      content.includes("qual é o objetivo") ||
-                      content.includes("qual será o contexto") ||
-                      content.includes("em que contexto") ||
-                      content.includes("para qual tipo de") ||
-                      content.includes("me dê mais detalhes") ||
-                      content.includes("poderia detalhar");
-
-                    // Detectar se tem CONTEÚDO SALVÁVEL (instruções, prompts, regras)
-                    const hasSavableContent =
-                      // Marcadores de prompt/instrução
-                      content.includes("```") || // Blocos de código (prompts)
-                      content.includes("# ") || // Headers markdown (estrutura de prompt)
-                      content.includes("## ") ||
-                      // Indicadores de instruções concretas
-                      content.includes("aqui está o prompt") ||
-                      content.includes("aqui está a instrução") ||
-                      content.includes("system prompt:") ||
-                      content.includes("prompt sugerido") ||
-                      content.includes("instrução sugerida") ||
-                      // Regras e comportamentos definidos
-                      (content.includes("você é") && content.includes("deve")) ||
-                      (content.includes("regra") && content.includes(":")) ||
-                      content.includes("sempre responda") ||
-                      content.includes("nunca responda") ||
-                      content.includes("tom de voz:") ||
-                      content.includes("personalidade:") ||
-                      // Listas de instruções
-                      (content.includes("1.") && content.includes("2.")) ||
-                      (content.includes("- ") && content.split("- ").length > 3);
-
-                    // Só mostrar opções se tem conteúdo salvável E não é apenas uma pergunta
-                    if (isJustQuestion && !hasSavableContent) {
-                      return null; // Não mostrar nada para perguntas simples
-                    }
-
-                    if (!hasSavableContent) {
-                      return null; // Não mostrar se não tem nada para salvar
-                    }
-
-                    const isIdentityContent =
-                      content.includes("personalidade") ||
-                      content.includes("tom de voz") ||
-                      content.includes("comportamento") ||
-                      content.includes("você é") ||
-                      content.includes("você deve") ||
-                      content.includes("sempre") ||
-                      content.includes("nunca") ||
-                      content.includes("regra") ||
-                      content.includes("system prompt") ||
-                      content.includes("identidade");
-
-                    const isDatabaseContent =
-                      content.includes("preço") ||
-                      content.includes("horário") ||
-                      content.includes("endereço") ||
-                      content.includes("telefone") ||
-                      content.includes("produto") ||
-                      content.includes("serviço") ||
-                      content.includes("faq") ||
-                      content.includes("pergunta frequente") ||
-                      content.includes("informação") ||
-                      content.includes("dado");
-
-                    const suggestion = isIdentityContent && !isDatabaseContent
-                      ? "IDENTIDADE"
-                      : isDatabaseContent && !isIdentityContent
-                        ? "DATABASE (RAG)"
-                        : null;
-
-                    const suggestionEmoji = suggestion === "IDENTIDADE" ? "🧬" : suggestion === "DATABASE (RAG)" ? "📚" : "🤔";
-
+                  {msg.role === "assistant" && mode === "architect" && msg.isFinalInstruction && !dismissedSuggestions.has(index) && (() => {
                     const handleDismiss = () => {
                       setDismissedSuggestions(prev => new Set([...prev, index]));
                     };
 
+                    // Get recommendation from AI or null
+                    const recommendation = msg.recommendation;
+                    const suggestionTarget = recommendation?.target;
+                    const suggestionReason = recommendation?.reason;
+
                     return (
-                      <div className="flex flex-col gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-purple-200/50">
-                        {suggestion && (
-                          <div className="flex items-center gap-2 text-xs bg-gradient-to-r from-purple-50 to-blue-50 p-2 rounded-md border border-purple-100">
-                            <Wand2 className="h-4 w-4 text-purple-500" />
-                            <span className="text-muted-foreground">Sugestão da IA:</span>
-                            <span className="font-semibold text-purple-700">{suggestionEmoji} {suggestion}</span>
+                      <div className="flex flex-col gap-2 mt-3 p-3 bg-gradient-to-r from-purple-50/80 to-blue-50/80 dark:from-purple-950/30 dark:to-blue-950/30 rounded-lg border border-purple-200/50 dark:border-purple-800/50">
+                        {/* Recommendation text - always show when isFinalInstruction */}
+                        <div className="flex items-start gap-2 text-sm">
+                          <span className="text-lg">🤖</span>
+                          <div className="flex-1">
+                            <span className="font-medium text-purple-700 dark:text-purple-300">Sugestão do Arquiteto: </span>
+                            <span className="font-semibold">
+                              {suggestionTarget === "identity" && "🧬 Identidade"}
+                              {suggestionTarget === "database" && "📚 Database"}
+                              {!suggestionTarget && "Escolha onde salvar"}
+                            </span>
+                            {suggestionReason && (
+                              <span className="text-muted-foreground ml-1">— {suggestionReason}</span>
+                            )}
                           </div>
-                        )}
+                        </div>
+
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-xs text-muted-foreground">Onde salvar:</span>
                           <Button
-                            variant={suggestion === "IDENTIDADE" ? "default" : "outline"}
+                            variant={suggestionTarget === "identity" ? "default" : "outline"}
                             size="sm"
-                            className={`h-7 px-3 text-xs ${suggestion === "IDENTIDADE"
+                            className={`h-7 px-3 text-xs ${suggestionTarget === "identity"
                               ? "bg-purple-600 hover:bg-purple-700 text-white"
                               : "border-purple-300 hover:bg-purple-50 hover:border-purple-400"}`}
                             onClick={() => saveToIdentityMutation.mutate(msg.content)}
@@ -707,9 +632,9 @@ export default function Trainer() {
                             🧬 Identidade
                           </Button>
                           <Button
-                            variant={suggestion === "DATABASE (RAG)" ? "default" : "outline"}
+                            variant={suggestionTarget === "database" ? "default" : "outline"}
                             size="sm"
-                            className={`h-7 px-3 text-xs ${suggestion === "DATABASE (RAG)"
+                            className={`h-7 px-3 text-xs ${suggestionTarget === "database"
                               ? "bg-blue-600 hover:bg-blue-700 text-white"
                               : "border-blue-300 hover:bg-blue-50 hover:border-blue-400"}`}
                             onClick={() => saveToDatabasFromArchitectMutation.mutate({
