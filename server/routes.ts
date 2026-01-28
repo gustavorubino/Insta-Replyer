@@ -4635,120 +4635,138 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/knowledge/instagram-profiles - Sync new profile
-  app.post("/api/knowledge/instagram-profiles", isAuthenticated, async (req, res) => {
+  // POST /api/knowledge/sync-official - Sync user's connected Instagram account
+  app.post("/api/knowledge/sync-official", isAuthenticated, async (req, res) => {
     try {
       const { userId } = await getUserContext(req);
-      const { username } = req.body;
 
-      if (!username || typeof username !== "string") {
-        return res.status(400).json({ error: "Username is required" });
-      }
+      // Get user's Instagram credentials
+      const user = await storage.getUser(userId);
 
-      // Import scraper and processor dynamically
-      const { scrapeInstagramProfile, validateInstagramUsername } = await import("./instagram-profile-scraper");
-      const { processProfileToDataset } = await import("./instagram-profile-processor");
-
-      // Validate username
-      const validation = validateInstagramUsername(username);
-      if (!validation.valid) {
-        return res.status(400).json({ error: "Invalid Instagram username format" });
-      }
-
-      const cleanUsername = validation.cleaned;
-      const profileUrl = `https://www.instagram.com/${cleanUsername}/`;
-
-      // Check if profile already exists
-      const existingProfiles = await storage.getInstagramProfiles(userId);
-      const existingProfile = existingProfiles.find(
-        p => p.username.toLowerCase() === cleanUsername.toLowerCase()
-      );
-
-      if (existingProfile) {
-        return res.status(409).json({
-          error: "Profile already synced",
-          profileId: existingProfile.id,
+      if (!user?.instagramAccessToken || !user?.instagramAccountId) {
+        return res.status(400).json({
+          error: "Conta Instagram não conectada. Conecte sua conta oficial primeiro.",
+          code: "NOT_CONNECTED"
         });
       }
 
-      // Create profile record with pending status
-      const profile = await storage.createInstagramProfile({
+      // Decrypt access token
+      const { decrypt } = await import("./encryption");
+      const accessToken = decrypt(user.instagramAccessToken);
+
+      // Import and run sync
+      const { syncInstagramKnowledge } = await import("./identity-synthesizer");
+
+      console.log(`[Sync Official] Iniciando sincronização para userId: ${userId}`);
+
+      const result = await syncInstagramKnowledge(
         userId,
-        username: cleanUsername,
-        profileUrl,
-        status: "pending",
-        progress: 0,
+        accessToken,
+        user.instagramAccountId
+      );
+
+      // Update or create profile record
+      const existingProfiles = await storage.getInstagramProfiles(userId);
+      const existingProfile = existingProfiles.find(
+        p => p.username.toLowerCase() === result.username.toLowerCase()
+      );
+
+      if (existingProfile) {
+        await storage.updateInstagramProfile(existingProfile.id, {
+          bio: result.bio,
+          postsScraped: result.captionsCount,
+          status: "completed",
+          progress: 100,
+          lastSyncAt: new Date(),
+        });
+      } else {
+        await storage.createInstagramProfile({
+          userId,
+          username: result.username,
+          profileUrl: `https://www.instagram.com/${result.username}/`,
+          bio: result.bio,
+          postsScraped: result.captionsCount,
+          status: "completed",
+          progress: 100,
+          lastSyncAt: new Date(),
+        });
+      }
+
+      console.log(`[Sync Official] ✅ Sincronização concluída: ${result.captionsCount} legendas`);
+
+      res.json({
+        success: true,
+        username: result.username,
+        captionsCount: result.captionsCount,
+        message: `${result.captionsCount} legendas sincronizadas com sucesso!`
       });
-
-      // Process in background
-      setImmediate(async () => {
-        try {
-          // Import error types for classification
-          const { InstagramScrapeError, SCRAPE_ERROR_CODES } = await import("./instagram-profile-scraper");
-
-          // Update to processing - 10%
-          await storage.updateInstagramProfile(profile.id, {
-            status: "processing",
-            progress: 10,
-          });
-
-          console.log(`[Instagram Sync] Iniciando scrape para @${cleanUsername}...`);
-
-          // Scraping - 40%
-          await storage.updateInstagramProfile(profile.id, { progress: 40 });
-          const profileData = await scrapeInstagramProfile(cleanUsername, 12);
-
-          // Update bio
-          await storage.updateInstagramProfile(profile.id, {
-            bio: profileData.bio || null,
-            postsScraped: profileData.posts.length,
-            progress: 60,
-          });
-
-          console.log(`[Instagram Sync] ${profileData.posts.length} posts extraídos, gerando dataset...`);
-
-          // Generating dataset entries - 70%
-          await storage.updateInstagramProfile(profile.id, { progress: 70 });
-          const entriesGenerated = await processProfileToDataset(userId, profileData);
-
-          // Complete - 100%
-          await storage.updateInstagramProfile(profile.id, {
-            datasetEntriesGenerated: entriesGenerated,
-            status: "completed",
-            progress: 100,
-            lastSyncAt: new Date(),
-          });
-
-          console.log(`[Instagram Sync] ✅ @${cleanUsername} sincronizado: ${entriesGenerated} entradas geradas`);
-        } catch (error) {
-          console.error(`[Instagram Sync] Erro ao processar @${cleanUsername}:`, error);
-
-          // Determine status based on error type
-          let errorStatus = "error";
-          let errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
-
-          // Check if it's a known scrape error
-          const { InstagramScrapeError, SCRAPE_ERROR_CODES } = await import("./instagram-profile-scraper");
-          if (error instanceof InstagramScrapeError) {
-            if (error.code === SCRAPE_ERROR_CODES.PRIVATE_PROFILE) {
-              errorStatus = "private";
-            }
-            errorMessage = error.message;
-          }
-
-          await storage.updateInstagramProfile(profile.id, {
-            status: errorStatus,
-            progress: 0,
-            errorMessage,
-          });
-        }
-      });
-
-      // Return immediately with the created record
-      res.status(201).json(profile);
     } catch (error) {
-      console.error("Error creating Instagram profile sync:", error);
-      res.status(500).json({ error: "Failed to create Instagram profile sync" });
+      console.error("[Sync Official] Error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Erro ao sincronizar conta",
+        code: "SYNC_ERROR"
+      });
+    }
+  });
+
+  // POST /api/knowledge/generate-personality - Generate AI personality from synced content
+  app.post("/api/knowledge/generate-personality", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+
+      // Get user's Instagram info
+      const user = await storage.getUser(userId);
+      const profiles = await storage.getInstagramProfiles(userId);
+
+      if (!profiles.length) {
+        return res.status(400).json({
+          error: "Nenhum perfil sincronizado. Sincronize sua conta primeiro.",
+          code: "NO_PROFILE"
+        });
+      }
+
+      // Get dataset entries for this user
+      const dataset = await storage.getDataset(userId);
+
+      if (dataset.length < 5) {
+        return res.status(400).json({
+          error: "Poucos dados para gerar personalidade. Sincronize mais conteúdo.",
+          code: "INSUFFICIENT_DATA"
+        });
+      }
+
+      // Extract captions from dataset answers
+      const captions = dataset.map(entry => entry.answer).filter(a => a && a.length > 20);
+      const primaryProfile = profiles[0];
+      const bio = primaryProfile.bio || "";
+      const username = user?.instagramUsername || primaryProfile.username;
+
+      console.log(`[Generate Personality] Gerando para @${username} com ${captions.length} legendas...`);
+
+      // Import and run identity synthesis
+      const { synthesizeIdentity } = await import("./identity-synthesizer");
+
+      const result = await synthesizeIdentity(userId, captions, bio, username);
+
+      // Save the generated systemPrompt to user's aiContext
+      await authStorage.updateUser(userId, {
+        aiContext: result.systemPrompt
+      });
+
+      console.log(`[Generate Personality] ✅ Personalidade gerada e salva para @${username}`);
+
+      res.json({
+        success: true,
+        systemPrompt: result.systemPrompt,
+        patterns: result.patterns,
+        message: "Personalidade gerada com sucesso! Confira na aba Personalidade."
+      });
+    } catch (error) {
+      console.error("[Generate Personality] Error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Erro ao gerar personalidade",
+        code: "GENERATION_ERROR"
+      });
     }
   });
 

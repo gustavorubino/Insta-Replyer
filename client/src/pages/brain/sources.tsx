@@ -31,7 +31,6 @@ export default function Sources() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [newLinkUrl, setNewLinkUrl] = useState("");
-  const [newInstagramUsername, setNewInstagramUsername] = useState("");
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -96,22 +95,47 @@ export default function Sources() {
     },
   });
 
-  const addInstagramProfileMutation = useMutation({
-    mutationFn: async (username: string) => {
-      await apiRequest("POST", "/api/knowledge/instagram-profiles", { username });
+  // Sync official Instagram account
+  const syncOfficialMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/knowledge/sync-official", {});
+      return response;
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
-      setNewInstagramUsername("");
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
       toast({
-        title: "Sincronização iniciada",
-        description: "A IA está analisando o perfil do Instagram.",
+        title: "✅ Sincronização Concluída",
+        description: data.message || `${data.captionsCount} legendas sincronizadas!`,
       });
     },
     onError: (error: any) => {
-      const message = error?.message?.includes("409")
-        ? "Este perfil já foi sincronizado."
-        : "Não foi possível sincronizar o perfil.";
+      const errorData = error?.message ? JSON.parse(error.message.substring(error.message.indexOf("{"))) : {};
+      const message = errorData.code === "NOT_CONNECTED"
+        ? "Conecte sua conta Instagram primeiro na aba Conexão."
+        : errorData.error || "Erro ao sincronizar conta.";
+      toast({ title: "Erro", description: message, variant: "destructive" });
+    },
+  });
+
+  // Generate personality from synced content
+  const generatePersonalityMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/knowledge/generate-personality", {});
+      return response;
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({
+        title: "🎭 Personalidade Gerada",
+        description: data.message || "Sua personalidade foi clonada com sucesso!",
+      });
+    },
+    onError: (error: any) => {
+      const errorData = error?.message ? JSON.parse(error.message.substring(error.message.indexOf("{"))) : {};
+      const message = errorData.code === "INSUFFICIENT_DATA"
+        ? "Sincronize mais conteúdo antes de gerar a personalidade."
+        : errorData.error || "Erro ao gerar personalidade.";
       toast({ title: "Erro", description: message, variant: "destructive" });
     },
   });
@@ -324,39 +348,42 @@ export default function Sources() {
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <Instagram className="h-4 w-4" />
-              <Label>Sincronizar Perfil do Instagram</Label>
+              <Label>Clonagem Automática de Personalidade</Label>
             </div>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
-                <Input
-                  type="text"
-                  placeholder="username"
-                  className="pl-7"
-                  value={newInstagramUsername}
-                  onChange={(e) => setNewInstagramUsername(e.target.value.replace(/^@/, ""))}
-                />
-              </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-2">
               <Button
-                onClick={() => {
-                  if (newInstagramUsername.trim()) {
-                    addInstagramProfileMutation.mutate(newInstagramUsername.trim());
-                  }
-                }}
-                disabled={!newInstagramUsername.trim() || addInstagramProfileMutation.isPending}
+                onClick={() => syncOfficialMutation.mutate()}
+                disabled={syncOfficialMutation.isPending}
+                className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
               >
-                {addInstagramProfileMutation.isPending ? (
+                {syncOfficialMutation.isPending ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
                   <RefreshCw className="h-4 w-4 mr-2" />
                 )}
-                Sincronizar
+                Sincronizar Minha Conta Oficial
+              </Button>
+              <Button
+                onClick={() => generatePersonalityMutation.mutate()}
+                disabled={generatePersonalityMutation.isPending || instagramProfiles.length === 0}
+                variant="outline"
+                className="flex-1 border-purple-300 dark:border-purple-700"
+              >
+                {generatePersonalityMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4 mr-2" />
+                )}
+                Gerar Personalidade via IA
               </Button>
             </div>
+
             <div className="flex items-start gap-2 p-3 rounded-lg bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-200/50 dark:border-purple-800/50">
               <Sparkles className="h-4 w-4 text-purple-500 mt-0.5 shrink-0" />
               <p className="text-xs text-muted-foreground">
-                A IA irá analisar o perfil público e aprender o estilo de comunicação baseado nos posts e interações.
+                Use sua conta Instagram conectada para clonar automaticamente seu tom de voz. A IA analisa suas legendas e gera uma personalidade única.
               </p>
             </div>
             {profilesLoading ? (
@@ -398,8 +425,8 @@ export default function Sources() {
                     </div>
                     {(profile.status === "error" || profile.status === "private") && profile.errorMessage && (
                       <div className={`text-xs p-2 rounded ${profile.status === "private"
-                          ? "bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300"
-                          : "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300"
+                        ? "bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300"
+                        : "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300"
                         }`}>
                         {profile.errorMessage}
                       </div>
