@@ -6,6 +6,7 @@ import {
   Pencil,
   Loader2,
   Search,
+  Sparkles,
 } from "lucide-react";
 import {
   Card,
@@ -108,6 +109,23 @@ export default function Dataset() {
     },
   });
 
+  const cleanupMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", "/api/knowledge/dataset/cleanup");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
+      toast({
+        title: "✅ Limpeza Concluída",
+        description: `${data.deletedCount} registros genéricos removidos.`
+      });
+    },
+    onError: () => {
+      toast({ title: "Erro", description: "Falha ao limpar dataset.", variant: "destructive" });
+    },
+  });
+
   const handleSubmit = () => {
     if (!formData.question.trim() || !formData.answer.trim()) return;
 
@@ -145,7 +163,16 @@ export default function Dataset() {
             Gerencie os exemplos de Perguntas e Respostas que guiam a IA (Few-Shot Learning).
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            onClick={() => cleanupMutation.mutate()}
+            disabled={cleanupMutation.isPending}
+            className="text-orange-600 border-orange-300 hover:bg-orange-50 dark:text-orange-400 dark:border-orange-800 dark:hover:bg-orange-950"
+          >
+            {cleanupMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+            Limpar Registros Genéricos
+          </Button>
           <Button variant="outline" onClick={() => migrateMutation.mutate()} disabled={migrateMutation.isPending}>
             {migrateMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
             Importar Histórico Antigo

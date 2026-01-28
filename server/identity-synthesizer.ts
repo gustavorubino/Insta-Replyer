@@ -5,7 +5,6 @@
  */
 
 import OpenAI from "openai";
-import { storage } from "./storage";
 
 const openai = new OpenAI();
 
@@ -169,13 +168,14 @@ Retorne APENAS o System Prompt, sem explicações adicionais.`;
 }
 
 /**
- * Sync Instagram content using official Graph API and save to dataset
+ * Sync Instagram content using official Graph API
+ * Returns captions for identity synthesis - does NOT save to Q&A dataset
  */
 export async function syncInstagramKnowledge(
     userId: string,
     accessToken: string,
     instagramAccountId: string
-): Promise<{ captionsCount: number; bio: string; username: string }> {
+): Promise<{ captions: string[]; bio: string; username: string }> {
     console.log(`[IdentitySynthesizer] Sincronizando conhecimento via API oficial...`);
 
     // Fetch user profile
@@ -215,63 +215,17 @@ export async function syncInstagramKnowledge(
     };
 
     const posts = mediaData.data || [];
-    const captions = posts.filter(p => p.caption).map(p => p.caption!);
+    // Filter captions with meaningful content (20+ chars)
+    const captions = posts
+        .filter(p => p.caption && p.caption.length >= 20)
+        .map(p => p.caption!);
 
-    console.log(`[IdentitySynthesizer] Encontrados ${posts.length} posts, ${captions.length} com legendas`);
+    console.log(`[IdentitySynthesizer] ✅ ${posts.length} posts encontrados, ${captions.length} legendas válidas`);
 
-    // Save captions to dataset
-    let savedCount = 0;
-    for (const post of posts) {
-        if (!post.caption || post.caption.length < 20) continue;
-
-        try {
-            // Generate a question that this caption could answer
-            const question = generateQuestionForCaption(post.caption);
-
-            await storage.addDatasetEntry({
-                userId,
-                question,
-                answer: post.caption,
-                embedding: null,
-            });
-            savedCount++;
-        } catch (error) {
-            console.error(`[IdentitySynthesizer] Erro ao salvar entrada:`, error);
-        }
-    }
-
-    console.log(`[IdentitySynthesizer] ✅ ${savedCount} entradas salvas no dataset`);
-
+    // Return captions for identity synthesis - NOT saving to Q&A dataset
     return {
-        captionsCount: savedCount,
+        captions,
         bio,
         username,
     };
-}
-
-/**
- * Generate a question that a caption could naturally answer
- */
-function generateQuestionForCaption(caption: string): string {
-    const lowerCaption = caption.toLowerCase();
-
-    if (lowerCaption.includes("dica") || lowerCaption.includes("aprenda")) {
-        return "Você tem alguma dica sobre isso?";
-    }
-    if (lowerCaption.includes("lançamento") || lowerCaption.includes("novidade")) {
-        return "O que vocês estão lançando?";
-    }
-    if (lowerCaption.includes("resultado") || lowerCaption.includes("conquista")) {
-        return "Quais resultados vocês conseguiram?";
-    }
-    if (lowerCaption.includes("história") || lowerCaption.includes("aconteceu")) {
-        return "O que aconteceu?";
-    }
-    if (lowerCaption.includes("opinião") || lowerCaption.includes("acho")) {
-        return "Qual sua opinião sobre isso?";
-    }
-    if (caption.length > 200) {
-        return "Pode me contar mais sobre isso?";
-    }
-    return "Me fale mais sobre isso";
 }

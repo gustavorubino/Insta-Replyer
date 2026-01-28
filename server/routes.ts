@@ -4665,6 +4665,8 @@ export async function registerRoutes(
         user.instagramAccountId
       );
 
+      const captionsCount = result.captions.length;
+
       // Update or create profile record
       const existingProfiles = await storage.getInstagramProfiles(userId);
       const existingProfile = existingProfiles.find(
@@ -4674,7 +4676,7 @@ export async function registerRoutes(
       if (existingProfile) {
         await storage.updateInstagramProfile(existingProfile.id, {
           bio: result.bio,
-          postsScraped: result.captionsCount,
+          postsScraped: captionsCount,
           status: "completed",
           progress: 100,
           lastSyncAt: new Date(),
@@ -4685,20 +4687,20 @@ export async function registerRoutes(
           username: result.username,
           profileUrl: `https://www.instagram.com/${result.username}/`,
           bio: result.bio,
-          postsScraped: result.captionsCount,
+          postsScraped: captionsCount,
           status: "completed",
           progress: 100,
           lastSyncAt: new Date(),
         });
       }
 
-      console.log(`[Sync Official] ✅ Sincronização concluída: ${result.captionsCount} legendas`);
+      console.log(`[Sync Official] ✅ Sincronização concluída: ${captionsCount} legendas disponíveis para síntese`);
 
       res.json({
         success: true,
         username: result.username,
-        captionsCount: result.captionsCount,
-        message: `${result.captionsCount} legendas sincronizadas com sucesso!`
+        captionsCount,
+        message: `${captionsCount} legendas encontradas! Use "Gerar Personalidade" para criar seu tom de voz.`
       });
     } catch (error) {
       console.error("[Sync Official] Error:", error);
@@ -4709,12 +4711,12 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/knowledge/generate-personality - Generate AI personality from synced content
+  // POST /api/knowledge/generate-personality - Generate AI personality from Instagram captions
   app.post("/api/knowledge/generate-personality", isAuthenticated, async (req, res) => {
     try {
       const { userId } = await getUserContext(req);
 
-      // Get user's Instagram info
+      // Get user's Instagram credentials
       const user = await storage.getUser(userId);
       const profiles = await storage.getInstagramProfiles(userId);
 
@@ -4725,28 +4727,35 @@ export async function registerRoutes(
         });
       }
 
-      // Get dataset entries for this user
-      const dataset = await storage.getDataset(userId);
-
-      if (dataset.length < 5) {
+      if (!user?.instagramAccessToken || !user?.instagramAccountId) {
         return res.status(400).json({
-          error: "Poucos dados para gerar personalidade. Sincronize mais conteúdo.",
+          error: "Conta Instagram não conectada.",
+          code: "NOT_CONNECTED"
+        });
+      }
+
+      // Fetch captions directly from Instagram API
+      const { decrypt } = await import("./encryption");
+      const accessToken = decrypt(user.instagramAccessToken);
+      const { syncInstagramKnowledge, synthesizeIdentity } = await import("./identity-synthesizer");
+
+      console.log(`[Generate Personality] Buscando legendas para userId: ${userId}...`);
+
+      const syncResult = await syncInstagramKnowledge(userId, accessToken, user.instagramAccountId);
+
+      if (syncResult.captions.length < 5) {
+        return res.status(400).json({
+          error: `Apenas ${syncResult.captions.length} legendas encontradas. Mínimo de 5 necessário.`,
           code: "INSUFFICIENT_DATA"
         });
       }
 
-      // Extract captions from dataset answers
-      const captions = dataset.map(entry => entry.answer).filter(a => a && a.length > 20);
-      const primaryProfile = profiles[0];
-      const bio = primaryProfile.bio || "";
-      const username = user?.instagramUsername || primaryProfile.username;
+      const username = user.instagramUsername || syncResult.username;
+      const bio = syncResult.bio;
 
-      console.log(`[Generate Personality] Gerando para @${username} com ${captions.length} legendas...`);
+      console.log(`[Generate Personality] Gerando para @${username} com ${syncResult.captions.length} legendas...`);
 
-      // Import and run identity synthesis
-      const { synthesizeIdentity } = await import("./identity-synthesizer");
-
-      const result = await synthesizeIdentity(userId, captions, bio, username);
+      const result = await synthesizeIdentity(userId, syncResult.captions, bio, username);
 
       // Save the generated systemPrompt to user's aiContext
       await authStorage.updateUser(userId, {
@@ -4759,6 +4768,7 @@ export async function registerRoutes(
         success: true,
         systemPrompt: result.systemPrompt,
         patterns: result.patterns,
+        captionsAnalyzed: syncResult.captions.length,
         message: "Personalidade gerada com sucesso! Confira na aba Personalidade."
       });
     } catch (error) {
@@ -4766,6 +4776,48 @@ export async function registerRoutes(
       res.status(500).json({
         error: error instanceof Error ? error.message : "Erro ao gerar personalidade",
         code: "GENERATION_ERROR"
+      });
+    }
+  });
+
+  // DELETE /api/knowledge/dataset/cleanup - Clean up auto-generated Q&A entries
+  app.delete("/api/knowledge/dataset/cleanup", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+
+      // Delete entries with generic auto-generated questions
+      const genericQuestions = [
+        "Pode me contar mais sobre isso?",
+        "Me fale mais sobre isso",
+        "Você tem alguma dica sobre isso?",
+        "O que vocês estão lançando?",
+        "Quais resultados vocês conseguiram?",
+        "O que aconteceu?",
+        "Qual sua opinião sobre isso?"
+      ];
+
+      const dataset = await storage.getDataset(userId);
+      let deletedCount = 0;
+
+      for (const entry of dataset) {
+        if (genericQuestions.includes(entry.question)) {
+          await storage.deleteDatasetEntry(entry.id, userId);
+          deletedCount++;
+        }
+      }
+
+      console.log(`[Dataset Cleanup] ✅ Removidos ${deletedCount} registros genéricos para userId: ${userId}`);
+
+      res.json({
+        success: true,
+        deletedCount,
+        message: `${deletedCount} registros genéricos removidos do dataset.`
+      });
+    } catch (error) {
+      console.error("[Dataset Cleanup] Error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Erro ao limpar dataset",
+        code: "CLEANUP_ERROR"
       });
     }
   });
