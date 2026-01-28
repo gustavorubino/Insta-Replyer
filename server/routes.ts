@@ -4798,6 +4798,83 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/brain/merge-prompts - Merge new prompt with existing system prompt using AI
+  app.post("/api/brain/merge-prompts", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const { newPrompt } = req.body;
+
+      if (!newPrompt) {
+        return res.status(400).json({ error: "New prompt is required" });
+      }
+
+      console.log("[Merge Prompts] Starting merge for user:", userId);
+
+      // Get current settings to fetch existing system prompt
+      const settings = await storage.getSettings(userId);
+      const currentPrompt = settings?.systemPrompt || "";
+
+      console.log("[Merge Prompts] Current prompt length:", currentPrompt.length);
+      console.log("[Merge Prompts] New prompt length:", newPrompt.length);
+
+      // If no current prompt, just save the new one
+      if (!currentPrompt.trim()) {
+        console.log("[Merge Prompts] No existing prompt, saving new prompt directly");
+        await storage.updateSettings(userId, { systemPrompt: newPrompt });
+        return res.json({ success: true, merged: newPrompt });
+      }
+
+      // Use AI to merge the prompts
+      const mergeSystemPrompt = `Você é um especialista em engenharia de prompts. Sua tarefa é MESCLAR dois System Prompts em um único prompt unificado e coerente.
+
+REGRAS:
+1. Combine as instruções de forma inteligente, eliminando redundâncias
+2. Preserve todas as regras e comportamentos importantes de AMBOS os prompts
+3. Organize o prompt mesclado de forma lógica e clara
+4. Se houver conflitos, dê prioridade às instruções mais específicas
+5. Mantenha o tom e estilo consistentes
+6. O resultado deve ser um System Prompt completo e funcional
+7. NÃO adicione explicações ou comentários - retorne APENAS o prompt mesclado
+
+PROMPT ATUAL:
+---
+${currentPrompt}
+---
+
+NOVO PROMPT A INTEGRAR:
+---
+${newPrompt}
+---
+
+Retorne APENAS o System Prompt mesclado, sem nenhum texto adicional.`;
+
+      const openai = new (await import("openai")).default();
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: mergeSystemPrompt },
+          { role: "user", content: "Mescle os dois prompts acima em um único System Prompt unificado." }
+        ],
+        max_tokens: 4000,
+        temperature: 0.3,
+      });
+
+      const mergedPrompt = response.choices[0]?.message?.content?.trim() || newPrompt;
+
+      console.log("[Merge Prompts] AI merged prompt successfully. Length:", mergedPrompt.length);
+
+      // Save the merged prompt
+      await storage.updateSettings(userId, { systemPrompt: mergedPrompt });
+
+      console.log("[Merge Prompts] Saved merged prompt for user:", userId);
+
+      res.json({ success: true, merged: mergedPrompt });
+    } catch (error) {
+      console.error("Error merging prompts:", error);
+      res.status(500).json({ error: "Failed to merge prompts" });
+    }
+  });
+
   // POST /api/brain/simulate - Trainer/Simulator Endpoint
   app.post("/api/brain/simulate", isAuthenticated, async (req, res) => {
     try {

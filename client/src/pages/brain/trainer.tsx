@@ -17,6 +17,8 @@ import {
   X,
   Database,
   Dna,
+  GitMerge,
+  Replace,
 } from "lucide-react";
 import {
   Card,
@@ -75,6 +77,11 @@ export default function Trainer() {
   const [isListening, setIsListening] = useState(false);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<number>>(new Set());
   const recognitionRef = useRef<any>(null);
+
+  // Identity Modal State
+  const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
+  const [pendingIdentityContent, setPendingIdentityContent] = useState<string>("");
+  const [isMerging, setIsMerging] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -181,7 +188,60 @@ export default function Trainer() {
     },
   });
 
-  // Mutation for saving architect response to identity (system prompt)
+  // Mutation for REPLACING identity (system prompt) - direct overwrite
+  const replaceIdentityMutation = useMutation({
+    mutationFn: async (content: string) => {
+      console.log("[Architect] Replacing system prompt with new content");
+      await apiRequest("PATCH", "/api/settings", { systemPrompt: content });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      setIsIdentityModalOpen(false);
+      setPendingIdentityContent("");
+      toast({
+        title: "🧬 Substituído na Identidade",
+        description: "O prompt anterior foi substituído pelo novo.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Erro",
+        description: "Falha ao substituir na identidade.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation for MERGING identity - uses AI to combine prompts
+  const mergeIdentityMutation = useMutation({
+    mutationFn: async (newContent: string) => {
+      console.log("[Architect] Merging prompts via AI");
+      setIsMerging(true);
+      // Call the merge endpoint which will use AI to combine the prompts
+      const res = await apiRequest("POST", "/api/brain/merge-prompts", { newPrompt: newContent });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setIsMerging(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      setIsIdentityModalOpen(false);
+      setPendingIdentityContent("");
+      toast({
+        title: "🧬 Mesclado na Identidade",
+        description: "Os prompts foram combinados inteligentemente pela IA.",
+      });
+    },
+    onError: () => {
+      setIsMerging(false);
+      toast({
+        title: "Erro",
+        description: "Falha ao mesclar prompts.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Legacy mutation kept for backwards compatibility
   const saveToIdentityMutation = useMutation({
     mutationFn: async (content: string) => {
       await apiRequest("PATCH", "/api/settings", { systemPrompt: content });
@@ -202,16 +262,38 @@ export default function Trainer() {
     },
   });
 
-  // Mutation for saving architect response to database (dataset)
+  // Handler to open identity modal instead of saving directly
+  const handleSaveToIdentity = (content: string) => {
+    console.log("[Architect] Opening identity modal for content:", content.substring(0, 100) + "...");
+    setPendingIdentityContent(content);
+    setIsIdentityModalOpen(true);
+  };
+
+  // Handler for replace action
+  const handleReplaceIdentity = () => {
+    if (pendingIdentityContent) {
+      replaceIdentityMutation.mutate(pendingIdentityContent);
+    }
+  };
+
+  // Handler for merge action
+  const handleMergeIdentity = () => {
+    if (pendingIdentityContent) {
+      mergeIdentityMutation.mutate(pendingIdentityContent);
+    }
+  };
+
+  // Mutation for saving architect response to database (dataset) - INSERT (cumulative)
   const saveToDatabasFromArchitectMutation = useMutation({
     mutationFn: async (data: { question: string; answer: string }) => {
+      console.log("[Architect] Adding to database (INSERT - cumulative):", data.question.substring(0, 50));
       await apiRequest("POST", "/api/brain/dataset", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
       toast({
-        title: "📚 Salvo na Database",
-        description: "A instrução foi adicionada à memória RAG.",
+        title: "📚 Adicionado à Database",
+        description: "A instrução foi adicionada à memória RAG (cumulativo).",
       });
     },
     onError: () => {
@@ -587,7 +669,7 @@ export default function Trainer() {
 
                   {msg.role === "assistant" && mode === "architect" && msg.isFinalInstruction && !dismissedSuggestions.has(index) && (() => {
                     const handleDismiss = () => {
-                      setDismissedSuggestions(prev => new Set([...prev, index]));
+                      setDismissedSuggestions(prev => new Set([...Array.from(prev), index]));
                     };
 
                     // Get recommendation from AI or null
@@ -621,10 +703,10 @@ export default function Trainer() {
                             className={`h-7 px-3 text-xs ${suggestionTarget === "identity"
                               ? "bg-purple-600 hover:bg-purple-700 text-white"
                               : "border-purple-300 hover:bg-purple-50 hover:border-purple-400"}`}
-                            onClick={() => saveToIdentityMutation.mutate(msg.content)}
-                            disabled={saveToIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending}
+                            onClick={() => handleSaveToIdentity(msg.content)}
+                            disabled={replaceIdentityMutation.isPending || mergeIdentityMutation.isPending || saveToDatabasFromArchitectMutation.isPending}
                           >
-                            {saveToIdentityMutation.isPending ? (
+                            {(replaceIdentityMutation.isPending || mergeIdentityMutation.isPending) ? (
                               <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                             ) : (
                               <Dna className="h-3 w-3 mr-1" />
@@ -803,6 +885,81 @@ export default function Trainer() {
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               )}
               Salvar & Aprender
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Identity Confirmation Modal - Replace vs Merge */}
+      <Dialog open={isIdentityModalOpen} onOpenChange={setIsIdentityModalOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Dna className="h-5 w-5 text-purple-600" />
+              Salvar na Identidade
+            </DialogTitle>
+            <DialogDescription>
+              Escolha como aplicar o novo prompt ao System Prompt existente:
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4 space-y-4">
+            <div className="p-3 rounded-lg bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-950/30 dark:to-blue-950/30 border border-purple-200/50 dark:border-purple-800/50">
+              <p className="text-xs text-muted-foreground mb-2">Novo conteúdo a ser aplicado:</p>
+              <p className="text-sm line-clamp-4">
+                {pendingIdentityContent.substring(0, 300)}
+                {pendingIdentityContent.length > 300 && "..."}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                variant="outline"
+                className="h-auto p-4 flex flex-col items-start gap-2 border-orange-200 hover:border-orange-400 hover:bg-orange-50"
+                onClick={handleReplaceIdentity}
+                disabled={replaceIdentityMutation.isPending || mergeIdentityMutation.isPending}
+              >
+                <div className="flex items-center gap-2">
+                  {replaceIdentityMutation.isPending ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-orange-600" />
+                  ) : (
+                    <Replace className="h-5 w-5 text-orange-600" />
+                  )}
+                  <span className="font-semibold text-orange-700">Substituir</span>
+                </div>
+                <span className="text-xs text-muted-foreground text-left">
+                  Apaga o prompt anterior e usa o novo
+                </span>
+              </Button>
+
+              <Button
+                variant="outline"
+                className="h-auto p-4 flex flex-col items-start gap-2 border-green-200 hover:border-green-400 hover:bg-green-50"
+                onClick={handleMergeIdentity}
+                disabled={replaceIdentityMutation.isPending || mergeIdentityMutation.isPending || isMerging}
+              >
+                <div className="flex items-center gap-2">
+                  {(mergeIdentityMutation.isPending || isMerging) ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-green-600" />
+                  ) : (
+                    <GitMerge className="h-5 w-5 text-green-600" />
+                  )}
+                  <span className="font-semibold text-green-700">Mesclar</span>
+                </div>
+                <span className="text-xs text-muted-foreground text-left">
+                  IA combina o prompt atual + novo inteligentemente
+                </span>
+              </Button>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setIsIdentityModalOpen(false)}
+              disabled={replaceIdentityMutation.isPending || mergeIdentityMutation.isPending}
+            >
+              Cancelar
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -17,15 +17,27 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
           code({ node, inline, className, children, ...props }: any) {
             const match = /language-(\w+)/.exec(className || "");
             return !inline && match ? (
-              <SyntaxHighlighter
-                style={vscDarkPlus}
-                language={match[1]}
-                PreTag="div"
-                className="rounded-md my-2"
-                {...props}
-              >
-                {String(children).replace(/\n$/, "")}
-              </SyntaxHighlighter>
+              <div className="my-3 w-full">
+                <div className="rounded-lg border bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2 border-b bg-slate-100/50 dark:bg-slate-800/50">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      {match[1] === "markdown" ? "📝 System Prompt" : match[1]}
+                    </span>
+                  </div>
+                  <pre
+                    className="p-4 text-sm overflow-x-auto"
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      overflowWrap: "break-word"
+                    }}
+                  >
+                    <code className="text-foreground font-mono" {...props}>
+                      {String(children).replace(/\n$/, "")}
+                    </code>
+                  </pre>
+                </div>
+              </div>
             ) : (
               <code
                 className={`${className} bg-muted px-1.5 py-0.5 rounded-md font-mono text-sm`}
