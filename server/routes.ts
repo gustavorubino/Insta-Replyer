@@ -4683,17 +4683,20 @@ export async function registerRoutes(
       // Process in background
       setImmediate(async () => {
         try {
+          // Import error types for classification
+          const { InstagramScrapeError, SCRAPE_ERROR_CODES } = await import("./instagram-profile-scraper");
+
           // Update to processing - 10%
           await storage.updateInstagramProfile(profile.id, {
             status: "processing",
             progress: 10,
           });
 
-          console.log(`[Instagram Sync] Starting scrape for @${cleanUsername}...`);
+          console.log(`[Instagram Sync] Iniciando scrape para @${cleanUsername}...`);
 
           // Scraping - 40%
           await storage.updateInstagramProfile(profile.id, { progress: 40 });
-          const profileData = await scrapeInstagramProfile(cleanUsername, 20);
+          const profileData = await scrapeInstagramProfile(cleanUsername, 12);
 
           // Update bio
           await storage.updateInstagramProfile(profile.id, {
@@ -4702,7 +4705,7 @@ export async function registerRoutes(
             progress: 60,
           });
 
-          console.log(`[Instagram Sync] Scraped ${profileData.posts.length} posts, generating dataset...`);
+          console.log(`[Instagram Sync] ${profileData.posts.length} posts extraídos, gerando dataset...`);
 
           // Generating dataset entries - 70%
           await storage.updateInstagramProfile(profile.id, { progress: 70 });
@@ -4716,13 +4719,27 @@ export async function registerRoutes(
             lastSyncAt: new Date(),
           });
 
-          console.log(`[Instagram Sync] ✅ @${cleanUsername} synced: ${entriesGenerated} entries generated`);
+          console.log(`[Instagram Sync] ✅ @${cleanUsername} sincronizado: ${entriesGenerated} entradas geradas`);
         } catch (error) {
-          console.error(`[Instagram Sync] Error processing @${cleanUsername}:`, error);
+          console.error(`[Instagram Sync] Erro ao processar @${cleanUsername}:`, error);
+
+          // Determine status based on error type
+          let errorStatus = "error";
+          let errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
+
+          // Check if it's a known scrape error
+          const { InstagramScrapeError, SCRAPE_ERROR_CODES } = await import("./instagram-profile-scraper");
+          if (error instanceof InstagramScrapeError) {
+            if (error.code === SCRAPE_ERROR_CODES.PRIVATE_PROFILE) {
+              errorStatus = "private";
+            }
+            errorMessage = error.message;
+          }
+
           await storage.updateInstagramProfile(profile.id, {
-            status: "error",
+            status: errorStatus,
             progress: 0,
-            errorMessage: error instanceof Error ? error.message : "Unknown error",
+            errorMessage,
           });
         }
       });

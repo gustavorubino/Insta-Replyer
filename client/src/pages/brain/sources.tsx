@@ -202,17 +202,37 @@ export default function Sources() {
     }
   };
 
-  const getStatusBadge = (status: string, progress?: number) => {
+  const getStatusBadge = (status: string, progress?: number, username?: string) => {
     switch (status) {
       case "completed":
         return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Concluído</Badge>;
+      case "private":
+        return (
+          <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">
+            Perfil Privado
+          </Badge>
+        );
       case "error":
         return <Badge variant="destructive">Erro</Badge>;
-      default:
+      case "processing":
+      case "pending":
         const progressValue = progress ?? 0;
+        const displayUsername = username ? `@${username}` : "perfil";
+        return (
+          <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 flex items-center gap-1">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {progressValue < 40
+              ? `IA estudando ${displayUsername}...`
+              : progressValue < 70
+                ? `Extraindo posts...`
+                : `Gerando entradas... ${progressValue}%`
+            }
+          </Badge>
+        );
+      default:
         return (
           <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
-            Processando... {progressValue}%
+            {progress ?? 0}%
           </Badge>
         );
     }
@@ -350,30 +370,40 @@ export default function Sources() {
                 {instagramProfiles.map((profile: any) => (
                   <div
                     key={profile.id}
-                    className="flex items-center justify-between gap-2 p-3 rounded-lg border"
+                    className="flex flex-col gap-2 p-3 rounded-lg border"
                   >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <Instagram className="h-4 w-4 shrink-0 text-pink-500" />
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-sm font-medium truncate">@{profile.username}</span>
-                        {profile.status === "completed" && (
-                          <span className="text-xs text-muted-foreground">
-                            {profile.postsScraped || 0} posts • {profile.datasetEntriesGenerated || 0} entradas
-                          </span>
-                        )}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <Instagram className="h-4 w-4 shrink-0 text-pink-500" />
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-sm font-medium truncate">@{profile.username}</span>
+                          {profile.status === "completed" && (
+                            <span className="text-xs text-muted-foreground">
+                              {profile.postsScraped || 0} posts • {profile.datasetEntriesGenerated || 0} entradas
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {getStatusBadge(profile.status, profile.progress, profile.username)}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteInstagramProfileMutation.mutate(profile.id)}
+                          disabled={deleteInstagramProfileMutation.isPending}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {getStatusBadge(profile.status, profile.progress)}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteInstagramProfileMutation.mutate(profile.id)}
-                        disabled={deleteInstagramProfileMutation.isPending}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+                    {(profile.status === "error" || profile.status === "private") && profile.errorMessage && (
+                      <div className={`text-xs p-2 rounded ${profile.status === "private"
+                          ? "bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300"
+                          : "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300"
+                        }`}>
+                        {profile.errorMessage}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
