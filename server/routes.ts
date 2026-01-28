@@ -4620,6 +4620,148 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // Instagram Profile Training API Endpoints
+  // ============================================
+
+  // GET /api/knowledge/instagram-profiles - List synced profiles
+  app.get("/api/knowledge/instagram-profiles", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const profiles = await storage.getInstagramProfiles(userId);
+      res.json(profiles);
+    } catch (error) {
+      console.error("Error fetching Instagram profiles:", error);
+      res.status(500).json({ error: "Failed to fetch Instagram profiles" });
+    }
+  });
+
+  // POST /api/knowledge/instagram-profiles - Sync new profile
+  app.post("/api/knowledge/instagram-profiles", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const { username } = req.body;
+
+      if (!username || typeof username !== "string") {
+        return res.status(400).json({ error: "Username is required" });
+      }
+
+      // Import scraper and processor dynamically
+      const { scrapeInstagramProfile, validateInstagramUsername } = await import("./instagram-profile-scraper");
+      const { processProfileToDataset } = await import("./instagram-profile-processor");
+
+      // Validate username
+      const validation = validateInstagramUsername(username);
+      if (!validation.valid) {
+        return res.status(400).json({ error: "Invalid Instagram username format" });
+      }
+
+      const cleanUsername = validation.cleaned;
+      const profileUrl = `https://www.instagram.com/${cleanUsername}/`;
+
+      // Check if profile already exists
+      const existingProfiles = await storage.getInstagramProfiles(userId);
+      const existingProfile = existingProfiles.find(
+        p => p.username.toLowerCase() === cleanUsername.toLowerCase()
+      );
+
+      if (existingProfile) {
+        return res.status(409).json({
+          error: "Profile already synced",
+          profileId: existingProfile.id,
+        });
+      }
+
+      // Create profile record with pending status
+      const profile = await storage.createInstagramProfile({
+        userId,
+        username: cleanUsername,
+        profileUrl,
+        status: "pending",
+        progress: 0,
+      });
+
+      // Process in background
+      setImmediate(async () => {
+        try {
+          // Update to processing - 10%
+          await storage.updateInstagramProfile(profile.id, {
+            status: "processing",
+            progress: 10,
+          });
+
+          console.log(`[Instagram Sync] Starting scrape for @${cleanUsername}...`);
+
+          // Scraping - 40%
+          await storage.updateInstagramProfile(profile.id, { progress: 40 });
+          const profileData = await scrapeInstagramProfile(cleanUsername, 20);
+
+          // Update bio
+          await storage.updateInstagramProfile(profile.id, {
+            bio: profileData.bio || null,
+            postsScraped: profileData.posts.length,
+            progress: 60,
+          });
+
+          console.log(`[Instagram Sync] Scraped ${profileData.posts.length} posts, generating dataset...`);
+
+          // Generating dataset entries - 70%
+          await storage.updateInstagramProfile(profile.id, { progress: 70 });
+          const entriesGenerated = await processProfileToDataset(userId, profileData);
+
+          // Complete - 100%
+          await storage.updateInstagramProfile(profile.id, {
+            datasetEntriesGenerated: entriesGenerated,
+            status: "completed",
+            progress: 100,
+            lastSyncAt: new Date(),
+          });
+
+          console.log(`[Instagram Sync] ✅ @${cleanUsername} synced: ${entriesGenerated} entries generated`);
+        } catch (error) {
+          console.error(`[Instagram Sync] Error processing @${cleanUsername}:`, error);
+          await storage.updateInstagramProfile(profile.id, {
+            status: "error",
+            progress: 0,
+            errorMessage: error instanceof Error ? error.message : "Unknown error",
+          });
+        }
+      });
+
+      // Return immediately with the created record
+      res.status(201).json(profile);
+    } catch (error) {
+      console.error("Error creating Instagram profile sync:", error);
+      res.status(500).json({ error: "Failed to create Instagram profile sync" });
+    }
+  });
+
+  // DELETE /api/knowledge/instagram-profiles/:id - Remove synced profile
+  app.delete("/api/knowledge/instagram-profiles/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const profileId = parseInt(req.params.id, 10);
+
+      if (isNaN(profileId)) {
+        return res.status(400).json({ error: "Invalid profile ID" });
+      }
+
+      // Verify the profile belongs to the user
+      const profiles = await storage.getInstagramProfiles(userId);
+      const profile = profiles.find(p => p.id === profileId);
+
+      if (!profile) {
+        return res.status(404).json({ error: "Profile not found" });
+      }
+
+      await storage.deleteInstagramProfile(profileId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting Instagram profile:", error);
+      res.status(500).json({ error: "Failed to delete Instagram profile" });
+    }
+  });
+
+  // ============================================
   // AI Brain / Dataset API Endpoints
   // ============================================
 

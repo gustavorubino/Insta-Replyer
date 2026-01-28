@@ -8,6 +8,9 @@ import {
   Loader2,
   File,
   Upload,
+  Instagram,
+  RefreshCw,
+  Sparkles,
 } from "lucide-react";
 import {
   Card,
@@ -28,6 +31,7 @@ export default function Sources() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [newLinkUrl, setNewLinkUrl] = useState("");
+  const [newInstagramUsername, setNewInstagramUsername] = useState("");
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -46,6 +50,15 @@ export default function Sources() {
       const data = query.state.data as any[] | undefined;
       const hasProcessing = data?.some((f: any) => f.status === "pending" || f.status === "processing");
       return hasProcessing ? 1000 : false;
+    },
+  });
+
+  const { data: instagramProfiles = [], isLoading: profilesLoading } = useQuery<any[]>({
+    queryKey: ["/api/knowledge/instagram-profiles"],
+    refetchInterval: (query) => {
+      const data = query.state.data as any[] | undefined;
+      const hasProcessing = data?.some((p: any) => p.status === "pending" || p.status === "processing");
+      return hasProcessing ? 2000 : false;
     },
   });
 
@@ -80,6 +93,36 @@ export default function Sources() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge/files"] });
       toast({ title: "Arquivo removido" });
+    },
+  });
+
+  const addInstagramProfileMutation = useMutation({
+    mutationFn: async (username: string) => {
+      await apiRequest("POST", "/api/knowledge/instagram-profiles", { username });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
+      setNewInstagramUsername("");
+      toast({
+        title: "Sincronização iniciada",
+        description: "A IA está analisando o perfil do Instagram.",
+      });
+    },
+    onError: (error: any) => {
+      const message = error?.message?.includes("409")
+        ? "Este perfil já foi sincronizado."
+        : "Não foi possível sincronizar o perfil.";
+      toast({ title: "Erro", description: message, variant: "destructive" });
+    },
+  });
+
+  const deleteInstagramProfileMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/knowledge/instagram-profiles/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
+      toast({ title: "Perfil removido" });
     },
   });
 
@@ -245,6 +288,88 @@ export default function Sources() {
                         size="icon"
                         onClick={() => deleteLinkMutation.mutate(link.id)}
                         disabled={deleteLinkMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* Instagram Profile Sync Section */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Instagram className="h-4 w-4" />
+              <Label>Sincronizar Perfil do Instagram</Label>
+            </div>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
+                <Input
+                  type="text"
+                  placeholder="username"
+                  className="pl-7"
+                  value={newInstagramUsername}
+                  onChange={(e) => setNewInstagramUsername(e.target.value.replace(/^@/, ""))}
+                />
+              </div>
+              <Button
+                onClick={() => {
+                  if (newInstagramUsername.trim()) {
+                    addInstagramProfileMutation.mutate(newInstagramUsername.trim());
+                  }
+                }}
+                disabled={!newInstagramUsername.trim() || addInstagramProfileMutation.isPending}
+              >
+                {addInstagramProfileMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Sincronizar
+              </Button>
+            </div>
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-200/50 dark:border-purple-800/50">
+              <Sparkles className="h-4 w-4 text-purple-500 mt-0.5 shrink-0" />
+              <p className="text-xs text-muted-foreground">
+                A IA irá analisar o perfil público e aprender o estilo de comunicação baseado nos posts e interações.
+              </p>
+            </div>
+            {profilesLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : instagramProfiles.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhum perfil sincronizado ainda.</p>
+            ) : (
+              <div className="space-y-2">
+                {instagramProfiles.map((profile: any) => (
+                  <div
+                    key={profile.id}
+                    className="flex items-center justify-between gap-2 p-3 rounded-lg border"
+                  >
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <Instagram className="h-4 w-4 shrink-0 text-pink-500" />
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-medium truncate">@{profile.username}</span>
+                        {profile.status === "completed" && (
+                          <span className="text-xs text-muted-foreground">
+                            {profile.postsScraped || 0} posts • {profile.datasetEntriesGenerated || 0} entradas
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {getStatusBadge(profile.status, profile.progress)}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteInstagramProfileMutation.mutate(profile.id)}
+                        disabled={deleteInstagramProfileMutation.isPending}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>

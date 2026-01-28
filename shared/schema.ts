@@ -107,6 +107,22 @@ export const knowledgeFiles = pgTable("knowledge_files", {
   processedAt: timestamp("processed_at"),
 });
 
+// Instagram Profiles for AI training (via Apify scraping)
+export const instagramProfiles = pgTable("instagram_profiles", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  username: text("username").notNull(),        // @username do Instagram
+  profileUrl: text("profile_url").notNull(),   // Full profile URL
+  bio: text("bio"),                            // Profile bio
+  postsScraped: integer("posts_scraped").default(0),
+  datasetEntriesGenerated: integer("dataset_entries_generated").default(0),
+  status: text("status").notNull().default("pending"), // pending, processing, completed, error
+  progress: integer("progress").notNull().default(0),   // 0-100%
+  errorMessage: text("error_message"),
+  lastSyncAt: timestamp("last_sync_at"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 // Relations
 export const instagramMessagesRelations = relations(instagramMessages, ({ one }) => ({
   aiResponse: one(aiResponses, {
@@ -170,6 +186,11 @@ export const insertKnowledgeFileSchema = createInsertSchema(knowledgeFiles).omit
   processedAt: true,
 });
 
+export const insertInstagramProfileSchema = createInsertSchema(instagramProfiles).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type InstagramMessage = typeof instagramMessages.$inferSelect;
 export type InsertInstagramMessage = z.infer<typeof insertInstagramMessageSchema>;
@@ -191,6 +212,9 @@ export type InsertKnowledgeLink = z.infer<typeof insertKnowledgeLinkSchema>;
 
 export type KnowledgeFile = typeof knowledgeFiles.$inferSelect;
 export type InsertKnowledgeFile = z.infer<typeof insertKnowledgeFileSchema>;
+
+export type InstagramProfile = typeof instagramProfiles.$inferSelect;
+export type InsertInstagramProfile = z.infer<typeof insertInstagramProfileSchema>;
 
 // Combined type for message with AI response
 export type MessageWithResponse = InstagramMessage & {

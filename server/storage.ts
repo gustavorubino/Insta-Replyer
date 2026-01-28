@@ -23,6 +23,9 @@ import {
   type KnowledgeFile,
   type InsertKnowledgeLink,
   type InsertKnowledgeFile,
+  type InstagramProfile,
+  type InsertInstagramProfile,
+  instagramProfiles,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, ne, or, isNull } from "drizzle-orm";
@@ -105,6 +108,12 @@ export interface IStorage {
   addDatasetEntry(entry: InsertAiDatasetEntry): Promise<AiDatasetEntry>;
   updateDatasetEntry(id: number, userId: string, entry: Partial<InsertAiDatasetEntry>): Promise<AiDatasetEntry | undefined>;
   deleteDatasetEntry(id: number, userId: string): Promise<void>;
+
+  // Instagram Profiles
+  getInstagramProfiles(userId: string): Promise<InstagramProfile[]>;
+  createInstagramProfile(data: InsertInstagramProfile): Promise<InstagramProfile>;
+  updateInstagramProfile(id: number, data: Partial<InstagramProfile>): Promise<InstagramProfile | undefined>;
+  deleteInstagramProfile(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -126,26 +135,26 @@ export class DatabaseStorage implements IStorage {
     // - Include messages where senderId is NULL OR senderId is not in excludeIds
     // - AND include messages where senderUsername is NULL OR lower(senderUsername) is not in excludeUsernames
     // This ensures messages are only excluded if BOTH senderId and senderUsername match the exclusion criteria
-    
+
     const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
     const validExcludeUsernames = excludeSenderUsernames?.filter(u => u && u.trim() !== '') || [];
-    
+
     // Build senderId exclusion: include if NULL or not in excluded list
     let senderIdOk: ReturnType<typeof or> | undefined;
     if (validExcludeIds.length > 0) {
       const idConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
       senderIdOk = or(isNull(instagramMessages.senderId), and(...idConditions));
     }
-    
+
     // Build senderUsername exclusion: include if NULL or not in excluded list
     let senderUsernameOk: ReturnType<typeof or> | undefined;
     if (validExcludeUsernames.length > 0) {
-      const usernameConditions = validExcludeUsernames.map(u => 
+      const usernameConditions = validExcludeUsernames.map(u =>
         ne(sql`lower(${instagramMessages.senderUsername})`, u.toLowerCase())
       );
       senderUsernameOk = or(isNull(instagramMessages.senderUsername), and(...usernameConditions));
     }
-    
+
     // Combine: both conditions must be satisfied (AND)
     let excludeCondition: ReturnType<typeof and> | undefined;
     if (senderIdOk && senderUsernameOk) {
@@ -155,7 +164,7 @@ export class DatabaseStorage implements IStorage {
     } else if (senderUsernameOk) {
       excludeCondition = senderUsernameOk;
     }
-    
+
     let condition;
     // All users (including admins) see only their own messages
     // This ensures proper data isolation in a multi-tenant SaaS
@@ -185,30 +194,30 @@ export class DatabaseStorage implements IStorage {
 
   async getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]> {
     const baseCondition = eq(instagramMessages.status, "pending");
-    
+
     // Logic for excluding own messages:
     // - Include messages where senderId is NULL OR senderId is not in excludeIds
     // - AND include messages where senderUsername is NULL OR lower(senderUsername) is not in excludeUsernames
-    
+
     const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
     const validExcludeUsernames = excludeSenderUsernames?.filter(u => u && u.trim() !== '') || [];
-    
+
     // Build senderId exclusion: include if NULL or not in excluded list
     let senderIdOk: ReturnType<typeof or> | undefined;
     if (validExcludeIds.length > 0) {
       const idConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
       senderIdOk = or(isNull(instagramMessages.senderId), and(...idConditions));
     }
-    
+
     // Build senderUsername exclusion: include if NULL or not in excluded list
     let senderUsernameOk: ReturnType<typeof or> | undefined;
     if (validExcludeUsernames.length > 0) {
-      const usernameConditions = validExcludeUsernames.map(u => 
+      const usernameConditions = validExcludeUsernames.map(u =>
         ne(sql`lower(${instagramMessages.senderUsername})`, u.toLowerCase())
       );
       senderUsernameOk = or(isNull(instagramMessages.senderUsername), and(...usernameConditions));
     }
-    
+
     // Combine: both conditions must be satisfied (AND)
     let excludeCondition: ReturnType<typeof and> | undefined;
     if (senderIdOk && senderUsernameOk) {
@@ -218,7 +227,7 @@ export class DatabaseStorage implements IStorage {
     } else if (senderUsernameOk) {
       excludeCondition = senderUsernameOk;
     }
-    
+
     let condition;
     // All users (including admins) see only their own messages
     // This ensures proper data isolation in a multi-tenant SaaS
@@ -248,26 +257,26 @@ export class DatabaseStorage implements IStorage {
     // Logic for excluding own messages:
     // - Include messages where senderId is NULL OR senderId is not in excludeIds
     // - AND include messages where senderUsername is NULL OR lower(senderUsername) is not in excludeUsernames
-    
+
     const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
     const validExcludeUsernames = excludeSenderUsernames?.filter(u => u && u.trim() !== '') || [];
-    
+
     // Build senderId exclusion: include if NULL or not in excluded list
     let senderIdOk: ReturnType<typeof or> | undefined;
     if (validExcludeIds.length > 0) {
       const idConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
       senderIdOk = or(isNull(instagramMessages.senderId), and(...idConditions));
     }
-    
+
     // Build senderUsername exclusion: include if NULL or not in excluded list
     let senderUsernameOk: ReturnType<typeof or> | undefined;
     if (validExcludeUsernames.length > 0) {
-      const usernameConditions = validExcludeUsernames.map(u => 
+      const usernameConditions = validExcludeUsernames.map(u =>
         ne(sql`lower(${instagramMessages.senderUsername})`, u.toLowerCase())
       );
       senderUsernameOk = or(isNull(instagramMessages.senderUsername), and(...usernameConditions));
     }
-    
+
     // Combine: both conditions must be satisfied (AND)
     let excludeCondition: ReturnType<typeof and> | undefined;
     if (senderIdOk && senderUsernameOk) {
@@ -277,7 +286,7 @@ export class DatabaseStorage implements IStorage {
     } else if (senderUsernameOk) {
       excludeCondition = senderUsernameOk;
     }
-    
+
     let condition;
     // All users (including admins) see only their own messages
     // This ensures proper data isolation in a multi-tenant SaaS
@@ -469,19 +478,19 @@ export class DatabaseStorage implements IStorage {
     const allSettings = await db.select().from(settings);
     const now = Date.now();
     let cleanedCount = 0;
-    
+
     for (const setting of allSettings) {
       if (setting.key.startsWith("oauth_state_")) {
         const [, expiresAtStr] = setting.value.split(":");
         const expiresAt = parseInt(expiresAtStr);
-        
+
         if (isNaN(expiresAt) || now >= expiresAt) {
           await db.delete(settings).where(eq(settings.key, setting.key));
           cleanedCount++;
         }
       }
     }
-    
+
     return cleanedCount;
   }
 
@@ -490,20 +499,20 @@ export class DatabaseStorage implements IStorage {
     const now = Date.now();
     const PENDING_WEBHOOK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
     let cleanedCount = 0;
-    
+
     for (const setting of allSettings) {
       if (setting.key.startsWith("pending_webhook_")) {
         // Value is an ISO timestamp
         const pendingTime = new Date(setting.value).getTime();
         const elapsedMs = now - pendingTime;
-        
+
         if (isNaN(pendingTime) || elapsedMs > PENDING_WEBHOOK_EXPIRY_MS) {
           await db.delete(settings).where(eq(settings.key, setting.key));
           cleanedCount++;
         }
       }
     }
-    
+
     return cleanedCount;
   }
 
@@ -512,7 +521,7 @@ export class DatabaseStorage implements IStorage {
     const deletedResponses = await db.delete(aiResponses).returning();
     // Then delete messages
     const deletedMessages = await db.delete(instagramMessages).returning();
-    
+
     return {
       aiResponses: deletedResponses.length,
       messages: deletedMessages.length,
@@ -626,7 +635,7 @@ export class DatabaseStorage implements IStorage {
       .select({ avg: sql<number>`coalesce(avg(${aiResponses.confidenceScore}), 0)` })
       .from(aiResponses)
       .innerJoin(instagramMessages, eq(aiResponses.messageId, instagramMessages.id));
-    
+
     const [avgConfidenceResult] = userCondition
       ? await avgConfidenceQuery.where(userCondition)
       : await avgConfidenceQuery;
@@ -816,6 +825,36 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(aiDataset)
       .where(and(eq(aiDataset.id, id), eq(aiDataset.userId, userId)));
+  }
+
+  // Instagram Profiles
+  async getInstagramProfiles(userId: string): Promise<InstagramProfile[]> {
+    return db
+      .select()
+      .from(instagramProfiles)
+      .where(eq(instagramProfiles.userId, userId))
+      .orderBy(desc(instagramProfiles.createdAt));
+  }
+
+  async createInstagramProfile(data: InsertInstagramProfile): Promise<InstagramProfile> {
+    const [created] = await db
+      .insert(instagramProfiles)
+      .values(data)
+      .returning();
+    return created;
+  }
+
+  async updateInstagramProfile(id: number, data: Partial<InstagramProfile>): Promise<InstagramProfile | undefined> {
+    const [updated] = await db
+      .update(instagramProfiles)
+      .set(data)
+      .where(eq(instagramProfiles.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteInstagramProfile(id: number): Promise<void> {
+    await db.delete(instagramProfiles).where(eq(instagramProfiles.id, id));
   }
 }
 
