@@ -4645,13 +4645,14 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Question and answer are required" });
       }
 
-      // Generate embedding
+      // Generate embedding (optional - don't block save on failure)
       let embedding: number[] | null = null;
       try {
         embedding = await generateEmbedding(question);
+        console.log("[Dataset] Embedding generated successfully for question:", question.substring(0, 50));
       } catch (e) {
-        console.error("Failed to generate embedding:", e);
-        return res.status(500).json({ error: "Failed to generate embedding for the question" });
+        console.warn("[Dataset] Failed to generate embedding (saving without embedding):", e);
+        // Continue without embedding - save will still work
       }
 
       const entry = await storage.addDatasetEntry({
@@ -4661,6 +4662,7 @@ export async function registerRoutes(
         embedding: embedding as any,
       });
 
+      console.log("[Dataset] ✅ Entry saved successfully:", { id: entry.id, userId, question: question.substring(0, 50) });
       res.status(201).json(entry);
     } catch (error) {
       console.error("Error adding dataset entry:", error);

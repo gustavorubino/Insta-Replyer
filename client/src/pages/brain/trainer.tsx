@@ -11,7 +11,7 @@ import {
   Terminal,
   PencilRuler,
   Cpu,
-  Settings2,
+
   Mic,
   Image as ImageIcon,
   X,
@@ -34,11 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -576,47 +572,6 @@ export default function Trainer() {
         </div>
       </div>
 
-      {mode === "simulator" && (
-        <Collapsible
-          open={showContext}
-          onOpenChange={setShowContext}
-          className="w-full border rounded-xl bg-card px-4 py-2 shadow-sm"
-        >
-          <div className="flex items-center justify-between">
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-2 text-muted-foreground hover:text-foreground p-0 h-auto font-normal hover:bg-transparent"
-              >
-                <Settings2 className="h-4 w-4" />
-                Configurar Contexto de Teste
-              </Button>
-            </CollapsibleTrigger>
-          </div>
-
-          <CollapsibleContent className="space-y-4 pt-4 pb-2 animate-in slide-in-from-top-2">
-            <div className="grid gap-2">
-              <Label htmlFor="postCaption">Legenda do Post</Label>
-              <Input
-                id="postCaption"
-                placeholder="Ex: Foto incrível do nosso novo produto..."
-                value={postCaption}
-                onChange={(e) => setPostCaption(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="postImageUrl">URL da Imagem/Mídia</Label>
-              <Input
-                id="postImageUrl"
-                placeholder="https://..."
-                value={postImageUrl}
-                onChange={(e) => setPostImageUrl(e.target.value)}
-              />
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
 
       <Card className="flex-1 flex flex-col overflow-hidden relative border shadow-sm rounded-xl bg-background">
         <div
