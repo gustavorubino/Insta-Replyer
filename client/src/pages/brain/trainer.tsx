@@ -520,7 +520,7 @@ export default function Trainer() {
               </p>
             </div>
           ) : (
-            messages.map((msg) => (
+            messages.map((msg, index) => (
               <div
                 key={msg.id}
                 className={`flex gap-4 ${msg.role === "user" ? "justify-end" : "justify-start"
