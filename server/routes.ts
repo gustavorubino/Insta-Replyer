@@ -4817,7 +4817,7 @@ export async function registerRoutes(
       }
 
       if (currentMode === "copilot") {
-        const response = await runCopilotAgent(history || [], userId);
+        const response = await runCopilotAgent(history || [], userId, attachments);
         return res.json({ response, confidence: 1.0 });
       }
 
