@@ -1,31 +1,14 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Globe,
-  FileText,
-  Plus,
-  Trash2,
-  Loader2,
-  File,
-  Upload,
-  Instagram,
-  RefreshCw,
-  Sparkles,
-} from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+
+// ... (existing imports)
 
 export default function Sources() {
   const { toast } = useToast();
@@ -33,24 +16,128 @@ export default function Sources() {
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isDisconnectDialogOpen, setIsDisconnectDialogOpen] = useState(false);
 
-  const { data: knowledgeLinks = [], isLoading: linksLoading } = useQuery<any[]>({
-    queryKey: ["/api/knowledge/links"],
-    refetchInterval: (query) => {
-      const data = query.state.data as any[] | undefined;
-      const hasProcessing = data?.some((l: any) => l.status === "pending" || l.status === "processing");
-      return hasProcessing ? 1000 : false;
+  // ... (existing queries)
+
+  const disconnectMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/brain/disconnect", {});
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Conta Desconectada",
+        description: "Todos os dados foram limpos com sucesso.",
+      });
+      setIsDisconnectDialogOpen(false);
+      // Force reload to clear all states and caches properly
+      window.location.reload();
+    },
+    onError: (error) => {
+      toast({
+        title: "Erro ao desconectar",
+        description: "Não foi possível desconectar a conta.",
+        variant: "destructive",
+      });
     },
   });
 
-  const { data: knowledgeFiles = [], isLoading: filesLoading } = useQuery<any[]>({
-    queryKey: ["/api/knowledge/files"],
-    refetchInterval: (query) => {
-      const data = query.state.data as any[] | undefined;
-      const hasProcessing = data?.some((f: any) => f.status === "pending" || f.status === "processing");
-      return hasProcessing ? 1000 : false;
-    },
-  });
+  // ... (rest of the file until the Instagram Card)
+
+  {/* Connected State */ }
+  {
+    user?.instagramAccessToken && (
+      <div className="flex flex-col items-center justify-center py-6 space-y-4">
+        <div className="flex items-center gap-4 w-full p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border">
+          <div className="h-12 w-12 bg-gradient-to-tr from-purple-500 to-orange-500 rounded-full flex items-center justify-center text-white">
+            <Instagram className="h-6 w-6" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold text-lg">@{user.instagramUsername || "instagram_user"}</h3>
+            <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
+              <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+              Conta Oficial Conectada
+            </p>
+          </div>
+
+          <Dialog open={isDisconnectDialogOpen} onOpenChange={setIsDisconnectDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="destructive" size="sm">
+                Desconectar
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Desconectar Conta Oficial?</DialogTitle>
+                <DialogDescription>
+                  Esta ação é irreversível. Todos os 50 posts e o histórico de aprendizado (incluindo Threads) serão apagados do sistema.
+                  <br /><br />
+                  Suas correções manuais (Ouro) serão preservadas.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsDisconnectDialogOpen(false)}>Cancelar</Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => disconnectMutation.mutate()}
+                  blocks={disconnectMutation.isPending}
+                >
+                  {disconnectMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  Sim, Desconectar e Limpar
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 w-full">
+          <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-lg text-center border">
+            <span className="block text-2xl font-bold">{stats?.mediaLibrary?.count || 0}</span>
+            <span className="text-xs text-muted-foreground uppercase tracking-wider">Posts</span>
+          </div>
+          <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-lg text-center border">
+            <span className="block text-2xl font-bold">{stats?.interactionDialect?.count || 0}</span>
+            <span className="text-xs text-muted-foreground uppercase tracking-wider">Interações</span>
+          </div>
+        </div>
+
+        <Separator />
+
+        <div className="flex gap-4 w-full">
+          {!isSyncing ? (
+            <Button
+              onClick={startSync}
+              className="flex-1 bg-purple-600 hover:bg-purple-700"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Sincronizar Novamente
+            </Button>
+          ) : (
+            <div className="w-full space-y-2">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{syncStatus}</span>
+                <span>{syncProgress}%</span>
+              </div>
+              <Progress value={syncProgress} className="h-2" />
+              <p className="text-xs text-center text-muted-foreground animate-pulse">
+                Isso pode levar alguns minutos...
+              </p>
+            </div>
+          )}
+
+          <Button variant="outline" className="flex-1" disabled>
+            <Sparkles className="h-4 w-4 mr-2" />
+            Regerar Personalidade
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   const { data: instagramProfiles = [], isLoading: profilesLoading } = useQuery<any[]>({
     queryKey: ["/api/knowledge/instagram-profiles"],

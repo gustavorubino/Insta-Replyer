@@ -434,12 +434,12 @@ export default function Dataset() {
                 Threads Aprendidas
               </CardTitle>
               <Badge variant="outline" className="text-xs">
-                {stats?.interactionDialect.count || 0}/{stats?.interactionDialect.limit || 500}
+                {stats?.interactionDialect.count || 0}/500
               </Badge>
             </div>
           </CardHeader>
           <CardContent>
-            <Progress value={((stats?.interactionDialect.count || 0) / (stats?.interactionDialect.limit || 500)) * 100} className="h-2" />
+            <Progress value={((stats?.interactionDialect.count || 0) / 500) * 100} className="h-2" />
             <p className="text-xs text-muted-foreground mt-2">Interações reais</p>
           </CardContent>
         </Card>

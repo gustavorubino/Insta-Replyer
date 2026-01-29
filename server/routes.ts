@@ -5260,6 +5260,8 @@ Retorne APENAS o System Prompt mesclado, sem nenhum texto adicional.`;
     try {
       const { userId } = await getUserContext(req);
 
+      console.log(`[Disconnect] Iniciando desconexão para usuário ${userId}`);
+
       // 1. Remove Instagram credentials
       await authStorage.updateUser(userId, {
         instagramAccessToken: null,
@@ -5267,17 +5269,23 @@ Retorne APENAS o System Prompt mesclado, sem nenhum texto adicional.`;
         instagramUsername: null
       });
 
-      // 2. Clear Media Library
-      await storage.clearMediaLibrary(userId);
+      // 2. Clear Interactions FIRST (Child table) to prevent FK constraints
+      const deletedInteractions = await storage.clearInteractionDialect(userId);
+      console.log(`[Disconnect] Apagadas ${deletedInteractions} interações.`);
 
-      // 3. Clear Interactions
-      await storage.clearInteractionDialect(userId);
+      // 3. Clear Media Library (Parent table)
+      const deletedMedia = await storage.clearMediaLibrary(userId);
+      console.log(`[Disconnect] Apagados ${deletedMedia} itens de mídia.`);
 
       // Note: We intentionally KEEP Manual QA (Golden Corrections) as it's user intellectual property
 
-      res.json({
+      res.status(200).json({
         success: true,
-        message: "Conta desconectada e dados limpos com sucesso!"
+        message: "Conta desconectada e dados limpos com sucesso!",
+        details: {
+          deletedInteractions,
+          deletedMedia
+        }
       });
     } catch (error) {
       console.error("Error disconnecting:", error);

@@ -227,7 +227,7 @@ export async function syncAllKnowledge(
             // ================================================
             // FETCH DEEP THREADS (Contextual Interactions)
             // ================================================
-            // Fetch more comments to find threads (limit 50 per post)
+            // Fetch more comments to find threads (limit 50 per post) with EXPLICIT replies field
             const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=50`;
 
             try {
@@ -257,14 +257,22 @@ export async function syncAllKnowledge(
                         let ownerReply: string | null = null;
 
                         // Check for owner reply in the thread
-                        if (comment.replies?.data) {
+                        if (comment.replies?.data && comment.replies.data.length > 0) {
                             for (const reply of comment.replies.data) {
-                                // Simple check: same username as profile (or just the first reply if we assume owner replies primarily)
+                                // Capture reply if it's from the user (owner)
+                                // If from.username matches profile username
                                 const replyUsername = reply.from?.username || reply.username || "";
-                                if (replyUsername === username) {
+
+                                // Robust check: if replyUsername is valid and matches owner
+                                // OR if we just assume the reply to a comment is likely the owner (risky, better to check)
+                                if (replyUsername && (replyUsername === username || replyUsername.toLowerCase() === username.toLowerCase())) {
                                     ownerReply = reply.text;
                                     break;
                                 }
+
+                                // Fallback: If we can't identify username but there is a reply, 
+                                // and the dataset is "My Replies", we might assume.
+                                // But for now, let's trust the username check.
                             }
                         }
 
