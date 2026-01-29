@@ -656,9 +656,20 @@ export default function Dataset() {
                             </span>
                           </div>
 
-                          <p className="text-sm line-clamp-2 mb-3">
+                          <p className="text-sm line-clamp-2 mb-2">
                             {media.caption || <span className="italic text-muted-foreground">Sem legenda</span>}
                           </p>
+
+                          {/* AI Vision Indicator - Shows for IMAGE posts with description */}
+                          {media.mediaType?.toUpperCase() === 'IMAGE' && media.imageDescription && (
+                            <div className="flex items-start gap-2 mb-3 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+                              <Eye className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <span className="text-xs font-medium text-blue-700 dark:text-blue-300">IA Viu: </span>
+                                <span className="text-xs text-blue-600 dark:text-blue-400">{media.imageDescription}</span>
+                              </div>
+                            </div>
+                          )}
 
                           <div className="flex items-center gap-2">
                             <Button variant="outline" size="sm" onClick={() => openMediaAnalysis(media)}>
@@ -716,74 +727,108 @@ export default function Dataset() {
                                   const parentKey = interaction.instagramCommentId || `${interaction.id}`;
                                   const threadReplies = (repliesByParent.get(parentKey) || [])
                                     .filter((reply) => {
+                                      // Filter out duplicate owner replies that are already shown in myResponse
                                       if (!reply.isOwnerReply || !interaction.myResponse) return true;
                                       return reply.userMessage.trim() !== interaction.myResponse.trim();
                                     })
                                     .sort((a, b) => a.interactedAt.localeCompare(b.interactedAt));
 
+                                  // Helper to display username properly
+                                  const formatUsername = (username: string | null, isOwner: boolean = false) => {
+                                    if (isOwner) return "@você";
+                                    if (!username || username === "Anônimo" || username === "Seguidor") {
+                                      return "Anônimo";
+                                    }
+                                    return `@${username}`;
+                                  };
+
                                   return (
-                                    <div key={interaction.id} className="bg-background rounded-lg p-3 space-y-2">
-                                      {/* User comment */}
+                                    <div key={interaction.id} className="bg-background rounded-lg p-4 space-y-3">
+                                      {/* USER COMMENT - Always first */}
                                       <div className="flex items-start gap-3">
-                                        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white text-xs font-semibold">
-                                          {(interaction.senderName || "E").charAt(0).toUpperCase()}
+                                        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">
+                                          {(interaction.senderUsername || "A").charAt(0).toUpperCase()}
                                         </div>
-                                        <div className="flex-1">
-                                          <span className="font-medium text-sm">
-                                            {interaction.senderUsername === "Seguidor" ? "Eleitor" : `@${interaction.senderUsername || "Usuário"}`}
-                                          </span>
-                                          <p className="text-sm bg-muted/50 rounded-lg p-2 mt-1">
-                                            {interaction.userMessage}
-                                          </p>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-semibold text-sm">
+                                              {formatUsername(interaction.senderUsername)}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">
+                                              {new Date(interaction.interactedAt).toLocaleDateString("pt-BR", {
+                                                day: "2-digit",
+                                                month: "short"
+                                              })}
+                                            </span>
+                                          </div>
+                                          <p className="text-sm mt-1">{interaction.userMessage}</p>
                                         </div>
                                       </div>
 
-                                      {/* Owner response */}
-                                      {interaction.myResponse ? (
-                                        <div className="ml-11 flex items-start gap-2">
-                                          <div className="flex-1 bg-primary/10 rounded-lg p-2 border-l-2 border-primary">
-                                            <p className="text-sm">
-                                              <span className="font-medium text-primary">Sua resposta:</span>{" "}
-                                              {interaction.myResponse}
-                                            </p>
+                                      {/* OWNER REPLY - Nested below with connection line */}
+                                      {interaction.myResponse && (
+                                        <div className="flex items-start gap-2 ml-5">
+                                          {/* Connection line */}
+                                          <div className="flex flex-col items-center">
+                                            <div className="w-px h-2 bg-primary/40"></div>
+                                            <div className="text-xs text-primary/60">└</div>
                                           </div>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => promoteToGoldMutation.mutate(interaction.id)}
-                                            disabled={promoteToGoldMutation.isPending}
-                                            className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                                          >
-                                            <Star className="h-4 w-4 mr-1" />
-                                            Promover
-                                          </Button>
-                                        </div>
-                                      ) : (
-                                        <div className="ml-11">
-                                          <p className="text-xs text-muted-foreground italic flex items-center gap-1">
-                                            ⏳ Pendente de Aprendizado
-                                          </p>
+                                          <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-sm font-semibold flex-shrink-0">
+                                            R
+                                          </div>
+                                          <div className="flex-1 bg-primary/5 rounded-lg p-3 border-l-3 border-primary">
+                                            <div className="flex items-center justify-between gap-2 mb-1">
+                                              <span className="font-semibold text-sm text-primary">
+                                                @você (Resposta)
+                                              </span>
+                                              <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => promoteToGoldMutation.mutate(interaction.id)}
+                                                disabled={promoteToGoldMutation.isPending}
+                                                className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 h-7 px-2"
+                                              >
+                                                <Star className="h-3 w-3 mr-1" />
+                                                Promover
+                                              </Button>
+                                            </div>
+                                            <p className="text-sm">{interaction.myResponse}</p>
+                                          </div>
                                         </div>
                                       )}
 
-                                      {/* Thread replies */}
-                                      {threadReplies.length > 0 ? (
-                                        <div className="ml-11 space-y-2">
+                                      {/* No response indicator */}
+                                      {!interaction.myResponse && (
+                                        <div className="ml-12 flex items-center gap-2 text-muted-foreground">
+                                          <span className="text-xs">└</span>
+                                          <span className="text-xs italic">⏳ Sem resposta registrada</span>
+                                        </div>
+                                      )}
+
+                                      {/* Additional thread replies */}
+                                      {threadReplies.length > 0 && (
+                                        <div className="ml-5 space-y-2 border-l-2 border-muted pl-3">
                                           {threadReplies.map((reply) => (
                                             <div key={reply.id} className="flex items-start gap-2">
-                                              <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-xs font-semibold text-muted-foreground">
-                                                {(reply.senderName || "E").charAt(0).toUpperCase()}
+                                              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${reply.isOwnerReply
+                                                  ? "bg-primary/20 text-primary"
+                                                  : "bg-muted text-muted-foreground"
+                                                }`}>
+                                                {(reply.senderUsername || "A").charAt(0).toUpperCase()}
                                               </div>
-                                              <div className={`flex-1 rounded-lg p-2 ${reply.isOwnerReply ? "bg-primary/10 border-l-2 border-primary" : "bg-muted/40"}`}>
-                                                <p className="text-xs font-medium mb-1">
-                                                  {reply.isOwnerReply ? "Você" : reply.senderUsername === "Seguidor" ? "Eleitor" : `@${reply.senderUsername || "Usuário"}`}
-                                                </p>
-                                                <p className="text-sm">{reply.userMessage}</p>
+                                              <div className={`flex-1 rounded-lg p-2 ${reply.isOwnerReply
+                                                  ? "bg-primary/5 border-l-2 border-primary"
+                                                  : "bg-muted/30"
+                                                }`}>
+                                                <span className={`text-xs font-medium ${reply.isOwnerReply ? "text-primary" : ""}`}>
+                                                  {formatUsername(reply.senderUsername, reply.isOwnerReply)}
+                                                </span>
+                                                <p className="text-sm mt-0.5">{reply.userMessage}</p>
                                               </div>
                                             </div>
                                           ))}
                                         </div>
-                                      ) : null}
+                                      )}
                                     </div>
                                   );
                                 });
