@@ -125,8 +125,9 @@ export async function syncAllKnowledge(
     report("Limpando dados antigos...", 5);
 
     // Clear old data
-    await storage.clearMediaLibrary(userId);
-    await storage.clearInteractionDialect(userId);
+    const clearedMedia = await storage.clearMediaLibrary(userId);
+    const clearedInteractions = await storage.clearInteractionDialect(userId);
+    console.log(`[SyncKnowledge] Limpeza concluída: ${clearedMedia} posts e ${clearedInteractions} interações removidas`);
 
     report("Buscando perfil do Instagram...", 10);
 
@@ -230,7 +231,7 @@ export async function syncAllKnowledge(
             // ================================================
             // FETCH TOP 10 COMMENTS WITH OWNER REPLIES FOR THIS POST
             // ================================================
-            const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=30`;
+            const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=50`;
 
             try {
                 const commentsResponse = await fetch(commentsUrl);
@@ -304,8 +305,39 @@ export async function syncAllKnowledge(
                             instagramCommentId: comment.id,
                             parentCommentId: null,
                             isOwnerReply: false,
+                            interactedAt: comment.timestamp ? new Date(comment.timestamp) : undefined,
                         });
                         interactionCount++;
+
+                        if (comment.replies?.data?.length) {
+                            for (const reply of comment.replies.data) {
+                                let replyUsername = reply.from?.username || reply.username || null;
+                                let replyName = replyUsername;
+
+                                if (!replyUsername || replyUsername === '?' || replyUsername.length === 0) {
+                                    replyUsername = "Seguidor";
+                                    replyName = "Eleitor";
+                                }
+
+                                const isOwnerReply = replyUsername?.toLowerCase() === username.toLowerCase();
+
+                                await storage.addInteractionDialect({
+                                    userId,
+                                    mediaId: savedMedia.id,
+                                    channelType: 'public_comment',
+                                    senderName: replyName,
+                                    senderUsername: replyUsername,
+                                    userMessage: reply.text,
+                                    myResponse: null,
+                                    postContext: post.caption?.substring(0, 200) || null,
+                                    instagramCommentId: reply.id,
+                                    parentCommentId: comment.id,
+                                    isOwnerReply,
+                                    interactedAt: reply.timestamp ? new Date(reply.timestamp) : undefined,
+                                });
+                                interactionCount++;
+                            }
+                        }
                     }
                 }
             } catch (commentErr) {
