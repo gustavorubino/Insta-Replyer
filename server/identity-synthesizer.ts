@@ -94,135 +94,6 @@ function extractPatterns(captions: string[]): CommunicationPatterns {
 }
 
 // ============================================
-// CONFIGURABLE SYNC LIMITS
-// ============================================
-
-const MAX_POSTS = 50;                    // Maximum posts to sync
-const MAX_COMMENTS_TOTAL = 500;          // Total comments limit across all posts
-const MIN_COMMENTS_PER_POST = 5;         // Minimum comments per post before filling from others
-const API_RETRY_ATTEMPTS = 3;            // Retry attempts for API calls
-const API_RETRY_DELAY_MS = 1000;         // Initial delay between retries
-
-// ============================================
-// RELEVANCE SCORING ALGORITHM
-// ============================================
-
-interface CommentWithMeta {
-    id: string;
-    text: string;
-    username: string;
-    timestamp: string;
-    postId: string;
-    mediaDbId: number;
-    postCaption: string | null;
-    likeCount: number;
-    replyCount: number;
-    hasOwnerReply: boolean;
-    ownerReplyText: string | null;
-    replies: Array<{
-        id: string;
-        text: string;
-        username: string;
-        timestamp: string;
-        isOwnerReply: boolean;
-    }>;
-    relevanceScore: number;
-}
-
-/**
- * Calculate relevance score for a comment.
- * Higher scores = more valuable for AI training.
- */
-function calculateCommentRelevance(comment: {
-    text: string;
-    likeCount: number;
-    replyCount: number;
-    hasOwnerReply: boolean;
-}): number {
-    let score = 0;
-
-    // +10 points if owner replied (most valuable for learning tone of voice)
-    if (comment.hasOwnerReply) {
-        score += 10;
-    }
-
-    // +1-5 points based on like count (scaled logarithmically)
-    if (comment.likeCount > 0) {
-        score += Math.min(5, Math.floor(Math.log10(comment.likeCount + 1) * 2));
-    }
-
-    // +1-3 points based on reply count
-    if (comment.replyCount > 0) {
-        score += Math.min(3, comment.replyCount);
-    }
-
-    const text = comment.text.toLowerCase();
-
-    // +3 points for questions (valuable for Q&A training)
-    if (text.includes('?') ||
-        /\b(como|o que|por que|quando|onde|qual|quem|pq|oq)\b/.test(text)) {
-        score += 3;
-    }
-
-    // +2 points for praise/positive feedback
-    if (/\b(parabéns|incrível|ótimo|maravilh|lindo|perfeito|sensacional|top|show|demais|amei)\b/.test(text)) {
-        score += 2;
-    }
-
-    // +2 points for political/support keywords (relevant for the use case)
-    if (/\b(apoio|voto|candidat|eleição|deputado|vereador|prefeito|governador|presidente|político|política|luta|causa|povo|brasil|nação)\b/.test(text)) {
-        score += 2;
-    }
-
-    // +2 points for constructive criticism (learning to respond to criticism)
-    if (/\b(discordo|crítica|errado|problema|deveria|podia|poderia|sugiro|sugestão)\b/.test(text)) {
-        score += 2;
-    }
-
-    // +1 point for longer comments (more context)
-    if (comment.text.length > 50) {
-        score += 1;
-    }
-
-    // +1 point for very long comments (substantial engagement)
-    if (comment.text.length > 150) {
-        score += 1;
-    }
-
-    return score;
-}
-
-/**
- * Fetch with retry logic and exponential backoff
- */
-async function fetchWithRetry(url: string, attempts: number = API_RETRY_ATTEMPTS): Promise<Response> {
-    let lastError: Error | null = null;
-
-    for (let i = 0; i < attempts; i++) {
-        try {
-            const response = await fetch(url);
-
-            // Rate limit hit - wait and retry
-            if (response.status === 429) {
-                const delay = API_RETRY_DELAY_MS * Math.pow(2, i);
-                console.log(`[SyncKnowledge] Rate limited, waiting ${delay}ms before retry ${i + 1}/${attempts}`);
-                await new Promise(resolve => setTimeout(resolve, delay));
-                continue;
-            }
-
-            return response;
-        } catch (error) {
-            lastError = error instanceof Error ? error : new Error(String(error));
-            const delay = API_RETRY_DELAY_MS * Math.pow(2, i);
-            console.log(`[SyncKnowledge] Fetch error, retrying in ${delay}ms: ${lastError.message}`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-        }
-    }
-
-    throw lastError || new Error('Failed after all retry attempts');
-}
-
-// ============================================
 // SYNC ALL KNOWLEDGE (Main Sync Function)
 // ============================================
 
@@ -245,7 +116,6 @@ export async function syncAllKnowledge(
     onProgress?: (progress: SyncProgress) => void
 ): Promise<SyncResult> {
     console.log(`[SyncKnowledge] Iniciando sincronização completa para userId: ${userId}`);
-    console.log(`[SyncKnowledge] Limites: ${MAX_POSTS} posts, ${MAX_COMMENTS_TOTAL} comentários totais`);
 
     const report = (stage: string, percent: number) => {
         console.log(`[SyncKnowledge] ${percent}% - ${stage}`);
@@ -254,16 +124,16 @@ export async function syncAllKnowledge(
 
     report("Limpando dados antigos...", 5);
 
-    // Clear old data (transactional cleanup)
-    const mediaDeleted = await storage.clearMediaLibrary(userId);
-    const interactionsDeleted = await storage.clearInteractionDialect(userId);
-    console.log(`[SyncKnowledge] Dados antigos removidos: ${mediaDeleted} posts, ${interactionsDeleted} interações`);
+    // Clear old data
+    const clearedMedia = await storage.clearMediaLibrary(userId);
+    const clearedInteractions = await storage.clearInteractionDialect(userId);
+    console.log(`[SyncKnowledge] Limpeza concluída: ${clearedMedia} posts e ${clearedInteractions} interações removidas`);
 
     report("Buscando perfil do Instagram...", 10);
 
     // Fetch profile
     const profileUrl = `https://graph.instagram.com/me?fields=id,username,biography&access_token=${accessToken}`;
-    const profileResponse = await fetchWithRetry(profileUrl);
+    const profileResponse = await fetch(profileUrl);
 
     if (!profileResponse.ok) {
         throw new Error(`Erro ao buscar perfil: ${profileResponse.status}`);
@@ -275,14 +145,14 @@ export async function syncAllKnowledge(
         biography?: string;
     };
 
-    const ownerUsername = profileData.username || "usuario";
+    const username = profileData.username || "usuario";
     const bio = profileData.biography || "";
 
-    report("Buscando posts do Instagram...", 15);
+    report("Buscando posts do Instagram...", 20);
 
-    // Fetch media (last MAX_POSTS posts)
-    const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,media_type,media_url,thumbnail_url&access_token=${accessToken}&limit=${MAX_POSTS}`;
-    const mediaResponse = await fetchWithRetry(mediaUrl);
+    // Fetch media (last 50 posts)
+    const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,media_type,media_url,thumbnail_url&access_token=${accessToken}&limit=50`;
+    const mediaResponse = await fetch(mediaUrl);
 
     if (!mediaResponse.ok) {
         throw new Error(`Erro ao buscar posts: ${mediaResponse.status}`);
@@ -301,27 +171,28 @@ export async function syncAllKnowledge(
 
     const posts = mediaData.data || [];
     let mediaCount = 0;
+    let interactionCount = 0;
 
-    // Map to store saved media IDs for linking comments
-    const mediaIdMap: Map<string, { dbId: number; caption: string | null }> = new Map();
+    report(`Processando ${posts.length} posts...`, 30);
 
-    report(`Salvando ${posts.length} posts...`, 20);
-
-    // PHASE 1: Save all posts to media_library
-    for (let i = 0; i < Math.min(posts.length, MAX_POSTS); i++) {
+    // Save to media_library (up to 50) and fetch comments for each
+    for (let i = 0; i < Math.min(posts.length, 50); i++) {
         const post = posts[i];
+        const progress = 30 + Math.floor((i / posts.length) * 40);
 
         try {
             let videoTranscription: string | undefined;
             let imageDescription: string | undefined;
 
-            // For videos, use caption as context
+            // For videos, try to get transcription (simplified - would need audio extraction)
             if (post.media_type === 'VIDEO' && post.caption && post.caption.length > 50) {
+                // Note: Full transcription would require audio extraction
+                // For now, we use the caption as context
                 videoTranscription = `[Vídeo] ${post.caption.substring(0, 500)}`;
             }
 
-            // For images, generate description via GPT-4 Vision (limit to first 10 to save API calls)
-            if (post.media_type === 'IMAGE' && post.media_url && i < 10) {
+            // For images, generate description via GPT-4 Vision
+            if (post.media_type === 'IMAGE' && post.media_url) {
                 try {
                     const visionResponse = await openai.chat.completions.create({
                         model: "gpt-4o-mini",
@@ -342,7 +213,7 @@ export async function syncAllKnowledge(
                 }
             }
 
-            // Save the media entry
+            // Save the media entry and get the ID for linking comments
             const savedMedia = await storage.addMediaLibraryEntry({
                 userId,
                 instagramMediaId: post.id,
@@ -355,274 +226,137 @@ export async function syncAllKnowledge(
                 postedAt: post.timestamp ? new Date(post.timestamp) : null,
             });
 
-            mediaIdMap.set(post.id, { dbId: savedMedia.id, caption: post.caption || null });
             mediaCount++;
+
+            // ================================================
+            // FETCH TOP 10 COMMENTS WITH OWNER REPLIES FOR THIS POST
+            // ================================================
+            const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=50`;
+
+            try {
+                const commentsResponse = await fetch(commentsUrl);
+                if (commentsResponse.ok) {
+                    const commentsData = await commentsResponse.json() as {
+                        data: Array<{
+                            id: string;
+                            text: string;
+                            username?: string;
+                            timestamp: string;
+                            from?: { id: string; username?: string };
+                            replies?: {
+                                data: Array<{
+                                    id: string;
+                                    text: string;
+                                    username?: string;
+                                    timestamp: string;
+                                    from?: { id: string; username?: string };
+                                }>;
+                            };
+                        }>;
+                    };
+
+                    // Prioritize comments that have owner replies (for better learning)
+                    const commentsWithData = (commentsData.data || []).map(comment => {
+                        let ownerReply: string | null = null;
+
+                        if (comment.replies?.data) {
+                            for (const reply of comment.replies.data) {
+                                const replyUsername = reply.from?.username || reply.username || "";
+                                if (replyUsername === username) {
+                                    ownerReply = reply.text;
+                                    break;
+                                }
+                            }
+                        }
+
+                        return { ...comment, ownerReply };
+                    });
+
+                    // Sort: comments WITH owner replies first
+                    const sortedComments = commentsWithData.sort((a, b) => {
+                        if (a.ownerReply && !b.ownerReply) return -1;
+                        if (!a.ownerReply && b.ownerReply) return 1;
+                        return 0;
+                    });
+
+                    // Take TOP 10 for this post
+                    const topComments = sortedComments.slice(0, 10);
+
+                    for (const comment of topComments) {
+                        // Get username with fallback
+                        let senderUsername = comment.from?.username || comment.username || null;
+                        let senderName = senderUsername;
+
+                        // Use meaningful fallback if username is empty
+                        if (!senderUsername || senderUsername === '?' || senderUsername.length === 0) {
+                            senderUsername = "Seguidor";
+                            senderName = "Eleitor";
+                        }
+
+                        await storage.addInteractionDialect({
+                            userId,
+                            mediaId: savedMedia.id, // Link to the post!
+                            channelType: 'public_comment',
+                            senderName: senderName,
+                            senderUsername: senderUsername,
+                            userMessage: comment.text,
+                            myResponse: comment.ownerReply,
+                            postContext: post.caption?.substring(0, 200) || null,
+                            instagramCommentId: comment.id,
+                            parentCommentId: null,
+                            isOwnerReply: false,
+                            interactedAt: comment.timestamp ? new Date(comment.timestamp) : undefined,
+                        });
+                        interactionCount++;
+
+                        if (comment.replies?.data?.length) {
+                            for (const reply of comment.replies.data) {
+                                let replyUsername = reply.from?.username || reply.username || null;
+                                let replyName = replyUsername;
+
+                                if (!replyUsername || replyUsername === '?' || replyUsername.length === 0) {
+                                    replyUsername = "Seguidor";
+                                    replyName = "Eleitor";
+                                }
+
+                                const isOwnerReply = replyUsername?.toLowerCase() === username.toLowerCase();
+
+                                await storage.addInteractionDialect({
+                                    userId,
+                                    mediaId: savedMedia.id,
+                                    channelType: 'public_comment',
+                                    senderName: replyName,
+                                    senderUsername: replyUsername,
+                                    userMessage: reply.text,
+                                    myResponse: null,
+                                    postContext: post.caption?.substring(0, 200) || null,
+                                    instagramCommentId: reply.id,
+                                    parentCommentId: comment.id,
+                                    isOwnerReply,
+                                    interactedAt: reply.timestamp ? new Date(reply.timestamp) : undefined,
+                                });
+                                interactionCount++;
+                            }
+                        }
+                    }
+                }
+            } catch (commentErr) {
+                console.log(`[SyncKnowledge] Erro ao buscar comentários do post ${post.id}:`, commentErr);
+            }
+
         } catch (err) {
             console.error(`[SyncKnowledge] Erro ao salvar post ${post.id}:`, err);
         }
     }
 
-    report(`Buscando comentários de ${mediaCount} posts...`, 30);
-
-    // PHASE 2: Fetch ALL comments from all posts with pagination
-    const allComments: CommentWithMeta[] = [];
-
-    for (let i = 0; i < posts.length; i++) {
-        const post = posts[i];
-        const mediaInfo = mediaIdMap.get(post.id);
-        if (!mediaInfo) continue;
-
-        const progress = 30 + Math.floor((i / posts.length) * 30);
-        if (i % 10 === 0) {
-            report(`Buscando comentários... (${i + 1}/${posts.length} posts)`, progress);
-        }
-
-        try {
-            // Fetch comments with pagination - get ALL available
-            let commentsUrl: string | null = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,like_count,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=100`;
-
-            while (commentsUrl) {
-                const commentsResponse = await fetchWithRetry(commentsUrl);
-
-                if (!commentsResponse.ok) {
-                    console.log(`[SyncKnowledge] Erro ao buscar comentários do post ${post.id}: ${commentsResponse.status}`);
-                    break;
-                }
-
-                const commentsData = await commentsResponse.json() as {
-                    data: Array<{
-                        id: string;
-                        text: string;
-                        username?: string;
-                        timestamp: string;
-                        like_count?: number;
-                        from?: { id: string; username?: string };
-                        replies?: {
-                            data: Array<{
-                                id: string;
-                                text: string;
-                                username?: string;
-                                timestamp: string;
-                                from?: { id: string; username?: string };
-                            }>;
-                        };
-                    }>;
-                    paging?: {
-                        next?: string;
-                    };
-                };
-
-                // Process each comment
-                for (const comment of commentsData.data || []) {
-                    const senderUsername = comment.from?.username || comment.username || "Seguidor";
-
-                    // Process replies to find owner replies and count
-                    const replies: CommentWithMeta['replies'] = [];
-                    let hasOwnerReply = false;
-                    let ownerReplyText: string | null = null;
-
-                    if (comment.replies?.data) {
-                        for (const reply of comment.replies.data) {
-                            const replyUsername = reply.from?.username || reply.username || "";
-                            const isOwnerReply = replyUsername.toLowerCase() === ownerUsername.toLowerCase();
-
-                            if (isOwnerReply && !hasOwnerReply) {
-                                hasOwnerReply = true;
-                                ownerReplyText = reply.text;
-                            }
-
-                            replies.push({
-                                id: reply.id,
-                                text: reply.text,
-                                username: replyUsername || "Seguidor",
-                                timestamp: reply.timestamp,
-                                isOwnerReply,
-                            });
-                        }
-                    }
-
-                    const commentMeta: CommentWithMeta = {
-                        id: comment.id,
-                        text: comment.text,
-                        username: senderUsername,
-                        timestamp: comment.timestamp,
-                        postId: post.id,
-                        mediaDbId: mediaInfo.dbId,
-                        postCaption: mediaInfo.caption,
-                        likeCount: comment.like_count || 0,
-                        replyCount: replies.length,
-                        hasOwnerReply,
-                        ownerReplyText,
-                        replies,
-                        relevanceScore: 0, // Will be calculated next
-                    };
-
-                    // Calculate relevance score
-                    commentMeta.relevanceScore = calculateCommentRelevance({
-                        text: commentMeta.text,
-                        likeCount: commentMeta.likeCount,
-                        replyCount: commentMeta.replyCount,
-                        hasOwnerReply: commentMeta.hasOwnerReply,
-                    });
-
-                    allComments.push(commentMeta);
-                }
-
-                // Get next page URL if exists
-                commentsUrl = commentsData.paging?.next || null;
-
-                // Safety limit to prevent infinite loops
-                if (allComments.length > MAX_COMMENTS_TOTAL * 3) {
-                    console.log(`[SyncKnowledge] Atingido limite de segurança de comentários fetched`);
-                    break;
-                }
-            }
-        } catch (commentErr) {
-            console.log(`[SyncKnowledge] Erro ao buscar comentários do post ${post.id}:`, commentErr);
-        }
-    }
-
-    console.log(`[SyncKnowledge] Total de comentários coletados: ${allComments.length}`);
-
-    report("Selecionando comentários mais relevantes...", 65);
-
-    // PHASE 3: Sort by relevance and select top comments
-    allComments.sort((a, b) => b.relevanceScore - a.relevanceScore);
-
-    // Group by post to ensure some distribution
-    const commentsByPost: Map<string, CommentWithMeta[]> = new Map();
-    for (const comment of allComments) {
-        const existing = commentsByPost.get(comment.postId) || [];
-        existing.push(comment);
-        commentsByPost.set(comment.postId, existing);
-    }
-
-    // Select comments: ensure MIN_COMMENTS_PER_POST per post, then fill with highest relevance
-    const selectedComments: CommentWithMeta[] = [];
-    const usedCommentIds = new Set<string>();
-
-    // First pass: ensure minimum per post
-    for (const [postId, comments] of commentsByPost.entries()) {
-        const toAdd = comments.slice(0, MIN_COMMENTS_PER_POST);
-        for (const c of toAdd) {
-            if (selectedComments.length < MAX_COMMENTS_TOTAL && !usedCommentIds.has(c.id)) {
-                selectedComments.push(c);
-                usedCommentIds.add(c.id);
-            }
-        }
-    }
-
-    // Second pass: fill remaining slots with highest relevance comments
-    for (const comment of allComments) {
-        if (selectedComments.length >= MAX_COMMENTS_TOTAL) break;
-        if (!usedCommentIds.has(comment.id)) {
-            selectedComments.push(comment);
-            usedCommentIds.add(comment.id);
-        }
-    }
-
-    console.log(`[SyncKnowledge] Comentários selecionados por relevância: ${selectedComments.length}`);
-
-    // Log relevance distribution
-    const withOwnerReply = selectedComments.filter(c => c.hasOwnerReply).length;
-    const avgRelevance = selectedComments.reduce((sum, c) => sum + c.relevanceScore, 0) / (selectedComments.length || 1);
-    console.log(`[SyncKnowledge] Com resposta do dono: ${withOwnerReply}, Relevância média: ${avgRelevance.toFixed(1)}`);
-
-    report("Salvando comentários e threads...", 75);
-
-    // PHASE 4: Save selected comments and their replies (preserving threads)
-    let interactionCount = 0;
-
-    for (let i = 0; i < selectedComments.length; i++) {
-        const comment = selectedComments[i];
-
-        if (i % 100 === 0 && i > 0) {
-            const progress = 75 + Math.floor((i / selectedComments.length) * 20);
-            report(`Salvando interações... (${i}/${selectedComments.length})`, progress);
-        }
-
-        try {
-            // Get username with fallback
-            let senderUsername = comment.username;
-            let senderName = senderUsername;
-
-            if (!senderUsername || senderUsername === '?' || senderUsername.length === 0) {
-                senderUsername = "Seguidor";
-                senderName = "Eleitor";
-            }
-
-            // Save the main comment
-            await storage.addInteractionDialect({
-                userId,
-                mediaId: comment.mediaDbId,
-                channelType: 'public_comment',
-                senderName: senderName,
-                senderUsername: senderUsername,
-                userMessage: comment.text,
-                myResponse: comment.ownerReplyText,
-                postContext: comment.postCaption?.substring(0, 200) || null,
-                instagramCommentId: comment.id,
-                parentCommentId: null,
-                isOwnerReply: false,
-            });
-            interactionCount++;
-
-            // Save all replies to preserve thread context
-            for (const reply of comment.replies) {
-                let replySenderUsername = reply.username;
-                let replySenderName = replySenderUsername;
-
-                if (!replySenderUsername || replySenderUsername.length === 0) {
-                    replySenderUsername = "Seguidor";
-                    replySenderName = "Eleitor";
-                }
-
-                // For owner replies, swap the message format (owner's text as response pattern)
-                if (reply.isOwnerReply) {
-                    await storage.addInteractionDialect({
-                        userId,
-                        mediaId: comment.mediaDbId,
-                        channelType: 'public_comment',
-                        senderName: ownerUsername,
-                        senderUsername: ownerUsername,
-                        userMessage: `[Resposta ao comentário: "${comment.text.substring(0, 100)}"]`,
-                        myResponse: reply.text,
-                        postContext: comment.postCaption?.substring(0, 200) || null,
-                        instagramCommentId: reply.id,
-                        parentCommentId: comment.id,
-                        isOwnerReply: true,
-                    });
-                } else {
-                    // Regular user reply
-                    await storage.addInteractionDialect({
-                        userId,
-                        mediaId: comment.mediaDbId,
-                        channelType: 'public_comment',
-                        senderName: replySenderName,
-                        senderUsername: replySenderUsername,
-                        userMessage: reply.text,
-                        myResponse: null,
-                        postContext: comment.postCaption?.substring(0, 200) || null,
-                        instagramCommentId: reply.id,
-                        parentCommentId: comment.id,
-                        isOwnerReply: false,
-                    });
-                }
-                interactionCount++;
-            }
-        } catch (err) {
-            console.error(`[SyncKnowledge] Erro ao salvar comentário ${comment.id}:`, err);
-        }
-    }
-
     report("Sincronização concluída!", 100);
 
-    console.log(`[SyncKnowledge] ✅ Sincronizado: ${mediaCount} posts, ${interactionCount} interações (${selectedComments.length} comentários + replies)`);
+    console.log(`[SyncKnowledge] ✅ Sincronizado: ${mediaCount} posts, ${interactionCount} interações`);
 
     return {
         mediaCount,
         interactionCount,
-        username: ownerUsername,
+        username,
         bio,
     };
 }
