@@ -974,6 +974,26 @@ export class DatabaseStorage implements IStorage {
 
   async addMediaLibraryEntry(entry: InsertMediaLibraryEntry): Promise<MediaLibraryEntry> {
     const [created] = await db.insert(mediaLibrary).values(entry).returning();
+    const LIMIT = 50;
+    const countResult = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(mediaLibrary)
+      .where(eq(mediaLibrary.userId, entry.userId));
+    const currentCount = countResult[0]?.count || 0;
+
+    if (currentCount > LIMIT) {
+      const toDelete = currentCount - LIMIT;
+      const oldest = await db
+        .select({ id: mediaLibrary.id })
+        .from(mediaLibrary)
+        .where(eq(mediaLibrary.userId, entry.userId))
+        .orderBy(mediaLibrary.syncedAt)
+        .limit(toDelete);
+
+      for (const item of oldest) {
+        await db.delete(mediaLibrary).where(eq(mediaLibrary.id, item.id));
+      }
+    }
     return created;
   }
 
@@ -1112,4 +1132,3 @@ export class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
-

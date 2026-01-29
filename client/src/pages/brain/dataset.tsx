@@ -102,6 +102,9 @@ interface InteractionEntry {
   userMessage: string;
   myResponse: string | null;
   postContext: string | null;
+  parentCommentId: string | null;
+  instagramCommentId: string | null;
+  isOwnerReply: boolean;
   interactedAt: string;
 }
 
@@ -693,52 +696,98 @@ export default function Dataset() {
                                 Nenhuma discussão encontrada para este post.
                               </p>
                             ) : expandedMediaId === media.id ? (
-                              mediaInteractions.map((interaction) => (
-                                <div key={interaction.id} className="bg-background rounded-lg p-3 space-y-2">
-                                  {/* User comment */}
-                                  <div className="flex items-start gap-3">
-                                    <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white text-xs font-semibold">
-                                      {(interaction.senderName || "E").charAt(0).toUpperCase()}
-                                    </div>
-                                    <div className="flex-1">
-                                      <span className="font-medium text-sm">
-                                        {interaction.senderUsername === "Seguidor" ? "Eleitor" : `@${interaction.senderUsername || "Usuário"}`}
-                                      </span>
-                                      <p className="text-sm bg-muted/50 rounded-lg p-2 mt-1">
-                                        {interaction.userMessage}
-                                      </p>
-                                    </div>
-                                  </div>
+                              (() => {
+                                const topLevel = mediaInteractions.filter(
+                                  (interaction) => !interaction.parentCommentId
+                                );
+                                const replies = mediaInteractions.filter(
+                                  (interaction) => interaction.parentCommentId
+                                );
+                                const repliesByParent = new Map<string, InteractionEntry[]>();
 
-                                  {/* Owner response */}
-                                  {interaction.myResponse ? (
-                                    <div className="ml-11 flex items-start gap-2">
-                                      <div className="flex-1 bg-primary/10 rounded-lg p-2 border-l-2 border-primary">
-                                        <p className="text-sm">
-                                          <span className="font-medium text-primary">Sua resposta:</span>{" "}
-                                          {interaction.myResponse}
-                                        </p>
+                                for (const reply of replies) {
+                                  const key = reply.parentCommentId || "unknown";
+                                  const existing = repliesByParent.get(key) || [];
+                                  existing.push(reply);
+                                  repliesByParent.set(key, existing);
+                                }
+
+                                return topLevel.map((interaction) => {
+                                  const parentKey = interaction.instagramCommentId || `${interaction.id}`;
+                                  const threadReplies = (repliesByParent.get(parentKey) || [])
+                                    .filter((reply) => {
+                                      if (!reply.isOwnerReply || !interaction.myResponse) return true;
+                                      return reply.userMessage.trim() !== interaction.myResponse.trim();
+                                    })
+                                    .sort((a, b) => a.interactedAt.localeCompare(b.interactedAt));
+
+                                  return (
+                                    <div key={interaction.id} className="bg-background rounded-lg p-3 space-y-2">
+                                      {/* User comment */}
+                                      <div className="flex items-start gap-3">
+                                        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white text-xs font-semibold">
+                                          {(interaction.senderName || "E").charAt(0).toUpperCase()}
+                                        </div>
+                                        <div className="flex-1">
+                                          <span className="font-medium text-sm">
+                                            {interaction.senderUsername === "Seguidor" ? "Eleitor" : `@${interaction.senderUsername || "Usuário"}`}
+                                          </span>
+                                          <p className="text-sm bg-muted/50 rounded-lg p-2 mt-1">
+                                            {interaction.userMessage}
+                                          </p>
+                                        </div>
                                       </div>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => promoteToGoldMutation.mutate(interaction.id)}
-                                        disabled={promoteToGoldMutation.isPending}
-                                        className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                                      >
-                                        <Star className="h-4 w-4 mr-1" />
-                                        Promover
-                                      </Button>
+
+                                      {/* Owner response */}
+                                      {interaction.myResponse ? (
+                                        <div className="ml-11 flex items-start gap-2">
+                                          <div className="flex-1 bg-primary/10 rounded-lg p-2 border-l-2 border-primary">
+                                            <p className="text-sm">
+                                              <span className="font-medium text-primary">Sua resposta:</span>{" "}
+                                              {interaction.myResponse}
+                                            </p>
+                                          </div>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => promoteToGoldMutation.mutate(interaction.id)}
+                                            disabled={promoteToGoldMutation.isPending}
+                                            className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                                          >
+                                            <Star className="h-4 w-4 mr-1" />
+                                            Promover
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <div className="ml-11">
+                                          <p className="text-xs text-muted-foreground italic flex items-center gap-1">
+                                            ⏳ Pendente de Aprendizado
+                                          </p>
+                                        </div>
+                                      )}
+
+                                      {/* Thread replies */}
+                                      {threadReplies.length > 0 ? (
+                                        <div className="ml-11 space-y-2">
+                                          {threadReplies.map((reply) => (
+                                            <div key={reply.id} className="flex items-start gap-2">
+                                              <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-xs font-semibold text-muted-foreground">
+                                                {(reply.senderName || "E").charAt(0).toUpperCase()}
+                                              </div>
+                                              <div className={`flex-1 rounded-lg p-2 ${reply.isOwnerReply ? "bg-primary/10 border-l-2 border-primary" : "bg-muted/40"}`}>
+                                                <p className="text-xs font-medium mb-1">
+                                                  {reply.isOwnerReply ? "Você" : reply.senderUsername === "Seguidor" ? "Eleitor" : `@${reply.senderUsername || "Usuário"}`}
+                                                </p>
+                                                <p className="text-sm">{reply.userMessage}</p>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : null}
                                     </div>
-                                  ) : (
-                                    <div className="ml-11">
-                                      <p className="text-xs text-muted-foreground italic flex items-center gap-1">
-                                        ⏳ Pendente de Aprendizado
-                                      </p>
-                                    </div>
-                                  )}
-                                </div>
-                              ))
+                                  );
+                                });
+                              })()
                             ) : null}
                           </div>
                         </CollapsibleContent>
