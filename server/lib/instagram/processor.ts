@@ -218,24 +218,28 @@ function parseCommentsForInteractions(
             interactedAt: comment.timestamp ? new Date(comment.timestamp) : new Date(),
         });
 
-        // Also add replies as separate interactions for context
+        // IMPORTANT: Only add NON-OWNER replies as separate entries
+        // Owner replies are already captured in myResponse above - don't duplicate!
         if (comment.replies?.data) {
             for (const reply of comment.replies.data) {
-                // CRITICAL: Preserve the REAL username for replies too
                 const rawReplyUsername = reply.username;
                 let replyUsername = rawReplyUsername && rawReplyUsername.trim().length > 0 && rawReplyUsername !== '?'
                     ? rawReplyUsername.trim()
                     : null;
-                let replyName = replyUsername;
 
-                // Only use fallback if API truly returned no username
+                // CRITICAL: Skip owner replies - they are already in myResponse
+                if (replyUsername && replyUsername.toLowerCase() === ownerUsername.toLowerCase()) {
+                    console.log(`[SYNC] Skipping owner reply (already in myResponse): @${replyUsername}`);
+                    continue;
+                }
+
+                let replyName = replyUsername;
                 if (!replyUsername) {
                     replyUsername = "Anônimo";
                     replyName = "Anônimo";
                 }
 
-                const isOwnerReply = replyUsername?.toLowerCase() === ownerUsername.toLowerCase();
-
+                // These are OTHER users' replies (not owner) - store as separate entries
                 interactions.push({
                     channelType: 'public_comment',
                     senderName: replyName,
@@ -245,13 +249,14 @@ function parseCommentsForInteractions(
                     postContext: postCaption?.substring(0, 200) || null,
                     instagramCommentId: `${comment.id}_reply_${reply.timestamp}`,
                     parentCommentId: comment.id,
-                    isOwnerReply: isOwnerReply,
+                    isOwnerReply: false, // Never true for stored entries
                     interactedAt: reply.timestamp ? new Date(reply.timestamp) : new Date(),
                 });
             }
         }
     }
 
+    console.log(`[SYNC] Parsed ${interactions.length} interactions (owner replies embedded, not duplicated)`);
     return interactions;
 }
 
@@ -289,39 +294,50 @@ async function insertMediaAndInteractions(
         try {
             let videoTranscription: string | null = null;
             let imageDescription: string | null = null;
+            let enrichedCaption = post.caption || null;
 
             // For videos, use caption as context
             if (post.media_type === 'VIDEO' && post.caption && post.caption.length > 50) {
                 videoTranscription = `[Vídeo] ${post.caption.substring(0, 500)}`;
             }
 
-            // For images, try to generate description via GPT-4 Vision
-            if (post.media_type === 'IMAGE' && post.media_url) {
+            // For images/carousels, generate AI vision description
+            if ((post.media_type === 'IMAGE' || post.media_type === 'CAROUSEL_ALBUM') && post.media_url) {
                 try {
+                    console.log(`[SYNC] Generating vision analysis for post ${post.id}...`);
                     const visionResponse = await openai.chat.completions.create({
                         model: "gpt-4o-mini",
                         messages: [
                             {
                                 role: "user",
                                 content: [
-                                    { type: "text", text: "Descreva esta imagem em uma frase curta (máx 100 caracteres) em português:" },
+                                    {
+                                        type: "text",
+                                        text: "Descreva esta imagem em detalhes para fornecer contexto. Inclua: pessoas, objetos, cenário, cores, texto visível. Máximo 200 caracteres. Responda apenas com a descrição, em português."
+                                    },
                                     { type: "image_url", image_url: { url: post.media_url } }
                                 ]
                             }
                         ],
-                        max_tokens: 100,
+                        max_tokens: 150,
                     });
                     imageDescription = visionResponse.choices[0]?.message?.content || null;
+
+                    // CRITICAL: Append vision analysis to caption with visible prefix
+                    if (imageDescription) {
+                        console.log(`[SYNC] Vision result: ${imageDescription}`);
+                        enrichedCaption = (post.caption || "") + `\n\n[ANÁLISE VISUAL DA IA]: ${imageDescription}`;
+                    }
                 } catch (visionError) {
                     console.log(`[SYNC] Vision error for post ${post.id}:`, visionError);
                 }
             }
 
-            // Insert the media entry
+            // Insert the media entry with enriched caption
             const mediaEntry: MediaEntry = {
                 userId,
                 instagramMediaId: post.id,
-                caption: post.caption || null,
+                caption: enrichedCaption,
                 mediaType: post.media_type || 'IMAGE',
                 mediaUrl: post.media_url || null,
                 thumbnailUrl: post.thumbnail_url || null,

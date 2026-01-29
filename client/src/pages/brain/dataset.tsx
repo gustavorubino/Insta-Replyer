@@ -708,9 +708,13 @@ export default function Dataset() {
                               </p>
                             ) : expandedMediaId === media.id ? (
                               (() => {
+                                // CRITICAL: Top-level = USER comments only (not owner replies)
+                                // These must have no parentCommentId AND NOT be owner's own replies
                                 const topLevel = mediaInteractions.filter(
-                                  (interaction) => !interaction.parentCommentId
+                                  (interaction) => !interaction.parentCommentId && !interaction.isOwnerReply
                                 );
+
+                                // Child replies = entries WITH parentCommentId (other users' sub-replies)
                                 const replies = mediaInteractions.filter(
                                   (interaction) => interaction.parentCommentId
                                 );
@@ -811,14 +815,14 @@ export default function Dataset() {
                                           {threadReplies.map((reply) => (
                                             <div key={reply.id} className="flex items-start gap-2">
                                               <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${reply.isOwnerReply
-                                                  ? "bg-primary/20 text-primary"
-                                                  : "bg-muted text-muted-foreground"
+                                                ? "bg-primary/20 text-primary"
+                                                : "bg-muted text-muted-foreground"
                                                 }`}>
                                                 {(reply.senderUsername || "A").charAt(0).toUpperCase()}
                                               </div>
                                               <div className={`flex-1 rounded-lg p-2 ${reply.isOwnerReply
-                                                  ? "bg-primary/5 border-l-2 border-primary"
-                                                  : "bg-muted/30"
+                                                ? "bg-primary/5 border-l-2 border-primary"
+                                                : "bg-muted/30"
                                                 }`}>
                                                 <span className={`text-xs font-medium ${reply.isOwnerReply ? "text-primary" : ""}`}>
                                                   {formatUsername(reply.senderUsername, reply.isOwnerReply)}

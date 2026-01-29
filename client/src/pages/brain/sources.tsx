@@ -429,7 +429,7 @@ export default function Sources() {
                           <span className="text-sm font-medium truncate">@{profile.username}</span>
                           {profile.status === "completed" && (
                             <span className="text-xs text-muted-foreground">
-                              {profile.postsScraped || 0} posts • {profile.datasetEntriesGenerated || 0} entradas
+                              {profile.postsScraped || 0} posts • {profile.interactionCount || profile.datasetEntriesGenerated || 0} conversas
                             </span>
                           )}
                         </div>
