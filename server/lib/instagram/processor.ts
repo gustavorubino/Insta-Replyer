@@ -118,7 +118,7 @@ async function fetchProfile(accessToken: string): Promise<{ username: string; bi
 // ============================================
 async function fetchPostsWithComments(accessToken: string): Promise<InstagramMedia[]> {
     // Query fields include nested comments with replies
-    const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(10){text,username,timestamp,replies{text,username,timestamp}}";
+    const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(10){id,text,username,timestamp,replies{id,text,username,timestamp}}";
     const mediaUrl = `https://graph.instagram.com/me/media?fields=${encodeURIComponent(fields)}&access_token=${accessToken}&limit=${MAX_POSTS}`;
 
     const response = await fetch(mediaUrl);
