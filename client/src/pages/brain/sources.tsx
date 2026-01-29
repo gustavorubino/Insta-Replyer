@@ -11,6 +11,7 @@ import {
   Instagram,
   RefreshCw,
   Sparkles,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Card,
@@ -19,6 +20,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -33,6 +44,7 @@ export default function Sources() {
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [profileToDelete, setProfileToDelete] = useState<number | null>(null);
 
   const { data: knowledgeLinks = [], isLoading: linksLoading } = useQuery<any[]>({
     queryKey: ["/api/knowledge/links"],
@@ -146,7 +158,18 @@ export default function Sources() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
-      toast({ title: "Perfil removido" });
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/media-library"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/guidelines"] });
+      setProfileToDelete(null);
+      toast({
+        title: "Perfil removido",
+        description: "Todos os dados importados foram apagados do dataset."
+      });
+    },
+    onError: () => {
+      setProfileToDelete(null);
+      toast({ title: "Erro", description: "Não foi possível remover o perfil.", variant: "destructive" });
     },
   });
 
@@ -416,7 +439,7 @@ export default function Sources() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => deleteInstagramProfileMutation.mutate(profile.id)}
+                          onClick={() => setProfileToDelete(profile.id)}
                           disabled={deleteInstagramProfileMutation.isPending}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
@@ -504,6 +527,33 @@ export default function Sources() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Confirmation Dialog for Instagram Profile Deletion */}
+      <AlertDialog open={profileToDelete !== null} onOpenChange={(open) => !open && setProfileToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Confirmar Exclusão
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Ao desconectar, <strong>todos os dados e posts importados</strong> desta conta serão apagados permanentemente do dataset. Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => profileToDelete && deleteInstagramProfileMutation.mutate(profileToDelete)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteInstagramProfileMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Sim, Apagar Tudo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

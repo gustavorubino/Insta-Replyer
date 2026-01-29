@@ -126,6 +126,7 @@ export interface IStorage {
   createInstagramProfile(data: InsertInstagramProfile): Promise<InstagramProfile>;
   updateInstagramProfile(id: number, data: Partial<InstagramProfile>): Promise<InstagramProfile | undefined>;
   deleteInstagramProfile(id: number): Promise<void>;
+  deleteInstagramProfileWithCascade(id: number, userId: string): Promise<{ mediaDeleted: number; interactionsDeleted: number }>;
 
   // ============================================
   // NEW SaaS Knowledge Tables
@@ -896,6 +897,19 @@ export class DatabaseStorage implements IStorage {
 
   async deleteInstagramProfile(id: number): Promise<void> {
     await db.delete(instagramProfiles).where(eq(instagramProfiles.id, id));
+  }
+
+  async deleteInstagramProfileWithCascade(id: number, userId: string): Promise<{ mediaDeleted: number; interactionsDeleted: number }> {
+    // Delete related media library entries first
+    const mediaDeleted = await this.clearMediaLibrary(userId);
+
+    // Delete related interaction dialect entries
+    const interactionsDeleted = await this.clearInteractionDialect(userId);
+
+    // Finally delete the profile itself
+    await db.delete(instagramProfiles).where(eq(instagramProfiles.id, id));
+
+    return { mediaDeleted, interactionsDeleted };
   }
 
   // ============================================

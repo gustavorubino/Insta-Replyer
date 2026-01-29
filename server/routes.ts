@@ -2134,6 +2134,11 @@ export async function registerRoutes(
     try {
       const { userId } = await getUserContext(req);
 
+      // Clear imported media and interactions before disconnecting
+      const mediaDeleted = await storage.clearMediaLibrary(userId);
+      const interactionsDeleted = await storage.clearInteractionDialect(userId);
+      console.log(`[Instagram Disconnect] Cleared ${mediaDeleted} media entries and ${interactionsDeleted} interactions for user ${userId}`);
+
       // Clear user's Instagram credentials
       await authStorage.updateUser(userId, {
         instagramAccountId: null,
@@ -2145,7 +2150,7 @@ export async function registerRoutes(
       await storage.setSetting("instagramConnected", "false");
       await storage.setSetting("instagramUsername", "");
 
-      res.json({ success: true });
+      res.json({ success: true, mediaDeleted, interactionsDeleted });
     } catch (error) {
       console.error("Error disconnecting Instagram:", error);
       res.status(500).json({ error: "Failed to disconnect Instagram" });
@@ -4853,8 +4858,13 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Profile not found" });
       }
 
-      await storage.deleteInstagramProfile(profileId);
-      res.status(204).send();
+      const result = await storage.deleteInstagramProfileWithCascade(profileId, userId);
+      console.log(`[Cascade Delete] Profile ${profileId} deleted with ${result.mediaDeleted} media and ${result.interactionsDeleted} interactions`);
+      res.json({
+        success: true,
+        mediaDeleted: result.mediaDeleted,
+        interactionsDeleted: result.interactionsDeleted
+      });
     } catch (error) {
       console.error("Error deleting Instagram profile:", error);
       res.status(500).json({ error: "Failed to delete Instagram profile" });
