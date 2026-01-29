@@ -95,7 +95,10 @@ function extractPatterns(captions: string[]): CommunicationPatterns {
 
 // ============================================
 // SYNC ALL KNOWLEDGE (Main Sync Function)
+// Delegates to the new processor module with proper nuclear clean
 // ============================================
+
+import { syncInstagramProcessor } from "./lib/instagram/processor";
 
 interface SyncResult {
     mediaCount: number;
@@ -115,250 +118,15 @@ export async function syncAllKnowledge(
     instagramAccountId: string,
     onProgress?: (progress: SyncProgress) => void
 ): Promise<SyncResult> {
-    console.log(`[SyncKnowledge] Iniciando sincronização completa para userId: ${userId}`);
+    console.log(`[SyncKnowledge] Delegating to new processor for userId: ${userId}`);
 
-    const report = (stage: string, percent: number) => {
-        console.log(`[SyncKnowledge] ${percent}% - ${stage}`);
-        onProgress?.({ stage, percent });
-    };
-
-    report("Limpando dados antigos...", 5);
-
-    // Clear old data
-    const clearedMedia = await storage.clearMediaLibrary(userId);
-    const clearedInteractions = await storage.clearInteractionDialect(userId);
-    console.log(`[SyncKnowledge] Limpeza concluída: ${clearedMedia} posts e ${clearedInteractions} interações removidas`);
-
-    report("Buscando perfil do Instagram...", 10);
-
-    // Fetch profile
-    const profileUrl = `https://graph.instagram.com/me?fields=id,username,biography&access_token=${accessToken}`;
-    const profileResponse = await fetch(profileUrl);
-
-    if (!profileResponse.ok) {
-        throw new Error(`Erro ao buscar perfil: ${profileResponse.status}`);
-    }
-
-    const profileData = await profileResponse.json() as {
-        id: string;
-        username: string;
-        biography?: string;
-    };
-
-    const username = profileData.username || "usuario";
-    const bio = profileData.biography || "";
-
-    report("Buscando posts do Instagram...", 20);
-
-    // Fetch media (last 50 posts)
-    const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,media_type,media_url,thumbnail_url&access_token=${accessToken}&limit=50`;
-    const mediaResponse = await fetch(mediaUrl);
-
-    if (!mediaResponse.ok) {
-        throw new Error(`Erro ao buscar posts: ${mediaResponse.status}`);
-    }
-
-    const mediaData = await mediaResponse.json() as {
-        data: Array<{
-            id: string;
-            caption?: string;
-            timestamp?: string;
-            media_type?: string;
-            media_url?: string;
-            thumbnail_url?: string;
-        }>;
-    };
-
-    const posts = mediaData.data || [];
-    let mediaCount = 0;
-    let interactionCount = 0;
-
-    report(`Processando ${posts.length} posts...`, 30);
-
-    // Save to media_library (up to 50) and fetch comments for each
-    for (let i = 0; i < Math.min(posts.length, 50); i++) {
-        const post = posts[i];
-        const progress = 30 + Math.floor((i / posts.length) * 40);
-
-        try {
-            let videoTranscription: string | undefined;
-            let imageDescription: string | undefined;
-
-            // For videos, try to get transcription (simplified - would need audio extraction)
-            if (post.media_type === 'VIDEO' && post.caption && post.caption.length > 50) {
-                // Note: Full transcription would require audio extraction
-                // For now, we use the caption as context
-                videoTranscription = `[Vídeo] ${post.caption.substring(0, 500)}`;
-            }
-
-            // For images, generate description via GPT-4 Vision
-            if (post.media_type === 'IMAGE' && post.media_url) {
-                try {
-                    const visionResponse = await openai.chat.completions.create({
-                        model: "gpt-4o-mini",
-                        messages: [
-                            {
-                                role: "user",
-                                content: [
-                                    { type: "text", text: "Descreva esta imagem em uma frase curta (máx 100 caracteres) em português:" },
-                                    { type: "image_url", image_url: { url: post.media_url } }
-                                ]
-                            }
-                        ],
-                        max_tokens: 100,
-                    });
-                    imageDescription = visionResponse.choices[0]?.message?.content || undefined;
-                } catch (visionError) {
-                    console.log(`[SyncKnowledge] Erro ao descrever imagem ${post.id}:`, visionError);
-                }
-            }
-
-            // Save the media entry and get the ID for linking comments
-            const savedMedia = await storage.addMediaLibraryEntry({
-                userId,
-                instagramMediaId: post.id,
-                caption: post.caption || null,
-                mediaType: post.media_type || 'IMAGE',
-                mediaUrl: post.media_url || null,
-                thumbnailUrl: post.thumbnail_url || null,
-                videoTranscription: videoTranscription || null,
-                imageDescription: imageDescription || null,
-                postedAt: post.timestamp ? new Date(post.timestamp) : null,
-            });
-
-            mediaCount++;
-
-            // ================================================
-            // FETCH TOP 10 COMMENTS WITH OWNER REPLIES FOR THIS POST
-            // ================================================
-            const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=50`;
-
-            try {
-                const commentsResponse = await fetch(commentsUrl);
-                if (commentsResponse.ok) {
-                    const commentsData = await commentsResponse.json() as {
-                        data: Array<{
-                            id: string;
-                            text: string;
-                            username?: string;
-                            timestamp: string;
-                            from?: { id: string; username?: string };
-                            replies?: {
-                                data: Array<{
-                                    id: string;
-                                    text: string;
-                                    username?: string;
-                                    timestamp: string;
-                                    from?: { id: string; username?: string };
-                                }>;
-                            };
-                        }>;
-                    };
-
-                    // Prioritize comments that have owner replies (for better learning)
-                    const commentsWithData = (commentsData.data || []).map(comment => {
-                        let ownerReply: string | null = null;
-
-                        if (comment.replies?.data) {
-                            for (const reply of comment.replies.data) {
-                                const replyUsername = reply.from?.username || reply.username || "";
-                                if (replyUsername === username) {
-                                    ownerReply = reply.text;
-                                    break;
-                                }
-                            }
-                        }
-
-                        return { ...comment, ownerReply };
-                    });
-
-                    // Sort: comments WITH owner replies first
-                    const sortedComments = commentsWithData.sort((a, b) => {
-                        if (a.ownerReply && !b.ownerReply) return -1;
-                        if (!a.ownerReply && b.ownerReply) return 1;
-                        return 0;
-                    });
-
-                    // Take TOP 10 for this post
-                    const topComments = sortedComments.slice(0, 10);
-
-                    for (const comment of topComments) {
-                        // Get username with fallback
-                        let senderUsername = comment.from?.username || comment.username || null;
-                        let senderName = senderUsername;
-
-                        // Use meaningful fallback if username is empty
-                        if (!senderUsername || senderUsername === '?' || senderUsername.length === 0) {
-                            senderUsername = "Seguidor";
-                            senderName = "Eleitor";
-                        }
-
-                        await storage.addInteractionDialect({
-                            userId,
-                            mediaId: savedMedia.id, // Link to the post!
-                            channelType: 'public_comment',
-                            senderName: senderName,
-                            senderUsername: senderUsername,
-                            userMessage: comment.text,
-                            myResponse: comment.ownerReply,
-                            postContext: post.caption?.substring(0, 200) || null,
-                            instagramCommentId: comment.id,
-                            parentCommentId: null,
-                            isOwnerReply: false,
-                            interactedAt: comment.timestamp ? new Date(comment.timestamp) : undefined,
-                        });
-                        interactionCount++;
-
-                        if (comment.replies?.data?.length) {
-                            for (const reply of comment.replies.data) {
-                                let replyUsername = reply.from?.username || reply.username || null;
-                                let replyName = replyUsername;
-
-                                if (!replyUsername || replyUsername === '?' || replyUsername.length === 0) {
-                                    replyUsername = "Seguidor";
-                                    replyName = "Eleitor";
-                                }
-
-                                const isOwnerReply = replyUsername?.toLowerCase() === username.toLowerCase();
-
-                                await storage.addInteractionDialect({
-                                    userId,
-                                    mediaId: savedMedia.id,
-                                    channelType: 'public_comment',
-                                    senderName: replyName,
-                                    senderUsername: replyUsername,
-                                    userMessage: reply.text,
-                                    myResponse: null,
-                                    postContext: post.caption?.substring(0, 200) || null,
-                                    instagramCommentId: reply.id,
-                                    parentCommentId: comment.id,
-                                    isOwnerReply,
-                                    interactedAt: reply.timestamp ? new Date(reply.timestamp) : undefined,
-                                });
-                                interactionCount++;
-                            }
-                        }
-                    }
-                }
-            } catch (commentErr) {
-                console.log(`[SyncKnowledge] Erro ao buscar comentários do post ${post.id}:`, commentErr);
-            }
-
-        } catch (err) {
-            console.error(`[SyncKnowledge] Erro ao salvar post ${post.id}:`, err);
-        }
-    }
-
-    report("Sincronização concluída!", 100);
-
-    console.log(`[SyncKnowledge] ✅ Sincronizado: ${mediaCount} posts, ${interactionCount} interações`);
-
-    return {
-        mediaCount,
-        interactionCount,
-        username,
-        bio,
-    };
+    // Delegate to the new processor module which implements:
+    // 1. NUCLEAR CLEAN (delete all data before insert)
+    // 2. FETCH WITH DEPTH (nested comments with replies)
+    // 3. ENFORCE LIMITS (max 50 posts)
+    // 4. INTELLIGENT PARSING (owner reply detection)
+    // 5. TRANSACTIONAL INSERT
+    return syncInstagramProcessor(userId, accessToken, instagramAccountId, onProgress);
 }
 
 // ============================================
