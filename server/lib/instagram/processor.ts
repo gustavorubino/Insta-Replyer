@@ -185,33 +185,27 @@ function parseCommentsForInteractions(
         // Check if owner has replied to this comment
         let ownerReplyText: string | null = null;
         if (comment.replies?.data) {
+            console.log(`[SYNC] Comment has ${comment.replies.data.length} replies`);
             for (const reply of comment.replies.data) {
                 const replyUsername = (reply.username || "").toLowerCase();
                 if (replyUsername === ownerUsername.toLowerCase()) {
                     ownerReplyText = reply.text;
-                    console.log(`[SYNC] ✅ Found owner reply to @${comment.username}: "${ownerReplyText.substring(0, 50)}..."`);
+                    console.log(`[SYNC] ✅ Found owner reply: "${ownerReplyText.substring(0, 50)}..."`);
                     break;
                 }
             }
         }
 
-        // CRITICAL: ONLY save if owner replied - skip comments without response
-        // This is what creates valid training pairs (User Input → Owner Output)
-        if (!ownerReplyText) {
-            console.log(`[SYNC] ⏭️ Skipping comment without owner reply: @${comment.username}`);
-            continue;
-        }
-
         // Get the real username from the API
         const senderUsername = comment.username?.trim() || "Seguidor";
 
-        // Create ONE valid interaction pair
+        // SAVE ALL COMMENTS - myResponse will be null if owner didn't reply
         interactions.push({
             channelType: 'public_comment',
             senderName: senderUsername,
             senderUsername: senderUsername,
             userMessage: comment.text,
-            myResponse: ownerReplyText,
+            myResponse: ownerReplyText, // null if no owner reply
             postContext: postCaption?.substring(0, 200) || null,
             instagramCommentId: comment.id,
             parentCommentId: null,
@@ -219,10 +213,15 @@ function parseCommentsForInteractions(
             interactedAt: comment.timestamp ? new Date(comment.timestamp) : new Date(),
         });
 
-        console.log(`[SYNC] 💾 Saved interaction pair: @${senderUsername} → Owner reply`);
+        if (ownerReplyText) {
+            console.log(`[SYNC] 💾 Saved WITH owner reply: @${senderUsername}`);
+        } else {
+            console.log(`[SYNC] 💾 Saved comment: @${senderUsername} (no reply yet)`);
+        }
     }
 
-    console.log(`[SYNC] ✅ Created ${interactions.length} valid interaction pairs (comment + owner reply)`);
+    const withReplies = interactions.filter(i => i.myResponse).length;
+    console.log(`[SYNC] ✅ Saved ${interactions.length} comments (${withReplies} with owner replies)`);
     return interactions;
 }
 
@@ -256,6 +255,14 @@ async function insertMediaAndInteractions(
         const post = posts[i];
         const progress = 40 + Math.floor((i / totalPosts) * 50);
         onProgress?.({ stage: `Processando post ${i + 1}/${totalPosts}...`, percent: progress });
+
+        // DEBUG: Log raw comments from API
+        console.log(`[SYNC] Post ${i + 1}: ${post.id}, type: ${post.media_type}, comments: ${post.comments?.data?.length || 0}`);
+        if (post.comments?.data) {
+            for (const c of post.comments.data) {
+                console.log(`[SYNC]   Comment by @${c.username}: "${c.text.substring(0, 30)}..." (replies: ${c.replies?.data?.length || 0})`);
+            }
+        }
 
         try {
             let videoTranscription: string | null = null;

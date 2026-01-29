@@ -800,8 +800,14 @@ export default function Dataset() {
                                           </div>
                                         </div>
                                       )}
-                                      {/* Note: Since we only save interactions with owner replies, 
-                                          every entry now has myResponse - no "sem resposta" needed */}
+
+                                      {/* No response indicator */}
+                                      {!interaction.myResponse && (
+                                        <div className="ml-12 flex items-center gap-2 text-muted-foreground">
+                                          <span className="text-xs">└</span>
+                                          <span className="text-xs italic">⏳ Sem resposta registrada</span>
+                                        </div>
+                                      )}
 
                                       {/* Additional thread replies */}
                                       {threadReplies.length > 0 && (
