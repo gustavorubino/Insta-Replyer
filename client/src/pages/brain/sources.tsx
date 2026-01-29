@@ -351,88 +351,165 @@ export default function Sources() {
               <Label>Clonagem Automática de Personalidade</Label>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button
-                onClick={() => syncOfficialMutation.mutate()}
-                disabled={syncOfficialMutation.isPending}
-                className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
-              >
-                {syncOfficialMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                )}
-                Sincronizar Minha Conta Oficial
-              </Button>
-              <Button
-                onClick={() => generatePersonalityMutation.mutate()}
-                disabled={generatePersonalityMutation.isPending || instagramProfiles.length === 0}
-                variant="outline"
-                className="flex-1 border-purple-300 dark:border-purple-700"
-              >
-                {generatePersonalityMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4 mr-2" />
-                )}
-                Gerar Personalidade via IA
-              </Button>
-            </div>
-
-            <div className="flex items-start gap-2 p-3 rounded-lg bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-200/50 dark:border-purple-800/50">
-              <Sparkles className="h-4 w-4 text-purple-500 mt-0.5 shrink-0" />
-              <p className="text-xs text-muted-foreground">
-                Use sua conta Instagram conectada para clonar automaticamente seu tom de voz. A IA analisa suas legendas e gera uma personalidade única.
-              </p>
-            </div>
+            {/* Sync Status & Action Area */}
             {profilesLoading ? (
               <div className="flex items-center justify-center py-4">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               </div>
-            ) : instagramProfiles.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum perfil sincronizado ainda.</p>
-            ) : (
-              <div className="space-y-2">
-                {instagramProfiles.map((profile: any) => (
-                  <div
-                    key={profile.id}
-                    className="flex flex-col gap-2 p-3 rounded-lg border"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <Instagram className="h-4 w-4 shrink-0 text-pink-500" />
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-sm font-medium truncate">@{profile.username}</span>
-                          {profile.status === "completed" && (
-                            <span className="text-xs text-muted-foreground">
-                              {profile.postsScraped || 0} posts • {profile.datasetEntriesGenerated || 0} entradas
-                            </span>
-                          )}
+            ) : instagramProfiles.length > 0 ? (
+              // CONNECTED STATE
+              <div className="space-y-4">
+                <div className="flex flex-col gap-2 p-4 rounded-lg border bg-card text-card-foreground shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-500 p-[2px]">
+                        <div className="h-full w-full rounded-full bg-white dark:bg-black p-0.5 overflow-hidden">
+                          <Instagram className="h-full w-full text-zinc-800 dark:text-zinc-200" />
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {getStatusBadge(profile.status, profile.progress, profile.username)}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteInstagramProfileMutation.mutate(profile.id)}
-                          disabled={deleteInstagramProfileMutation.isPending}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                      <div>
+                        <h3 className="font-medium">@{instagramProfiles[0].username}</h3>
+                        <p className="text-sm text-muted-foreground">Conta Oficial Conectada</p>
                       </div>
                     </div>
-                    {(profile.status === "error" || profile.status === "private") && profile.errorMessage && (
-                      <div className={`text-xs p-2 rounded ${profile.status === "private"
-                        ? "bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300"
-                        : "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300"
-                        }`}>
-                        {profile.errorMessage}
-                      </div>
-                    )}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={async () => {
+                        if (confirm("Tem certeza? Isso apagará todo o conhecimento clonado do Instagram.")) {
+                          await apiRequest("POST", "/api/brain/disconnect", {});
+                          queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
+                          queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
+                          toast({ title: "Desconectado", description: "Todos os dados foram limpos." });
+                        }
+                      }}
+                    >
+                      Desconectar
+                    </Button>
                   </div>
-                ))}
+
+                  {instagramProfiles[0].status === 'completed' && (
+                    <div className="flex gap-4 mt-2">
+                      <div className="flex flex-col">
+                        <span className="text-2xl font-bold">{instagramProfiles[0].postsScraped || 0}</span>
+                        <span className="text-xs text-muted-foreground uppercase tracking-wider">Posts</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-2xl font-bold">{instagramProfiles[0].datasetEntriesGenerated || 0}</span>
+                        <span className="text-xs text-muted-foreground uppercase tracking-wider">Interações</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => {
+                      // Trigger SSE Sync
+                      const eventSource = new EventSource("/api/brain/sync-knowledge/stream");
+                      setIsUploadingFile(true); // Reusing this state for "isSyncing" to block UI
+                      setUploadProgress(0); // Reusing for progress bar
+
+                      // We can use a toast or local state to show detailed status
+                      let currentStep = "Iniciando...";
+
+                      eventSource.onmessage = (event) => {
+                        const data = JSON.parse(event.data);
+
+                        if (data.type === 'progress') {
+                          setUploadProgress(data.progress);
+                          currentStep = data.step;
+                          // Optional: update a specific status text state
+                        } else if (data.type === 'complete') {
+                          eventSource.close();
+                          setIsUploadingFile(false);
+                          setUploadProgress(100);
+                          queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
+                          queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
+                          toast({ title: "Sincronização Concluída!", description: `Analisados: ${data.mediaCount} posts, ${data.interactionCount} interações.` });
+                        } else if (data.type === 'error') {
+                          eventSource.close();
+                          setIsUploadingFile(false);
+                          toast({ title: "Erro na Sincronização", description: data.message, variant: "destructive" });
+                        }
+                      };
+
+                      eventSource.onerror = () => {
+                        eventSource.close();
+                        setIsUploadingFile(false);
+                        // toast({ title: "Conexão perdida", variant: "destructive" });
+                      };
+                    }}
+                    disabled={isUploadingFile} // isSyncing
+                    className="flex-1"
+                  >
+                    {isUploadingFile ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        {uploadProgress}% Sincronizando...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Sincronizar Novamente
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    onClick={() => generatePersonalityMutation.mutate()}
+                    disabled={generatePersonalityMutation.isPending}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    {generatePersonalityMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                    Regerar Personalidade
+                  </Button>
+                </div>
+
+                {isUploadingFile && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Progresso</span>
+                      <span>{uploadProgress}%</span>
+                    </div>
+                    <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all duration-500 ease-out"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-center text-muted-foreground animate-pulse">
+                      Isso pode levar alguns minutos. Mantenha esta página aberta.
+                    </p>
+                  </div>
+                )}
+
+              </div>
+            ) : (
+              // DISCONNECTED STATE
+              <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-lg text-center space-y-4">
+                <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+                  <Instagram className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-medium">Nenhuma conta conectada</h3>
+                  <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                    Conecte sua conta do Instagram para permitir que a IA aprenda com seus posts e interações reais.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => {
+                    // Redirect to connection (or setup flow)
+                    // For now assuming the user has "connected" via the Connection tab, so we just show the sync button to "start"
+                    // But actually, if instagramProfiles is empty, it usually means we need to "Sync Official" first time.
+                    syncOfficialMutation.mutate();
+                  }}
+                  disabled={syncOfficialMutation.isPending}
+                >
+                  {syncOfficialMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Instagram className="h-4 w-4 mr-2" />}
+                  Conectar Conta Oficial
+                </Button>
               </div>
             )}
           </div>

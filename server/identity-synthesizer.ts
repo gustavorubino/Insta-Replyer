@@ -104,31 +104,26 @@ interface SyncResult {
     bio: string;
 }
 
-interface SyncProgress {
-    stage: string;
-    percent: number;
-}
-
 export async function syncAllKnowledge(
     userId: string,
     accessToken: string,
     instagramAccountId: string,
-    onProgress?: (progress: SyncProgress) => void
+    onProgress?: (step: string, progress: number, detail?: string) => void
 ): Promise<SyncResult> {
     console.log(`[SyncKnowledge] Iniciando sincronização completa para userId: ${userId}`);
 
-    const report = (stage: string, percent: number) => {
-        console.log(`[SyncKnowledge] ${percent}% - ${stage}`);
-        onProgress?.({ stage, percent });
+    const report = (step: string, percent: number, detail?: string) => {
+        console.log(`[SyncKnowledge] ${percent}% - ${step}`);
+        onProgress?.(step, percent, detail);
     };
 
-    report("Limpando dados antigos...", 5);
+    report("Limpando dados antigos...", 5, "Preparando banco de dados");
 
     // Clear old data
     await storage.clearMediaLibrary(userId);
     await storage.clearInteractionDialect(userId);
 
-    report("Buscando perfil do Instagram...", 10);
+    report("Buscando perfil do Instagram...", 10, "Conectando à Graph API");
 
     // Fetch profile
     const profileUrl = `https://graph.instagram.com/me?fields=id,username,biography&access_token=${accessToken}`;
@@ -147,10 +142,10 @@ export async function syncAllKnowledge(
     const username = profileData.username || "usuario";
     const bio = profileData.biography || "";
 
-    report("Buscando posts do Instagram...", 20);
+    report("Buscando posts do Instagram...", 20, "Baixando mídia recente");
 
     // Fetch media (last 50 posts)
-    const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,media_type,media_url,thumbnail_url&access_token=${accessToken}&limit=50`;
+    const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,media_type,media_url,thumbnail_url,permalink&access_token=${accessToken}&limit=50`;
     const mediaResponse = await fetch(mediaUrl);
 
     if (!mediaResponse.ok) {
@@ -165,19 +160,23 @@ export async function syncAllKnowledge(
             media_type?: string;
             media_url?: string;
             thumbnail_url?: string;
+            permalink?: string;
         }>;
     };
 
     const posts = mediaData.data || [];
     let mediaCount = 0;
     let interactionCount = 0;
+    const TARGET_INTERACTIONS = 500;
 
-    report(`Processando ${posts.length} posts...`, 30);
+    report(`Processando ${posts.length} posts...`, 30, "Iniciando análise profunda");
 
     // Save to media_library (up to 50) and fetch comments for each
     for (let i = 0; i < Math.min(posts.length, 50); i++) {
         const post = posts[i];
-        const progress = 30 + Math.floor((i / posts.length) * 40);
+        const progress = 30 + Math.floor((i / posts.length) * 60); // Scale up to 90%
+
+        report("Processando Post", progress, `Post ${i + 1}/${posts.length}: ${post.caption?.substring(0, 30) || "Sem legenda"}...`);
 
         try {
             let videoTranscription: string | undefined;
@@ -185,13 +184,11 @@ export async function syncAllKnowledge(
 
             // For videos, try to get transcription (simplified - would need audio extraction)
             if (post.media_type === 'VIDEO' && post.caption && post.caption.length > 50) {
-                // Note: Full transcription would require audio extraction
-                // For now, we use the caption as context
                 videoTranscription = `[Vídeo] ${post.caption.substring(0, 500)}`;
             }
 
-            // For images, generate description via GPT-4 Vision
-            if (post.media_type === 'IMAGE' && post.media_url) {
+            // For images, generate description via GPT-4 Vision (only for first 5 to save tokens/time)
+            if (post.media_type === 'IMAGE' && post.media_url && i < 5) {
                 try {
                     const visionResponse = await openai.chat.completions.create({
                         model: "gpt-4o-mini",
@@ -228,9 +225,10 @@ export async function syncAllKnowledge(
             mediaCount++;
 
             // ================================================
-            // FETCH TOP 10 COMMENTS WITH OWNER REPLIES FOR THIS POST
+            // FETCH DEEP THREADS (Contextual Interactions)
             // ================================================
-            const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=30`;
+            // Fetch more comments to find threads (limit 50 per post)
+            const commentsUrl = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=50`;
 
             try {
                 const commentsResponse = await fetch(commentsUrl);
@@ -254,12 +252,14 @@ export async function syncAllKnowledge(
                         }>;
                     };
 
-                    // Prioritize comments that have owner replies (for better learning)
-                    const commentsWithData = (commentsData.data || []).map(comment => {
+                    // Filter: Only keep comments that have owner replies OR are relevant (length > 10)
+                    const relevantComments = (commentsData.data || []).map(comment => {
                         let ownerReply: string | null = null;
 
+                        // Check for owner reply in the thread
                         if (comment.replies?.data) {
                             for (const reply of comment.replies.data) {
+                                // Simple check: same username as profile (or just the first reply if we assume owner replies primarily)
                                 const replyUsername = reply.from?.username || reply.username || "";
                                 if (replyUsername === username) {
                                     ownerReply = reply.text;
@@ -271,15 +271,18 @@ export async function syncAllKnowledge(
                         return { ...comment, ownerReply };
                     });
 
-                    // Sort: comments WITH owner replies first
-                    const sortedComments = commentsWithData.sort((a, b) => {
+                    // Sort: Comments with owner replies FIRST
+                    const sortedComments = relevantComments.sort((a, b) => {
                         if (a.ownerReply && !b.ownerReply) return -1;
                         if (!a.ownerReply && b.ownerReply) return 1;
                         return 0;
                     });
 
-                    // Take TOP 10 for this post
-                    const topComments = sortedComments.slice(0, 10);
+                    // Dynamic limit: take up to 20 threads per post, OR more if we are far from target
+                    const threadsNeeded = TARGET_INTERACTIONS - interactionCount;
+                    const limitForThisPost = threadsNeeded > 400 ? 20 : 10; // Try to get more early on
+
+                    const topComments = sortedComments.slice(0, limitForThisPost);
 
                     for (const comment of topComments) {
                         // Get username with fallback
@@ -292,14 +295,15 @@ export async function syncAllKnowledge(
                             senderName = "Eleitor";
                         }
 
+                        // Save interaction
                         await storage.addInteractionDialect({
                             userId,
-                            mediaId: savedMedia.id, // Link to the post!
+                            mediaId: savedMedia.id, // Linked to Media
                             channelType: 'public_comment',
                             senderName: senderName,
                             senderUsername: senderUsername,
                             userMessage: comment.text,
-                            myResponse: comment.ownerReply,
+                            myResponse: comment.ownerReply, // The precious owner reply
                             postContext: post.caption?.substring(0, 200) || null,
                             instagramCommentId: comment.id,
                             parentCommentId: null,
@@ -309,7 +313,8 @@ export async function syncAllKnowledge(
                     }
                 }
             } catch (commentErr) {
-                console.log(`[SyncKnowledge] Erro ao buscar comentários do post ${post.id}:`, commentErr);
+                // silently fail for comments to continue processing other posts
+                console.log(`[SyncKnowledge] Erro ao buscar comentários do post ${post.id}`, commentErr);
             }
 
         } catch (err) {
@@ -317,7 +322,7 @@ export async function syncAllKnowledge(
         }
     }
 
-    report("Sincronização concluída!", 100);
+    report("Finalizando...", 100, "Sincronização concluída com sucesso!");
 
     console.log(`[SyncKnowledge] ✅ Sincronizado: ${mediaCount} posts, ${interactionCount} interações`);
 

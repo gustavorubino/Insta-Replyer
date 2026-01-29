@@ -5255,46 +5255,96 @@ Retorne APENAS o System Prompt mesclado, sem nenhum texto adicional.`;
     }
   });
 
-  // POST /api/brain/sync-knowledge - Sync all knowledge from Instagram (with progress)
-  app.post("/api/brain/sync-knowledge", isAuthenticated, async (req, res) => {
+  // POST /api/brain/disconnect - Deep Clean (Disconnect Instagram)
+  app.post("/api/brain/disconnect", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+
+      // 1. Remove Instagram credentials
+      await authStorage.updateUser(userId, {
+        instagramAccessToken: null,
+        instagramAccountId: null,
+        instagramUsername: null
+      });
+
+      // 2. Clear Media Library
+      await storage.clearMediaLibrary(userId);
+
+      // 3. Clear Interactions
+      await storage.clearInteractionDialect(userId);
+
+      // Note: We intentionally KEEP Manual QA (Golden Corrections) as it's user intellectual property
+
+      res.json({
+        success: true,
+        message: "Conta desconectada e dados limpos com sucesso!"
+      });
+    } catch (error) {
+      console.error("Error disconnecting:", error);
+      res.status(500).json({ error: "Failed to disconnect account" });
+    }
+  });
+
+  // POST /api/brain/sync-knowledge - Sync with SSE (Server-Sent Events)
+  app.get("/api/brain/sync-knowledge/stream", isAuthenticated, async (req, res) => {
+    // SSE Headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    // Helper to send events
+    const sendEvent = (type: string, data: any) => {
+      res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+    };
+
     try {
       const { userId } = await getUserContext(req);
       const user = await authStorage.getUser(userId);
 
       if (!user?.instagramAccessToken || !user?.instagramAccountId) {
-        return res.status(400).json({
-          error: "Conecte sua conta Instagram primeiro",
-          code: "NOT_CONNECTED"
-        });
+        sendEvent("error", { message: "Conecte sua conta Instagram primeiro" });
+        return res.end();
       }
 
-      // Decrypt access token if needed
+      // Decrypt access token
       let accessToken = user.instagramAccessToken;
       if (isEncrypted(accessToken)) {
         accessToken = decrypt(accessToken);
       }
 
-      // Import identity synthesizer
+      // Import synthesizer
       const { syncAllKnowledge } = await import("./identity-synthesizer");
 
-      // Run sync (this is a blocking operation for now, could be made async with SSE)
+      // Run sync with progress callback
       const result = await syncAllKnowledge(
         userId,
         accessToken,
-        user.instagramAccountId
+        user.instagramAccountId,
+        (step, progress, detail) => {
+          sendEvent("progress", { step, progress, detail });
+        }
       );
 
-      res.json({
-        success: true,
-        message: `Sincronizado: ${result.mediaCount} posts, ${result.interactionCount} interações`,
-        ...result,
-      });
+      sendEvent("complete", result);
+      res.end();
+
     } catch (error: any) {
       console.error("Error syncing knowledge:", error);
-      res.status(500).json({
-        error: error?.message || "Failed to sync knowledge",
-      });
+      sendEvent("error", { message: error?.message || "Falha na sincronização" });
+      res.end();
     }
+  });
+
+  // Legacy Sync (kept for backward compatibility via POST if needed, but UI should use GET stream)
+  app.post("/api/brain/sync-knowledge", isAuthenticated, async (req, res) => {
+    try {
+      // ... existing logic redirected to stream implementation on client side
+      // For now, just return a message telling client to use stream
+      res.status(426).json({
+        error: "Please use /api/brain/sync-knowledge/stream for synchronization",
+        upgrade_required: true
+      });
+    } catch (e) { res.status(500).json({ error: "Legacy sync failed" }); }
   });
 
   // POST /api/brain/synthesize-identity - Generate personality from knowledge tables
