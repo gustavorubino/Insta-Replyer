@@ -4693,7 +4693,13 @@ export async function registerRoutes(
   // POST /api/brain/migrate-legacy - Migrate learning history to dataset
   app.post("/api/brain/migrate-legacy", isAuthenticated, async (req, res) => {
     try {
-      const { userId } = await getUserContext(req);
+      const { userId, isAdmin } = await getUserContext(req);
+      const users = await authStorage.getAllUsers();
+      if (!isAdmin && users.length > 1) {
+        return res.status(403).json({
+          error: "Admin access required to migrate legacy data in multi-user setups",
+        });
+      }
 
       console.log(`[Migration] Starting legacy learning migration for user ${userId}...`);
 
