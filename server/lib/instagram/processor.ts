@@ -40,6 +40,10 @@ interface InstagramComment {
     text: string;
     username?: string;
     timestamp: string;
+    from?: {
+        id: string;
+        username: string;
+    };
     replies?: {
         data?: InstagramReply[];
     };
@@ -50,6 +54,10 @@ interface InstagramReply {
     text: string;
     username?: string;
     timestamp: string;
+    from?: {
+        id: string;
+        username: string;
+    };
 }
 
 interface SyncResult {
@@ -117,8 +125,8 @@ async function fetchProfile(accessToken: string): Promise<{ username: string; bi
 // STEP 2: FETCH WITH DEPTH (Posts + Nested Comments)
 // ============================================
 async function fetchPostsWithComments(accessToken: string): Promise<InstagramMedia[]> {
-    // Query fields include nested comments with replies
-    const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(10){id,text,username,timestamp,replies{id,text,username,timestamp}}";
+    // Query fields include nested comments with from{} for username
+    const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(10){id,text,username,timestamp,from{id,username}}";
     const mediaUrl = `https://graph.instagram.com/me/media?fields=${encodeURIComponent(fields)}&access_token=${accessToken}&limit=${MAX_POSTS}`;
 
     const response = await fetch(mediaUrl);
@@ -132,6 +140,27 @@ async function fetchPostsWithComments(accessToken: string): Promise<InstagramMed
     };
 
     return data.data || [];
+}
+
+// ============================================
+// STEP 2b: FETCH REPLIES FOR A COMMENT
+// ============================================
+async function fetchRepliesForComment(commentId: string, accessToken: string): Promise<InstagramReply[]> {
+    try {
+        const url = `https://graph.instagram.com/${commentId}/replies?fields=id,text,username,timestamp,from{id,username}&access_token=${accessToken}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            console.log(`[SYNC] Failed to fetch replies for comment ${commentId}: ${response.status}`);
+            return [];
+        }
+
+        const data = await response.json() as { data?: InstagramReply[] };
+        return data.data || [];
+    } catch (error) {
+        console.log(`[SYNC] Error fetching replies for comment ${commentId}:`, error);
+        return [];
+    }
 }
 
 // ============================================
@@ -160,11 +189,12 @@ interface ParsedInteraction {
     interactedAt: Date;
 }
 
-function parseCommentsForInteractions(
+async function parseCommentsForInteractions(
     comments: InstagramComment[] | undefined,
     ownerUsername: string,
-    postCaption: string | null
-): ParsedInteraction[] {
+    postCaption: string | null,
+    accessToken: string
+): Promise<ParsedInteraction[]> {
     if (!comments || comments.length === 0) {
         return [];
     }
@@ -175,30 +205,33 @@ function parseCommentsForInteractions(
     console.log(`[SYNC] Processing ${limitedComments.length} comments, looking for owner replies...`);
 
     for (const comment of limitedComments) {
-        const commentUsername = comment.username?.trim().toLowerCase() || '';
+        // Get username from 'from' field first, then fallback to 'username'
+        const commentUsername = comment.from?.username?.trim().toLowerCase() || comment.username?.trim().toLowerCase() || '';
+
         if (commentUsername === ownerUsername.toLowerCase()) {
             const textPreview = (comment.text || '[sem texto]').substring(0, 30);
             console.log(`[SYNC] Skipping owner's own comment: ${textPreview}...`);
             continue;
         }
 
+        // Fetch replies for this comment via separate API call
+        const replies = await fetchRepliesForComment(comment.id, accessToken);
+        console.log(`[SYNC] Comment ${comment.id} has ${replies.length} replies from API`);
+
         // Check if owner has replied to this comment
         let ownerReplyText: string | null = null;
-        if (comment.replies?.data) {
-            console.log(`[SYNC] Comment has ${comment.replies.data.length} replies`);
-            for (const reply of comment.replies.data) {
-                const replyUsername = (reply.username || "").toLowerCase();
-                if (replyUsername === ownerUsername.toLowerCase()) {
-                    ownerReplyText = reply.text || '';
-                    const replyPreview = ownerReplyText.substring(0, 50);
-                    console.log(`[SYNC] ✅ Found owner reply: "${replyPreview}..."`);
-                    break;
-                }
+        for (const reply of replies) {
+            const replyUsername = reply.from?.username?.toLowerCase() || reply.username?.toLowerCase() || '';
+            if (replyUsername === ownerUsername.toLowerCase()) {
+                ownerReplyText = reply.text || '';
+                const replyPreview = ownerReplyText.substring(0, 50);
+                console.log(`[SYNC] ✅ Found owner reply: "${replyPreview}..."`);
+                break;
             }
         }
 
-        // Get the real username from the API
-        const senderUsername = comment.username?.trim() || "Seguidor";
+        // Get the real username from 'from' field (priority) or 'username' field
+        const senderUsername = comment.from?.username?.trim() || comment.username?.trim() || "Seguidor";
 
         // SAVE ALL COMMENTS - myResponse will be null if owner didn't reply
         interactions.push({
@@ -245,6 +278,7 @@ async function insertMediaAndInteractions(
     userId: string,
     posts: InstagramMedia[],
     ownerUsername: string,
+    accessToken: string,
     onProgress?: (progress: SyncProgress) => void
 ): Promise<{ mediaCount: number; interactionCount: number }> {
     let mediaCount = 0;
@@ -262,7 +296,8 @@ async function insertMediaAndInteractions(
         if (post.comments?.data) {
             for (const c of post.comments.data) {
                 const commentText = c.text || '[sem texto]';
-                console.log(`[SYNC]   Comment by @${c.username || 'unknown'}: "${commentText.substring(0, 30)}..." (replies: ${c.replies?.data?.length || 0})`);
+                const username = c.from?.username || c.username || 'unknown';
+                console.log(`[SYNC]   Comment by @${username}: "${commentText.substring(0, 30)}..."`);
             }
         }
 
@@ -324,11 +359,12 @@ async function insertMediaAndInteractions(
             const [savedMedia] = await db.insert(mediaLibrary).values(mediaEntry).returning();
             mediaCount++;
 
-            // Parse comments and create interactions
-            const interactions = parseCommentsForInteractions(
+            // Parse comments and create interactions (now async with API calls for replies)
+            const interactions = await parseCommentsForInteractions(
                 post.comments?.data,
                 ownerUsername,
-                post.caption || null
+                post.caption || null,
+                accessToken
             );
 
             // Insert all interactions for this post
@@ -408,6 +444,7 @@ export async function syncInstagramProcessor(
         userId,
         validPosts,
         username,
+        accessToken,
         onProgress
     );
 
