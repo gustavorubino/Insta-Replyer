@@ -131,11 +131,11 @@ export default function Sources() {
 
       progressIntervalRef.current = setInterval(() => {
         setSyncProgress((prev) => {
-          // Increment by 5-10% every 500ms, cap at 90%
-          const increment = Math.floor(Math.random() * 6) + 5;
+          // Increment by 3-8% randomly, cap at 90%
+          const increment = Math.floor(Math.random() * 5) + 3;
           return Math.min(prev + increment, 90);
         });
-      }, 500);
+      }, 600);
 
       const response = await apiRequest("POST", "/api/knowledge/sync-official", {});
       return response;
@@ -457,7 +457,10 @@ export default function Sources() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground flex items-center gap-2">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    Sincronizando: {syncProgress}%
+                    Sincronizando Instagram...
+                  </span>
+                  <span className="font-medium text-purple-600 dark:text-purple-400">
+                    {syncProgress}%
                   </span>
                 </div>
                 <Progress

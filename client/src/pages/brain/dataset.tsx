@@ -166,11 +166,6 @@ export default function Dataset() {
     enabled: !!expandedMediaId,
   });
 
-  // Fetch ALL interactions (Conversations)
-  const { data: allInteractions = [], isLoading: loadingAllInteractions } = useQuery<InteractionEntry[]>({
-    queryKey: ["/api/brain/interaction-dialect"],
-  });
-
   // Sync Knowledge mutation
   const syncMutation = useMutation({
     mutationFn: async () => {
@@ -352,10 +347,10 @@ export default function Dataset() {
     return <Badge variant="outline" className={colors[priority] || colors[1]}>P{priority}</Badge>;
   };
 
-  const sortData = <T extends { createdAt?: string; postedAt?: string | null; interactedAt?: string }>(data: T[]): T[] => {
+  const sortData = <T extends { createdAt?: string; postedAt?: string | null }>(data: T[]): T[] => {
     return [...data].sort((a, b) => {
-      const dateA = new Date(a.createdAt || a.postedAt || a.interactedAt || 0).getTime();
-      const dateB = new Date(b.createdAt || b.postedAt || b.interactedAt || 0).getTime();
+      const dateA = new Date(a.createdAt || a.postedAt || 0).getTime();
+      const dateB = new Date(b.createdAt || b.postedAt || 0).getTime();
       return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
     });
   };
@@ -454,17 +449,17 @@ export default function Dataset() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-blue-500" />
-                Conversas (Pares)
+                <Image className="h-4 w-4 text-blue-500" />
+                Biblioteca de Mídia
               </CardTitle>
               <Badge variant="outline" className="text-xs">
-                {stats?.interactionDialect.count || 0}/{stats?.interactionDialect.limit || 500}
+                {stats?.mediaLibrary.count || 0}/{stats?.mediaLibrary.limit || 50}
               </Badge>
             </div>
           </CardHeader>
           <CardContent>
-            <Progress value={((stats?.interactionDialect.count || 0) / (stats?.interactionDialect.limit || 500)) * 100} className="h-2" />
-            <p className="text-xs text-muted-foreground mt-2">Interações reais (User + Owner)</p>
+            <Progress value={((stats?.mediaLibrary.count || 0) / (stats?.mediaLibrary.limit || 50)) * 100} className="h-2" />
+            <p className="text-xs text-muted-foreground mt-2">Posts + Threads ({stats?.interactionDialect.count || 0} discussões)</p>
           </CardContent>
         </Card>
       </div>
@@ -484,8 +479,8 @@ export default function Dataset() {
                   Correções de Ouro
                 </TabsTrigger>
                 <TabsTrigger value="media" className="gap-2">
-                  <MessageSquare className="h-4 w-4" />
-                  Conversas
+                  <Image className="h-4 w-4" />
+                  Biblioteca de Mídia
                 </TabsTrigger>
               </TabsList>
 
@@ -619,64 +614,234 @@ export default function Dataset() {
               )}
             </TabsContent>
 
-            {/* Conversations (Interactions) Tab */}
+            {/* Media Library Tab with Threads */}
             <TabsContent value="media">
-              {loadingAllInteractions ? (
+              {loadingMedia ? (
                 <div className="flex justify-center p-8">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
-              ) : allInteractions.length === 0 ? (
+              ) : filteredMedia.length === 0 ? (
                 <div className="text-center p-8 text-muted-foreground">
-                  <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                  <p>Nenhuma conversa sincronizada ainda.</p>
-                  <p className="text-sm">A IA aprende com pares de Comentário + Resposta.</p>
+                  <Image className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <p>Nenhum post sincronizado ainda.</p>
+                  <p className="text-sm">Clique em "Sincronizar Instagram"</p>
                 </div>
               ) : (
-                <div className="flex flex-col gap-4">
-                  {sortData(allInteractions).map((interaction) => (
-                    <div key={interaction.id} className="bg-background rounded-lg p-4 border shadow-sm">
-                      {/* User Part */}
-                      <div className="flex items-start gap-3">
-                        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                          {(interaction.senderUsername || "U").charAt(0).toUpperCase()}
+                <div className="space-y-4">
+                  {filteredMedia.map((media) => (
+                    <Card key={media.id} className="overflow-hidden">
+                      <div className="flex flex-col md:flex-row">
+                        {/* Thumbnail */}
+                        <div className="w-full md:w-48 h-32 bg-muted flex-shrink-0">
+                          {media.thumbnailUrl || media.mediaUrl ? (
+                            <img
+                              src={media.thumbnailUrl || media.mediaUrl || ""}
+                              alt="Post"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              {getMediaIcon(media.mediaType)}
+                            </div>
+                          )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-sm">@{interaction.senderUsername || "usuario"}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(interaction.interactedAt).toLocaleDateString("pt-BR", {
-                                day: "2-digit",
-                                month: "short"
-                              })}
+
+                        {/* Content */}
+                        <div className="flex-1 p-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge variant="secondary">{media.mediaType}</Badge>
+                            <span className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {formatDate(media.postedAt)}
                             </span>
                           </div>
-                          <p className="text-sm mt-1">{interaction.userMessage}</p>
+
+                          <p className="text-sm line-clamp-2 mb-2">
+                            {media.caption || <span className="italic text-muted-foreground">Sem legenda</span>}
+                          </p>
+
+                          {/* AI Vision Indicator - Shows for IMAGE posts with description */}
+                          {media.mediaType?.toUpperCase() === 'IMAGE' && media.imageDescription && (
+                            <div className="flex items-start gap-2 mb-3 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+                              <Eye className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <span className="text-xs font-medium text-blue-700 dark:text-blue-300">IA Viu: </span>
+                                <span className="text-xs text-blue-600 dark:text-blue-400">{media.imageDescription}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" onClick={() => openMediaAnalysis(media)}>
+                              <Eye className="h-3 w-3 mr-1" />
+                              Ver Análise
+                            </Button>
+                          </div>
                         </div>
                       </div>
 
-                      {/* Owner Part - Indented */}
-                      <div className="flex items-start gap-3 ml-8 mt-3 pt-3 border-t border-dashed">
-                        <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-bold flex-shrink-0">
-                          R
-                        </div>
-                        <div className="flex-1 bg-primary/5 rounded-md p-3">
-                          <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className="font-semibold text-sm text-primary">Rodolfo</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => promoteToGoldMutation.mutate(interaction.id)}
-                              disabled={promoteToGoldMutation.isPending}
-                              className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 h-6 px-2 text-xs"
-                            >
-                              <Star className="h-3 w-3 mr-1" />
-                              Promover
-                            </Button>
+                      {/* Expandable Threads Section */}
+                      <Collapsible open={expandedMediaId === media.id} onOpenChange={() => toggleMediaExpand(media.id)}>
+                        <CollapsibleTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            className="w-full rounded-none border-t flex items-center justify-center gap-2 h-10"
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                            💬 Ver Discussão (Threads)
+                            {expandedMediaId === media.id ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="p-4 bg-muted/30 border-t space-y-3">
+                            {loadingInteractions && expandedMediaId === media.id ? (
+                              <div className="flex justify-center py-4">
+                                <Loader2 className="h-6 w-6 animate-spin" />
+                              </div>
+                            ) : mediaInteractions.length === 0 && expandedMediaId === media.id ? (
+                              <p className="text-center text-sm text-muted-foreground py-4">
+                                Nenhuma discussão encontrada para este post.
+                              </p>
+                            ) : expandedMediaId === media.id ? (
+                              (() => {
+                                // CRITICAL: Top-level = USER comments only (not owner replies)
+                                // These must have no parentCommentId AND NOT be owner's own replies
+                                const topLevel = mediaInteractions.filter(
+                                  (interaction) => !interaction.parentCommentId && !interaction.isOwnerReply
+                                );
+
+                                // Child replies = entries WITH parentCommentId (other users' sub-replies)
+                                const replies = mediaInteractions.filter(
+                                  (interaction) => interaction.parentCommentId
+                                );
+                                const repliesByParent = new Map<string, InteractionEntry[]>();
+
+                                for (const reply of replies) {
+                                  const key = reply.parentCommentId || "unknown";
+                                  const existing = repliesByParent.get(key) || [];
+                                  existing.push(reply);
+                                  repliesByParent.set(key, existing);
+                                }
+
+                                return topLevel.map((interaction) => {
+                                  const parentKey = interaction.instagramCommentId || `${interaction.id}`;
+                                  const threadReplies = (repliesByParent.get(parentKey) || [])
+                                    .filter((reply) => {
+                                      // Filter out duplicate owner replies that are already shown in myResponse
+                                      if (!reply.isOwnerReply || !interaction.myResponse) return true;
+                                      return reply.userMessage.trim() !== interaction.myResponse.trim();
+                                    })
+                                    .sort((a, b) => a.interactedAt.localeCompare(b.interactedAt));
+
+                                  // Helper to display username properly
+                                  const formatUsername = (username: string | null, isOwner: boolean = false) => {
+                                    if (isOwner) return "@você";
+                                    if (!username || username === "Anônimo" || username === "Seguidor") {
+                                      return "Anônimo";
+                                    }
+                                    return `@${username}`;
+                                  };
+
+                                  return (
+                                    <div key={interaction.id} className="bg-background rounded-lg p-4 space-y-3">
+                                      {/* USER COMMENT - Always first */}
+                                      <div className="flex items-start gap-3">
+                                        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">
+                                          {(interaction.senderUsername || "A").charAt(0).toUpperCase()}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-semibold text-sm">
+                                              {formatUsername(interaction.senderUsername)}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">
+                                              {new Date(interaction.interactedAt).toLocaleDateString("pt-BR", {
+                                                day: "2-digit",
+                                                month: "short"
+                                              })}
+                                            </span>
+                                          </div>
+                                          <p className="text-sm mt-1">{interaction.userMessage}</p>
+                                        </div>
+                                      </div>
+
+                                      {/* OWNER REPLY - Nested below with connection line */}
+                                      {interaction.myResponse && (
+                                        <div className="flex items-start gap-2 ml-5">
+                                          {/* Connection line */}
+                                          <div className="flex flex-col items-center">
+                                            <div className="w-px h-2 bg-primary/40"></div>
+                                            <div className="text-xs text-primary/60">└</div>
+                                          </div>
+                                          <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-sm font-semibold flex-shrink-0">
+                                            R
+                                          </div>
+                                          <div className="flex-1 bg-primary/5 rounded-lg p-3 border-l-3 border-primary">
+                                            <div className="flex items-center justify-between gap-2 mb-1">
+                                              <span className="font-semibold text-sm text-primary">
+                                                @você (Resposta)
+                                              </span>
+                                              <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => promoteToGoldMutation.mutate(interaction.id)}
+                                                disabled={promoteToGoldMutation.isPending}
+                                                className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 h-7 px-2"
+                                              >
+                                                <Star className="h-3 w-3 mr-1" />
+                                                Promover
+                                              </Button>
+                                            </div>
+                                            <p className="text-sm">{interaction.myResponse}</p>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* No response indicator */}
+                                      {!interaction.myResponse && (
+                                        <div className="ml-12 flex items-center gap-2 text-muted-foreground">
+                                          <span className="text-xs">└</span>
+                                          <span className="text-xs italic">⏳ Sem resposta registrada</span>
+                                        </div>
+                                      )}
+
+                                      {/* Additional thread replies */}
+                                      {threadReplies.length > 0 && (
+                                        <div className="ml-5 space-y-2 border-l-2 border-muted pl-3">
+                                          {threadReplies.map((reply) => (
+                                            <div key={reply.id} className="flex items-start gap-2">
+                                              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${reply.isOwnerReply
+                                                ? "bg-primary/20 text-primary"
+                                                : "bg-muted text-muted-foreground"
+                                                }`}>
+                                                {(reply.senderUsername || "A").charAt(0).toUpperCase()}
+                                              </div>
+                                              <div className={`flex-1 rounded-lg p-2 ${reply.isOwnerReply
+                                                ? "bg-primary/5 border-l-2 border-primary"
+                                                : "bg-muted/30"
+                                                }`}>
+                                                <span className={`text-xs font-medium ${reply.isOwnerReply ? "text-primary" : ""}`}>
+                                                  {formatUsername(reply.senderUsername, reply.isOwnerReply)}
+                                                </span>
+                                                <p className="text-sm mt-0.5">{reply.userMessage}</p>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                });
+                              })()
+                            ) : null}
                           </div>
-                          <p className="text-sm mt-1">{interaction.myResponse}</p>
-                        </div>
-                      </div>
-                    </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </Card>
                   ))}
                 </div>
               )}
