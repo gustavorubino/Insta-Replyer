@@ -175,10 +175,10 @@ function parseCommentsForInteractions(
     console.log(`[SYNC] Processing ${limitedComments.length} comments, looking for owner replies...`);
 
     for (const comment of limitedComments) {
-        // Skip if this is the owner's own comment (not a user interaction)
         const commentUsername = comment.username?.trim().toLowerCase() || '';
         if (commentUsername === ownerUsername.toLowerCase()) {
-            console.log(`[SYNC] Skipping owner's own comment: ${comment.text.substring(0, 30)}...`);
+            const textPreview = (comment.text || '[sem texto]').substring(0, 30);
+            console.log(`[SYNC] Skipping owner's own comment: ${textPreview}...`);
             continue;
         }
 
@@ -189,8 +189,9 @@ function parseCommentsForInteractions(
             for (const reply of comment.replies.data) {
                 const replyUsername = (reply.username || "").toLowerCase();
                 if (replyUsername === ownerUsername.toLowerCase()) {
-                    ownerReplyText = reply.text;
-                    console.log(`[SYNC] ✅ Found owner reply: "${ownerReplyText.substring(0, 50)}..."`);
+                    ownerReplyText = reply.text || '';
+                    const replyPreview = ownerReplyText.substring(0, 50);
+                    console.log(`[SYNC] ✅ Found owner reply: "${replyPreview}..."`);
                     break;
                 }
             }
@@ -204,7 +205,7 @@ function parseCommentsForInteractions(
             channelType: 'public_comment',
             senderName: senderUsername,
             senderUsername: senderUsername,
-            userMessage: comment.text,
+            userMessage: comment.text || '',
             myResponse: ownerReplyText, // null if no owner reply
             postContext: postCaption?.substring(0, 200) || null,
             instagramCommentId: comment.id,
@@ -260,7 +261,8 @@ async function insertMediaAndInteractions(
         console.log(`[SYNC] Post ${i + 1}: ${post.id}, type: ${post.media_type}, comments: ${post.comments?.data?.length || 0}`);
         if (post.comments?.data) {
             for (const c of post.comments.data) {
-                console.log(`[SYNC]   Comment by @${c.username}: "${c.text.substring(0, 30)}..." (replies: ${c.replies?.data?.length || 0})`);
+                const commentText = c.text || '[sem texto]';
+                console.log(`[SYNC]   Comment by @${c.username || 'unknown'}: "${commentText.substring(0, 30)}..." (replies: ${c.replies?.data?.length || 0})`);
             }
         }
 
