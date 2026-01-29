@@ -406,41 +406,21 @@ export default function Dataset() {
         </div>
       </div>
 
-      {/* Stats Cards - Updated for Deep Sync Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Stats Cards - 3 abas agora */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="border-indigo-200">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Image className="h-4 w-4 text-indigo-500" />
-                Posts Analisados
+                <Shield className="h-4 w-4 text-indigo-500" />
+                Diretrizes
               </CardTitle>
-              <Badge variant="outline" className="text-xs">
-                {stats?.mediaLibrary.count || 0}/{stats?.mediaLibrary.limit || 50}
-              </Badge>
+              <Badge variant="outline" className="text-xs">{guidelines.length}/50</Badge>
             </div>
           </CardHeader>
           <CardContent>
-            <Progress value={((stats?.mediaLibrary.count || 0) / (stats?.mediaLibrary.limit || 50)) * 100} className="h-2" />
-            <p className="text-xs text-muted-foreground mt-2">Mídia processada</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-purple-200">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-purple-500" />
-                Threads Aprendidas
-              </CardTitle>
-              <Badge variant="outline" className="text-xs">
-                {stats?.interactionDialect.count || 0}/500
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <Progress value={((stats?.interactionDialect.count || 0) / 500) * 100} className="h-2" />
-            <p className="text-xs text-muted-foreground mt-2">Interações reais</p>
+            <Progress value={(guidelines.length / 50) * 100} className="h-2" />
+            <p className="text-xs text-muted-foreground mt-2">Regras prioritárias</p>
           </CardContent>
         </Card>
 
@@ -452,36 +432,36 @@ export default function Dataset() {
                 Correções de Ouro
               </CardTitle>
               <Badge variant="outline" className="text-xs">
-                {stats?.manualQA.count || 0}
+                {stats?.manualQA.count || 0}/{stats?.manualQA.limit || 500}
               </Badge>
             </div>
           </CardHeader>
           <CardContent>
-            <Progress value={100} className="h-2 bg-amber-100" indicatorClassName="bg-amber-500" />
-            <p className="text-xs text-muted-foreground mt-2">Regras manuais</p>
+            <Progress value={((stats?.manualQA.count || 0) / (stats?.manualQA.limit || 500)) * 100} className="h-2" />
+            <p className="text-xs text-muted-foreground mt-2">Correções humanas</p>
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200">
+        <Card className="border-blue-200">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Shield className="h-4 w-4 text-slate-500" />
-                Diretrizes
+                <Image className="h-4 w-4 text-blue-500" />
+                Biblioteca de Mídia
               </CardTitle>
               <Badge variant="outline" className="text-xs">
-                {guidelines.length}/50
+                {stats?.mediaLibrary.count || 0}/{stats?.mediaLibrary.limit || 50}
               </Badge>
             </div>
           </CardHeader>
           <CardContent>
-            <Progress value={(guidelines.length / 50) * 100} className="h-2" />
-            <p className="text-xs text-muted-foreground mt-2">Instruções de base</p>
+            <Progress value={((stats?.mediaLibrary.count || 0) / (stats?.mediaLibrary.limit || 50)) * 100} className="h-2" />
+            <p className="text-xs text-muted-foreground mt-2">Posts + Threads ({stats?.interactionDialect.count || 0} discussões)</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs - 3 abas agora */}
       <Card>
         <CardContent className="pt-6">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -491,30 +471,17 @@ export default function Dataset() {
                   <Shield className="h-4 w-4" />
                   Diretrizes
                 </TabsTrigger>
-                <TabsTrigger value="media" className="gap-2">
-                  <Image className="h-4 w-4" />
-                  Biblioteca de Mídia
-                </TabsTrigger>
                 <TabsTrigger value="golden" className="gap-2">
                   <Trophy className="h-4 w-4" />
                   Correções de Ouro
                 </TabsTrigger>
+                <TabsTrigger value="media" className="gap-2">
+                  <Image className="h-4 w-4" />
+                  Biblioteca de Mídia
+                </TabsTrigger>
               </TabsList>
 
               <div className="flex items-center gap-2">
-                {/* Redirect Sync Button */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground"
-                  onClick={() => window.location.href = '/brain/sources'}
-                >
-                  <RefreshCw className="h-3 w-3 mr-2" />
-                  Gerenciar Fontes
-                </Button>
-
-                <div className="h-4 w-[1px] bg-border mx-2" />
-
                 <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as typeof sortOrder)}>
                   <SelectTrigger className="w-[140px]">
                     <ArrowUpDown className="h-4 w-4 mr-2" />
@@ -654,7 +621,7 @@ export default function Dataset() {
                 <div className="text-center p-8 text-muted-foreground">
                   <Image className="h-12 w-12 mx-auto mb-4 opacity-20" />
                   <p>Nenhum post sincronizado ainda.</p>
-                  <p className="text-sm">Vá em "Fontes" para sincronizar.</p>
+                  <p className="text-sm">Clique em "Sincronizar Instagram"</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -704,7 +671,7 @@ export default function Dataset() {
                         <CollapsibleTrigger asChild>
                           <Button
                             variant="ghost"
-                            className="w-full rounded-none border-t flex items-center justify-center gap-2 h-10 hover:bg-muted"
+                            className="w-full rounded-none border-t flex items-center justify-center gap-2 h-10"
                           >
                             <MessageSquare className="h-4 w-4" />
                             💬 Ver Discussão (Threads)
@@ -716,7 +683,7 @@ export default function Dataset() {
                           </Button>
                         </CollapsibleTrigger>
                         <CollapsibleContent>
-                          <div className="p-4 bg-slate-50 dark:bg-slate-900/50 border-t space-y-4">
+                          <div className="p-4 bg-muted/30 border-t space-y-3">
                             {loadingInteractions && expandedMediaId === media.id ? (
                               <div className="flex justify-center py-4">
                                 <Loader2 className="h-6 w-6 animate-spin" />
@@ -727,61 +694,47 @@ export default function Dataset() {
                               </p>
                             ) : expandedMediaId === media.id ? (
                               mediaInteractions.map((interaction) => (
-                                <div key={interaction.id} className="relative pl-4">
-                                  {/* Thread Line */}
-                                  <div className="absolute left-[20px] top-8 bottom-4 w-0.5 bg-border -z-10" />
-
+                                <div key={interaction.id} className="bg-background rounded-lg p-3 space-y-2">
                                   {/* User comment */}
-                                  <div className="flex items-start gap-3 mb-3">
-                                    <div className="h-10 w-10 rounded-full bg-white border border-border flex items-center justify-center text-xs font-semibold shadow-sm overflow-hidden z-10 shrink-0">
-                                      {(interaction.senderName || "U").charAt(0).toUpperCase()}
+                                  <div className="flex items-start gap-3">
+                                    <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white text-xs font-semibold">
+                                      {(interaction.senderName || "E").charAt(0).toUpperCase()}
                                     </div>
-                                    <div className="flex-1 bg-background border rounded-2xl rounded-tl-none p-3 shadow-sm">
-                                      <div className="flex justify-between items-center mb-1">
-                                        <span className="font-semibold text-sm">
-                                          {interaction.senderUsername === "Seguidor" ? "Eleitor" : `@${interaction.senderUsername || "Usuário"}`}
-                                        </span>
-                                      </div>
-                                      <p className="text-sm text-foreground">
+                                    <div className="flex-1">
+                                      <span className="font-medium text-sm">
+                                        {interaction.senderUsername === "Seguidor" ? "Eleitor" : `@${interaction.senderUsername || "Usuário"}`}
+                                      </span>
+                                      <p className="text-sm bg-muted/50 rounded-lg p-2 mt-1">
                                         {interaction.userMessage}
                                       </p>
                                     </div>
                                   </div>
 
-                                  {/* Owner response - Nested */}
+                                  {/* Owner response */}
                                   {interaction.myResponse ? (
-                                    <div className="flex items-start gap-3 ml-8 relative">
-                                      {/* Connector Curve */}
-                                      <div className="absolute -left-6 top-[-10px] w-6 h-6 border-b-2 border-l-2 border-border rounded-bl-xl" />
-
-                                      <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center text-white text-xs font-bold shadow-sm z-10 shrink-0">
-                                        R
+                                    <div className="ml-11 flex items-start gap-2">
+                                      <div className="flex-1 bg-primary/10 rounded-lg p-2 border-l-2 border-primary">
+                                        <p className="text-sm">
+                                          <span className="font-medium text-primary">Sua resposta:</span>{" "}
+                                          {interaction.myResponse}
+                                        </p>
                                       </div>
-                                      <div className="flex-1 bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-800 rounded-2xl rounded-tl-none p-3 shadow-sm">
-                                        <div className="flex justify-between items-start">
-                                          <div>
-                                            <span className="font-semibold text-sm text-purple-700 dark:text-purple-300">Você</span>
-                                            <p className="text-sm mt-1">
-                                              {interaction.myResponse}
-                                            </p>
-                                          </div>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => promoteToGoldMutation.mutate(interaction.id)}
-                                            disabled={promoteToGoldMutation.isPending}
-                                            className="h-6 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-100 -mr-1 -mt-1"
-                                          >
-                                            <Star className="h-3 w-3 mr-1" />
-                                            Ouro
-                                          </Button>
-                                        </div>
-                                      </div>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => promoteToGoldMutation.mutate(interaction.id)}
+                                        disabled={promoteToGoldMutation.isPending}
+                                        className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                                      >
+                                        <Star className="h-4 w-4 mr-1" />
+                                        Promover
+                                      </Button>
                                     </div>
                                   ) : (
-                                    <div className="flex items-center gap-2 ml-16 mt-2 opacity-50">
-                                      <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-pulse" />
-                                      <span className="text-xs text-muted-foreground italic">Aguardando resposta...</span>
+                                    <div className="ml-11">
+                                      <p className="text-xs text-muted-foreground italic flex items-center gap-1">
+                                        ⏳ Pendente de Aprendizado
+                                      </p>
                                     </div>
                                   )}
                                 </div>
