@@ -1,673 +1,375 @@
+import React, { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+  Loader2,
+  Trash2,
+  RefreshCw,
+  Instagram,
+  CheckCircle,
+  AlertCircle,
+  Link as LinkIcon,
+  FileText,
+  Upload,
+  ExternalLink
+} from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
-// ... (existing imports)
+// ==========================================
+// 1. COMPONENTS INTERNOS (SAFE UI)
+// ==========================================
+
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, isLoading }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl max-w-md w-full p-6 transform transition-all scale-100">
+        <div className="flex items-center gap-3 mb-4 text-red-600 dark:text-red-500">
+          <AlertCircle className="h-8 w-8" />
+          <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+            Desconectar Conta Oficial?
+          </h3>
+        </div>
+
+        <p className="text-slate-600 dark:text-slate-300 mb-6 leading-relaxed">
+          Esta ação é <strong>irreversível</strong>.
+          <br />
+          Todos os posts clonados e o histórico de aprendizado serão <span className="text-red-600 font-bold">apagados permanentemente</span> do sistema.
+          <br /><br />
+          <span className="text-amber-600 dark:text-amber-400 text-sm bg-amber-50 dark:bg-amber-950/30 p-2 rounded block border border-amber-200 dark:border-amber-800">
+            ✨ Suas correções manuais (Ouro) serão preservadas.
+          </span>
+        </p>
+
+        <div className="flex justify-end gap-3 pt-2">
+          <button
+            onClick={onClose}
+            disabled={isLoading}
+            className="px-4 py-2.5 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 rounded-lg transition-colors border border-transparent"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Limpando...
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-4 w-4" />
+                Sim, Desconectar e Limpar
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
+// 2. TYPES & INTERFACES
+// ==========================================
+
+interface User {
+  id: number;
+  username: string;
+  instagramUsername?: string;
+  instagramAccessToken?: string;
+}
+
+interface Stats {
+  mediaLibrary: { count: number; limit: number };
+  interactionDialect: { count: number; limit: number };
+}
+
+// ==========================================
+// 3. MAIN PAGE COMPONENT
+// ==========================================
 
 export default function Sources() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [newLinkUrl, setNewLinkUrl] = useState("");
-  const [isUploadingFile, setIsUploadingFile] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // --- STATE ---
   const [isDisconnectDialogOpen, setIsDisconnectDialogOpen] = useState(false);
 
-  // ... (existing queries)
+  // Sync States
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncStatus, setSyncStatus] = useState("Aguardando início...");
 
+  // --- QUERIES ---
+  const { data: user, isLoading: isUserLoading } = useQuery<User>({
+    queryKey: ["/api/user"],
+  });
+
+  const { data: stats } = useQuery<Stats>({
+    queryKey: ["/api/brain/stats"],
+  });
+
+  // --- MUTATIONS ---
   const disconnectMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/brain/disconnect", {});
-      return res.json();
+      // Usando a rota correta do backend (api/brain/disconnect)
+      const response = await apiRequest("POST", "/api/brain/disconnect", {});
+      if (!response.ok) {
+        throw new Error("Falha ao desconectar");
+      }
+      return response.json();
     },
     onSuccess: () => {
       toast({
         title: "Conta Desconectada",
         description: "Todos os dados foram limpos com sucesso.",
+        className: "bg-green-600 text-white border-none",
       });
       setIsDisconnectDialogOpen(false);
-      // Force reload to clear all states and caches properly
-      window.location.reload();
+
+      // FORCE RELOAD para limpar completamente o estado visual e caches
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
     },
-    onError: (error) => {
+    onError: () => {
       toast({
         title: "Erro ao desconectar",
-        description: "Não foi possível desconectar a conta.",
+        description: "Tente novamente mais tarde.",
         variant: "destructive",
       });
     },
   });
 
-  // ... (rest of the file until the Instagram Card)
+  // --- ACTIONS ---
 
-  {/* Connected State */ }
-  {
-    user?.instagramAccessToken && (
-      <div className="flex flex-col items-center justify-center py-6 space-y-4">
-        <div className="flex items-center gap-4 w-full p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border">
-          <div className="h-12 w-12 bg-gradient-to-tr from-purple-500 to-orange-500 rounded-full flex items-center justify-center text-white">
-            <Instagram className="h-6 w-6" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold text-lg">@{user.instagramUsername || "instagram_user"}</h3>
-            <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
-              <span className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
-              Conta Oficial Conectada
-            </p>
-          </div>
+  const startSync = () => {
+    if (isSyncing) return;
 
-          <Dialog open={isDisconnectDialogOpen} onOpenChange={setIsDisconnectDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="destructive" size="sm">
-                Desconectar
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Desconectar Conta Oficial?</DialogTitle>
-                <DialogDescription>
-                  Esta ação é irreversível. Todos os 50 posts e o histórico de aprendizado (incluindo Threads) serão apagados do sistema.
-                  <br /><br />
-                  Suas correções manuais (Ouro) serão preservadas.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsDisconnectDialogOpen(false)}>Cancelar</Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => disconnectMutation.mutate()}
-                  blocks={disconnectMutation.isPending}
-                >
-                  {disconnectMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : (
-                    <Trash2 className="h-4 w-4 mr-2" />
-                  )}
-                  Sim, Desconectar e Limpar
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+    setIsSyncing(true);
+    setSyncProgress(0);
+    setSyncStatus("Conectando ao Instagram...");
 
-        <div className="grid grid-cols-2 gap-4 w-full">
-          <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-lg text-center border">
-            <span className="block text-2xl font-bold">{stats?.mediaLibrary?.count || 0}</span>
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Posts</span>
-          </div>
-          <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-lg text-center border">
-            <span className="block text-2xl font-bold">{stats?.interactionDialect?.count || 0}</span>
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Interações</span>
-          </div>
-        </div>
+    // SSE Connection
+    const eventSource = new EventSource("/api/brain/sync-knowledge/stream");
 
-        <Separator />
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
 
-        <div className="flex gap-4 w-full">
-          {!isSyncing ? (
-            <Button
-              onClick={startSync}
-              className="flex-1 bg-purple-600 hover:bg-purple-700"
-            >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Sincronizar Novamente
-            </Button>
-          ) : (
-            <div className="w-full space-y-2">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{syncStatus}</span>
-                <span>{syncProgress}%</span>
-              </div>
-              <Progress value={syncProgress} className="h-2" />
-              <p className="text-xs text-center text-muted-foreground animate-pulse">
-                Isso pode levar alguns minutos...
-              </p>
-            </div>
-          )}
+        if (data.type === "progress") {
+          setSyncProgress(data.progress);
+          setSyncStatus(data.detail || data.step);
+        } else if (data.type === "complete") {
+          eventSource.close();
+          setIsSyncing(false);
+          setSyncProgress(100);
+          setSyncStatus("Concluído!");
 
-          <Button variant="outline" className="flex-1" disabled>
-            <Sparkles className="h-4 w-4 mr-2" />
-            Regerar Personalidade
-          </Button>
-        </div>
+          queryClient.invalidateQueries({ queryKey: ["/api/brain/stats"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+
+          toast({
+            title: "Sincronização Finalizada",
+            description: "Seus dados foram atualizados com sucesso.",
+            className: "bg-purple-600 text-white border-none",
+          });
+        } else if (data.type === "error") {
+          eventSource.close();
+          setIsSyncing(false);
+          toast({
+            title: "Erro na Sincronização",
+            description: data.message || "Ocorreu um erro desconhecido.",
+            variant: "destructive",
+          });
+        }
+      } catch (err) {
+        console.error("Erro no SSE:", err);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.error("SSE Error Connection:", err);
+      eventSource.close();
+      setIsSyncing(false);
+      toast({
+        title: "Conexão Perdida",
+        description: "A conexão com o servidor foi interrompida.",
+        variant: "destructive",
+      });
+    };
+  };
+
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
       </div>
-    )
+    );
   }
 
-  const { data: instagramProfiles = [], isLoading: profilesLoading } = useQuery<any[]>({
-    queryKey: ["/api/knowledge/instagram-profiles"],
-    refetchInterval: (query) => {
-      const data = query.state.data as any[] | undefined;
-      const hasProcessing = data?.some((p: any) => p.status === "pending" || p.status === "processing");
-      return hasProcessing ? 2000 : false;
-    },
-  });
-
-  const addLinkMutation = useMutation({
-    mutationFn: async (url: string) => {
-      await apiRequest("POST", "/api/knowledge/links", { url });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/links"] });
-      setNewLinkUrl("");
-      toast({ title: "Link adicionado", description: "O conteúdo está sendo processado." });
-    },
-    onError: () => {
-      toast({ title: "Erro", description: "Não foi possível adicionar o link.", variant: "destructive" });
-    },
-  });
-
-  const deleteLinkMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/knowledge/links/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/links"] });
-      toast({ title: "Link removido" });
-    },
-  });
-
-  const deleteFileMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/knowledge/files/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/files"] });
-      toast({ title: "Arquivo removido" });
-    },
-  });
-
-  // Sync official Instagram account
-  const syncOfficialMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/knowledge/sync-official", {});
-      return response;
-    },
-    onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
-      toast({
-        title: "✅ Sincronização Concluída",
-        description: data.message || `${data.captionsCount} legendas sincronizadas!`,
-      });
-    },
-    onError: (error: any) => {
-      const errorData = error?.message ? JSON.parse(error.message.substring(error.message.indexOf("{"))) : {};
-      const message = errorData.code === "NOT_CONNECTED"
-        ? "Conecte sua conta Instagram primeiro na aba Conexão."
-        : errorData.error || "Erro ao sincronizar conta.";
-      toast({ title: "Erro", description: message, variant: "destructive" });
-    },
-  });
-
-  // Generate personality from synced content
-  const generatePersonalityMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/knowledge/generate-personality", {});
-      return response;
-    },
-    onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
-      toast({
-        title: "🎭 Personalidade Gerada",
-        description: data.message || "Sua personalidade foi clonada com sucesso!",
-      });
-    },
-    onError: (error: any) => {
-      const errorData = error?.message ? JSON.parse(error.message.substring(error.message.indexOf("{"))) : {};
-      const message = errorData.code === "INSUFFICIENT_DATA"
-        ? "Sincronize mais conteúdo antes de gerar a personalidade."
-        : errorData.error || "Erro ao gerar personalidade.";
-      toast({ title: "Erro", description: message, variant: "destructive" });
-    },
-  });
-
-  const deleteInstagramProfileMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/knowledge/instagram-profiles/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
-      toast({ title: "Perfil removido" });
-    },
-  });
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploadingFile(true);
-    setUploadProgress(0);
-
-    try {
-      // Step 1: Get presigned URL (5%)
-      setUploadProgress(5);
-      const response = await fetch("/api/uploads/request-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          name: file.name,
-          size: file.size,
-          contentType: file.type || "application/octet-stream",
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Falha ao obter URL de upload");
-      }
-
-      const { uploadURL, objectPath } = await response.json();
-      setUploadProgress(10);
-
-      // Step 2: Upload file with progress tracking (10-90%)
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-
-        xhr.upload.addEventListener("progress", (event) => {
-          if (event.lengthComputable) {
-            const percentComplete = Math.round((event.loaded / event.total) * 80) + 10;
-            setUploadProgress(Math.min(percentComplete, 90));
-          }
-        });
-
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            reject(new Error("Falha ao fazer upload do arquivo"));
-          }
-        });
-
-        xhr.addEventListener("error", () => {
-          reject(new Error("Erro de conexão durante upload"));
-        });
-
-        xhr.open("PUT", uploadURL);
-        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-        xhr.send(file);
-      });
-
-      // Step 3: Register file (95%)
-      setUploadProgress(95);
-      await apiRequest("POST", "/api/knowledge/files", {
-        fileName: file.name,
-        fileType: file.type,
-        objectPath,
-      });
-
-      setUploadProgress(100);
-      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/files"] });
-      toast({ title: "Arquivo enviado", description: "O conteúdo está sendo processado." });
-    } catch (error) {
-      toast({ title: "Erro", description: "Não foi possível enviar o arquivo.", variant: "destructive" });
-    } finally {
-      setIsUploadingFile(false);
-      setUploadProgress(0);
-      e.target.value = "";
-    }
-  };
-
-  const getStatusBadge = (status: string, progress?: number, username?: string) => {
-    switch (status) {
-      case "completed":
-        return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Concluído</Badge>;
-      case "private":
-        return (
-          <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">
-            Perfil Privado
-          </Badge>
-        );
-      case "error":
-        return <Badge variant="destructive">Erro</Badge>;
-      case "processing":
-      case "pending":
-        const progressValue = progress ?? 0;
-        const displayUsername = username ? `@${username}` : "perfil";
-        return (
-          <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 flex items-center gap-1">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            {progressValue < 40
-              ? `IA estudando ${displayUsername}...`
-              : progressValue < 70
-                ? `Extraindo posts...`
-                : `Gerando entradas... ${progressValue}%`
-            }
-          </Badge>
-        );
-      default:
-        return (
-          <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
-            {progress ?? 0}%
-          </Badge>
-        );
-    }
-  };
+  const isConnected = !!user?.instagramAccessToken;
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Fontes de Conhecimento</h1>
-          <p className="text-muted-foreground">
-            Adicione links e arquivos para treinar a IA com informações específicas do seu negócio.
-          </p>
-        </div>
+    <div className="p-6 max-w-5xl mx-auto space-y-8 font-sans">
+
+      {/* HEADER */}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Fontes de Conhecimento</h1>
+        <p className="text-slate-500 dark:text-slate-400 mt-2">
+          Gerencie as conexões que alimentam a identidade da sua IA.
+        </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Base de Conhecimento</CardTitle>
-          <CardDescription>
-            Gerencie o conteúdo que a IA usa para responder perguntas específicas.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Globe className="h-4 w-4" />
-              <Label>Links de Treinamento</Label>
+      {/* INSTAGRAM SECTION - CRITICAL */}
+      <div className="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-slate-100 dark:border-slate-900 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 bg-gradient-to-tr from-purple-500 to-orange-500 rounded-lg p-0.5 flex items-center justify-center text-white shadow-md">
+              <Instagram className="h-6 w-6" />
             </div>
-            <div className="flex gap-2">
-              <Input
-                type="url"
-                placeholder="https://exemplo.com/pagina"
-                value={newLinkUrl}
-                onChange={(e) => setNewLinkUrl(e.target.value)}
-              />
-              <Button
-                onClick={() => {
-                  if (newLinkUrl.trim()) {
-                    addLinkMutation.mutate(newLinkUrl.trim());
-                  }
-                }}
-                disabled={!newLinkUrl.trim() || addLinkMutation.isPending}
-              >
-                {addLinkMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="h-4 w-4" />
-                )}
-              </Button>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Instagram Oficial</h2>
+              <p className="text-sm text-slate-500">Fonte primária de personalidade</p>
             </div>
-            {linksLoading ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            ) : knowledgeLinks.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum link adicionado ainda.</p>
-            ) : (
-              <div className="space-y-2">
-                {knowledgeLinks.map((link: any) => (
-                  <div
-                    key={link.id}
-                    className="flex items-center justify-between gap-2 p-3 rounded-lg border"
-                  >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="text-sm truncate">{link.url}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {getStatusBadge(link.status, link.progress)}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteLinkMutation.mutate(link.id)}
-                        disabled={deleteLinkMutation.isPending}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
-          <Separator />
-
-          {/* Instagram Profile Sync Section */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Instagram className="h-4 w-4" />
-              <Label>Clonagem Automática de Personalidade</Label>
+          {isConnected && (
+            <div className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-green-200 dark:border-green-800">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              </span>
+              ONLINE
             </div>
+          )}
+        </div>
 
-            {/* Sync Status & Action Area */}
-            {profilesLoading ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        <div className="p-6">
+          {!isConnected ? (
+            <div className="text-center py-12 px-4">
+              <div className="h-16 w-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Instagram className="h-8 w-8 text-slate-400" />
               </div>
-            ) : instagramProfiles.length > 0 ? (
-              // CONNECTED STATE
-              <div className="space-y-4">
-                <div className="flex flex-col gap-2 p-4 rounded-lg border bg-card text-card-foreground shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-500 p-[2px]">
-                        <div className="h-full w-full rounded-full bg-white dark:bg-black p-0.5 overflow-hidden">
-                          <Instagram className="h-full w-full text-zinc-800 dark:text-zinc-200" />
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="font-medium">@{instagramProfiles[0].username}</h3>
-                        <p className="text-sm text-muted-foreground">Conta Oficial Conectada</p>
-                      </div>
+              <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">Conecte sua conta</h3>
+              <p className="text-slate-500 mb-6 max-w-sm mx-auto">
+                Para clonar sua personalidade, precisamos ler seus posts e comentários antigos.
+              </p>
+              <button
+                onClick={() => window.location.href = "/api/auth/instagram"}
+                className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors shadow-lg shadow-purple-200 dark:shadow-purple-900/20 flex items-center mx-auto gap-2"
+              >
+                <Instagram className="h-4 w-4" />
+                Conectar Instagram Agora
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              {/* CONNECTED STATUS CARD */}
+              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/20 dark:to-teal-950/20 border border-emerald-100 dark:border-emerald-900 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+                <div className="flex items-center gap-4 z-10">
+                  <div className="h-16 w-16 rounded-full bg-white dark:bg-slate-800 p-1 shadow-sm border border-emerald-200 dark:border-emerald-800">
+                    <div className="h-full w-full rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center overflow-hidden">
+                      {/* Avatar Placeholder */}
+                      <span className="text-xl font-bold text-slate-400">
+                        {(user?.instagramUsername || "U").charAt(0).toUpperCase()}
+                      </span>
                     </div>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={async () => {
-                        if (confirm("Tem certeza? Isso apagará todo o conhecimento clonado do Instagram.")) {
-                          await apiRequest("POST", "/api/brain/disconnect", {});
-                          queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
-                          queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
-                          toast({ title: "Desconectado", description: "Todos os dados foram limpos." });
-                        }
-                      }}
-                    >
-                      Desconectar
-                    </Button>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-emerald-950 dark:text-emerald-50 flex items-center gap-2">
+                      @{user?.instagramUsername}
+                      <CheckCircle className="h-5 w-5 text-emerald-500" />
+                    </h3>
+                    <p className="text-emerald-700 dark:text-emerald-300">
+                      Sincronização de dados ativa
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setIsDisconnectDialogOpen(true)}
+                  className="z-10 bg-white hover:bg-red-50 text-red-600 border border-red-200 font-semibold py-2 px-4 rounded-lg transition-colors flex items-center gap-2 shadow-sm"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Desconectar
+                </button>
+
+                {/* Background Decor */}
+                <div className="absolute right-0 top-0 h-full w-1/3 bg-emerald-100/50 dark:bg-emerald-900/10 skew-x-12 blur-3xl -z-0" />
+              </div>
+
+              {/* STATS & SYNC */}
+              <div>
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-lg border border-slate-100 dark:border-slate-800 text-center">
+                    <span className="block text-3xl font-bold text-slate-800 dark:text-slate-100">
+                      {stats?.mediaLibrary?.count || 0}
+                    </span>
+                    <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Posts Indexados</span>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-lg border border-slate-100 dark:border-slate-800 text-center">
+                    <span className="block text-3xl font-bold text-slate-800 dark:text-slate-100">
+                      {stats?.interactionDialect?.count || 0}
+                    </span>
+                    <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Interações (Threads)</span>
+                  </div>
+                </div>
+
+                {/* SYNC ACTION */}
+                <div className="bg-purple-50 dark:bg-purple-950/10 border border-purple-100 dark:border-purple-800 rounded-xl p-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <div>
+                      <h4 className="font-semibold text-purple-900 dark:text-purple-100">Sincronização Profunda</h4>
+                      <p className="text-sm text-purple-600 dark:text-purple-300">
+                        Baixa seus posts, comentários e respostas para treinar a IA.
+                      </p>
+                    </div>
+                    {!isSyncing && (
+                      <button
+                        onClick={startSync}
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-lg font-medium shadow-md shadow-purple-500/20 active:translate-y-0.5 transition-all flex items-center gap-2"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Sincronizar Agora
+                      </button>
+                    )}
                   </div>
 
-                  {instagramProfiles[0].status === 'completed' && (
-                    <div className="flex gap-4 mt-2">
-                      <div className="flex flex-col">
-                        <span className="text-2xl font-bold">{instagramProfiles[0].postsScraped || 0}</span>
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider">Posts</span>
+                  {/* PROGRESS BAR */}
+                  {isSyncing && (
+                    <div className="space-y-2 animate-in fade-in duration-300">
+                      <div className="flex justify-between text-xs font-medium text-purple-700 dark:text-purple-400">
+                        <span>{syncStatus}</span>
+                        <span>{Math.round(syncProgress)}%</span>
                       </div>
-                      <div className="flex flex-col">
-                        <span className="text-2xl font-bold">{instagramProfiles[0].datasetEntriesGenerated || 0}</span>
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider">Interações</span>
+                      <div className="h-3 w-full bg-purple-200 dark:bg-purple-900 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-purple-600 transition-all duration-300 ease-out"
+                          style={{ width: `${syncProgress}%` }}
+                        />
                       </div>
                     </div>
                   )}
                 </div>
-
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => {
-                      // Trigger SSE Sync
-                      const eventSource = new EventSource("/api/brain/sync-knowledge/stream");
-                      setIsUploadingFile(true); // Reusing this state for "isSyncing" to block UI
-                      setUploadProgress(0); // Reusing for progress bar
-
-                      // We can use a toast or local state to show detailed status
-                      let currentStep = "Iniciando...";
-
-                      eventSource.onmessage = (event) => {
-                        const data = JSON.parse(event.data);
-
-                        if (data.type === 'progress') {
-                          setUploadProgress(data.progress);
-                          currentStep = data.step;
-                          // Optional: update a specific status text state
-                        } else if (data.type === 'complete') {
-                          eventSource.close();
-                          setIsUploadingFile(false);
-                          setUploadProgress(100);
-                          queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
-                          queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
-                          toast({ title: "Sincronização Concluída!", description: `Analisados: ${data.mediaCount} posts, ${data.interactionCount} interações.` });
-                        } else if (data.type === 'error') {
-                          eventSource.close();
-                          setIsUploadingFile(false);
-                          toast({ title: "Erro na Sincronização", description: data.message, variant: "destructive" });
-                        }
-                      };
-
-                      eventSource.onerror = () => {
-                        eventSource.close();
-                        setIsUploadingFile(false);
-                        // toast({ title: "Conexão perdida", variant: "destructive" });
-                      };
-                    }}
-                    disabled={isUploadingFile} // isSyncing
-                    className="flex-1"
-                  >
-                    {isUploadingFile ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        {uploadProgress}% Sincronizando...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        Sincronizar Novamente
-                      </>
-                    )}
-                  </Button>
-
-                  <Button
-                    onClick={() => generatePersonalityMutation.mutate()}
-                    disabled={generatePersonalityMutation.isPending}
-                    variant="outline"
-                    className="flex-1"
-                  >
-                    {generatePersonalityMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                    Regerar Personalidade
-                  </Button>
-                </div>
-
-                {isUploadingFile && (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Progresso</span>
-                      <span>{uploadProgress}%</span>
-                    </div>
-                    <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary transition-all duration-500 ease-out"
-                        style={{ width: `${uploadProgress}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-center text-muted-foreground animate-pulse">
-                      Isso pode levar alguns minutos. Mantenha esta página aberta.
-                    </p>
-                  </div>
-                )}
-
               </div>
-            ) : (
-              // DISCONNECTED STATE
-              <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-lg text-center space-y-4">
-                <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-                  <Instagram className="h-6 w-6 text-muted-foreground" />
-                </div>
-                <div className="space-y-1">
-                  <h3 className="font-medium">Nenhuma conta conectada</h3>
-                  <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                    Conecte sua conta do Instagram para permitir que a IA aprenda com seus posts e interações reais.
-                  </p>
-                </div>
-                <Button
-                  onClick={() => {
-                    // Redirect to connection (or setup flow)
-                    // For now assuming the user has "connected" via the Connection tab, so we just show the sync button to "start"
-                    // But actually, if instagramProfiles is empty, it usually means we need to "Sync Official" first time.
-                    syncOfficialMutation.mutate();
-                  }}
-                  disabled={syncOfficialMutation.isPending}
-                >
-                  {syncOfficialMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Instagram className="h-4 w-4 mr-2" />}
-                  Conectar Conta Oficial
-                </Button>
-              </div>
-            )}
-          </div>
-
-          <Separator />
-
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              <Label>Arquivos de Treinamento</Label>
             </div>
-            <div>
-              <input
-                type="file"
-                accept=".pdf,.txt"
-                onChange={handleFileUpload}
-                disabled={isUploadingFile}
-                className="hidden"
-                id="knowledge-file-upload"
-              />
-              <Button
-                variant="outline"
-                onClick={() => document.getElementById("knowledge-file-upload")?.click()}
-                disabled={isUploadingFile}
-              >
-                {isUploadingFile ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Upload className="h-4 w-4 mr-2" />
-                )}
-                {isUploadingFile ? `Enviando... ${uploadProgress}%` : "Enviar Arquivo"}
-              </Button>
-              <p className="text-xs text-muted-foreground mt-2">
-                Formatos aceitos: PDF, TXT
-              </p>
-            </div>
-            {filesLoading ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            ) : knowledgeFiles.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum arquivo enviado ainda.</p>
-            ) : (
-              <div className="space-y-2">
-                {knowledgeFiles.map((file: any) => (
-                  <div
-                    key={file.id}
-                    className="flex items-center justify-between gap-2 p-3 rounded-lg border"
-                  >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <File className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="text-sm truncate">{file.fileName}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {getStatusBadge(file.status, file.progress)}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteFileMutation.mutate(file.id)}
-                        disabled={deleteFileMutation.isPending}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          )}
+        </div>
+      </div>
+
+      {/* MODAL */}
+      <ConfirmationModal
+        isOpen={isDisconnectDialogOpen}
+        onClose={() => setIsDisconnectDialogOpen(false)}
+        onConfirm={() => disconnectMutation.mutate()}
+        isLoading={disconnectMutation.isPending}
+      />
     </div>
   );
 }
