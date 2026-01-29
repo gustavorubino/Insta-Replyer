@@ -125,8 +125,8 @@ async function fetchProfile(accessToken: string): Promise<{ username: string; bi
 // STEP 2: FETCH WITH DEPTH (Posts + Nested Comments)
 // ============================================
 async function fetchPostsWithComments(accessToken: string): Promise<InstagramMedia[]> {
-    // Query fields include nested comments with from{} for username
-    const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(10){id,text,username,timestamp,from{id,username}}";
+    // Query fields include nested comments with from{} for username AND replies
+    const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(10){id,text,username,timestamp,from{id,username},replies{id,text,username,timestamp,from{id,username}}}";
     const mediaUrl = `https://graph.instagram.com/me/media?fields=${encodeURIComponent(fields)}&access_token=${accessToken}&limit=${MAX_POSTS}`;
 
     const response = await fetch(mediaUrl);
@@ -214,9 +214,15 @@ async function parseCommentsForInteractions(
             continue;
         }
 
-        // Fetch replies for this comment via separate API call
-        const replies = await fetchRepliesForComment(comment.id, accessToken);
-        console.log(`[SYNC] Comment ${comment.id} has ${replies.length} replies from API`);
+        // Fetch replies for this comment via nested data or separate API call fallback
+        let replies = comment.replies?.data || [];
+
+        // Fallback if nested fetch didn't return replies (sometimes happens with Graph API pagination)
+        if (replies.length === 0) {
+             replies = await fetchRepliesForComment(comment.id, accessToken);
+        }
+
+        console.log(`[SYNC] Comment ${comment.id} has ${replies.length} replies`);
 
         // Check if owner has replied to this comment
         let ownerReplyText: string | null = null;
@@ -233,24 +239,23 @@ async function parseCommentsForInteractions(
         // Get the real username from 'from' field (priority) or 'username' field
         const senderUsername = comment.from?.username?.trim() || comment.username?.trim() || "Seguidor";
 
-        // SAVE ALL COMMENTS - myResponse will be null if owner didn't reply
-        interactions.push({
-            channelType: 'public_comment',
-            senderName: senderUsername,
-            senderUsername: senderUsername,
-            userMessage: comment.text || '',
-            myResponse: ownerReplyText, // null if no owner reply
-            postContext: postCaption?.substring(0, 200) || null,
-            instagramCommentId: comment.id,
-            parentCommentId: null,
-            isOwnerReply: false,
-            interactedAt: comment.timestamp ? new Date(comment.timestamp) : new Date(),
-        });
-
+        // CRITICAL: Only save comments that have an Owner Reply
         if (ownerReplyText) {
+            interactions.push({
+                channelType: 'public_comment',
+                senderName: senderUsername,
+                senderUsername: senderUsername,
+                userMessage: comment.text || '',
+                myResponse: ownerReplyText,
+                postContext: postCaption?.substring(0, 200) || null,
+                instagramCommentId: comment.id,
+                parentCommentId: null,
+                isOwnerReply: false,
+                interactedAt: comment.timestamp ? new Date(comment.timestamp) : new Date(),
+            });
             console.log(`[SYNC] 💾 Saved WITH owner reply: @${senderUsername}`);
         } else {
-            console.log(`[SYNC] 💾 Saved comment: @${senderUsername} (no reply yet)`);
+            console.log(`[SYNC] ⏭️ Skipping comment without reply: @${senderUsername}`);
         }
     }
 
@@ -333,10 +338,10 @@ async function insertMediaAndInteractions(
                     });
                     imageDescription = visionResponse.choices[0]?.message?.content || null;
 
-                    // CRITICAL: Append vision analysis to caption with visible prefix
+                    // CRITICAL: Prepend vision analysis to caption with [IA VISION] prefix
                     if (imageDescription) {
                         console.log(`[SYNC] Vision result: ${imageDescription}`);
-                        enrichedCaption = (post.caption || "") + `\n\n[ANÁLISE VISUAL DA IA]: ${imageDescription}`;
+                        enrichedCaption = `[IA VISION]: ${imageDescription}\n\n` + (post.caption || "");
                     }
                 } catch (visionError) {
                     console.log(`[SYNC] Vision error for post ${post.id}:`, visionError);
