@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Globe,
@@ -35,6 +35,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -45,6 +46,20 @@ export default function Sources() {
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [profileToDelete, setProfileToDelete] = useState<number | null>(null);
+
+  // Simulated progress bar state
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+      }
+    };
+  }, []);
 
   const { data: knowledgeLinks = [], isLoading: linksLoading } = useQuery<any[]>({
     queryKey: ["/api/knowledge/links"],
@@ -107,13 +122,38 @@ export default function Sources() {
     },
   });
 
-  // Sync official Instagram account
+  // Sync official Instagram account with simulated progress
   const syncOfficialMutation = useMutation({
     mutationFn: async () => {
+      // Start simulated progress
+      setIsSyncing(true);
+      setSyncProgress(10);
+
+      progressIntervalRef.current = setInterval(() => {
+        setSyncProgress((prev) => {
+          // Increment by 3-8% randomly, cap at 90%
+          const increment = Math.floor(Math.random() * 5) + 3;
+          return Math.min(prev + increment, 90);
+        });
+      }, 600);
+
       const response = await apiRequest("POST", "/api/knowledge/sync-official", {});
       return response;
     },
     onSuccess: (data: any) => {
+      // Stop progress and jump to 100%
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      setSyncProgress(100);
+
+      // Reset after animation
+      setTimeout(() => {
+        setIsSyncing(false);
+        setSyncProgress(0);
+      }, 1500);
+
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
       queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
       toast({
@@ -122,6 +162,14 @@ export default function Sources() {
       });
     },
     onError: (error: any) => {
+      // Stop progress on error
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      setIsSyncing(false);
+      setSyncProgress(0);
+
       const errorData = error?.message ? JSON.parse(error.message.substring(error.message.indexOf("{"))) : {};
       const message = errorData.code === "NOT_CONNECTED"
         ? "Conecte sua conta Instagram primeiro na aba Conexão."
@@ -402,6 +450,25 @@ export default function Sources() {
                 Gerar Personalidade via IA
               </Button>
             </div>
+
+            {/* Progress Bar - Shows during sync */}
+            {isSyncing && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Sincronizando Instagram...
+                  </span>
+                  <span className="font-medium text-purple-600 dark:text-purple-400">
+                    {syncProgress}%
+                  </span>
+                </div>
+                <Progress
+                  value={syncProgress}
+                  className="h-2 bg-purple-100 dark:bg-purple-950"
+                />
+              </div>
+            )}
 
             <div className="flex items-start gap-2 p-3 rounded-lg bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-200/50 dark:border-purple-800/50">
               <Sparkles className="h-4 w-4 text-purple-500 mt-0.5 shrink-0" />

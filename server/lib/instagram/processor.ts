@@ -170,47 +170,48 @@ function parseCommentsForInteractions(
     }
 
     const interactions: ParsedInteraction[] = [];
-
-    // Limit to MAX_COMMENTS_PER_POST comments per post
     const limitedComments = comments.slice(0, MAX_COMMENTS_PER_POST);
 
-    for (const comment of limitedComments) {
-        // CRITICAL: Preserve the REAL username from Instagram API
-        // The API field 'username' contains the @handle (e.g., 'anarita.csilva')
-        const rawUsername = comment.username;
-        let senderUsername = rawUsername && rawUsername.trim().length > 0 && rawUsername !== '?'
-            ? rawUsername.trim()
-            : null;
-        let senderName = senderUsername;
+    console.log(`[SYNC] Processing ${limitedComments.length} comments, looking for owner replies...`);
 
-        // Only use fallback if API truly returned no username
-        if (!senderUsername) {
-            console.log(`[SYNC] Warning: Comment ${comment.id} has no username, using 'Anônimo'`);
-            senderUsername = "Anônimo";
-            senderName = "Anônimo";
-        } else {
-            console.log(`[SYNC] Captured username: @${senderUsername}`);
+    for (const comment of limitedComments) {
+        // Skip if this is the owner's own comment (not a user interaction)
+        const commentUsername = comment.username?.trim().toLowerCase() || '';
+        if (commentUsername === ownerUsername.toLowerCase()) {
+            console.log(`[SYNC] Skipping owner's own comment: ${comment.text.substring(0, 30)}...`);
+            continue;
         }
 
         // Check if owner has replied to this comment
         let ownerReplyText: string | null = null;
         if (comment.replies?.data) {
             for (const reply of comment.replies.data) {
-                const replyUsername = reply.username || "";
-                if (replyUsername.toLowerCase() === ownerUsername.toLowerCase()) {
+                const replyUsername = (reply.username || "").toLowerCase();
+                if (replyUsername === ownerUsername.toLowerCase()) {
                     ownerReplyText = reply.text;
+                    console.log(`[SYNC] ✅ Found owner reply to @${comment.username}: "${ownerReplyText.substring(0, 50)}..."`);
                     break;
                 }
             }
         }
 
-        // Add the main comment as an interaction
+        // CRITICAL: ONLY save if owner replied - skip comments without response
+        // This is what creates valid training pairs (User Input → Owner Output)
+        if (!ownerReplyText) {
+            console.log(`[SYNC] ⏭️ Skipping comment without owner reply: @${comment.username}`);
+            continue;
+        }
+
+        // Get the real username from the API
+        const senderUsername = comment.username?.trim() || "Seguidor";
+
+        // Create ONE valid interaction pair
         interactions.push({
             channelType: 'public_comment',
-            senderName: senderName,
+            senderName: senderUsername,
             senderUsername: senderUsername,
             userMessage: comment.text,
-            myResponse: ownerReplyText, // Link User Comment + Owner Response
+            myResponse: ownerReplyText,
             postContext: postCaption?.substring(0, 200) || null,
             instagramCommentId: comment.id,
             parentCommentId: null,
@@ -218,45 +219,10 @@ function parseCommentsForInteractions(
             interactedAt: comment.timestamp ? new Date(comment.timestamp) : new Date(),
         });
 
-        // IMPORTANT: Only add NON-OWNER replies as separate entries
-        // Owner replies are already captured in myResponse above - don't duplicate!
-        if (comment.replies?.data) {
-            for (const reply of comment.replies.data) {
-                const rawReplyUsername = reply.username;
-                let replyUsername = rawReplyUsername && rawReplyUsername.trim().length > 0 && rawReplyUsername !== '?'
-                    ? rawReplyUsername.trim()
-                    : null;
-
-                // CRITICAL: Skip owner replies - they are already in myResponse
-                if (replyUsername && replyUsername.toLowerCase() === ownerUsername.toLowerCase()) {
-                    console.log(`[SYNC] Skipping owner reply (already in myResponse): @${replyUsername}`);
-                    continue;
-                }
-
-                let replyName = replyUsername;
-                if (!replyUsername) {
-                    replyUsername = "Anônimo";
-                    replyName = "Anônimo";
-                }
-
-                // These are OTHER users' replies (not owner) - store as separate entries
-                interactions.push({
-                    channelType: 'public_comment',
-                    senderName: replyName,
-                    senderUsername: replyUsername,
-                    userMessage: reply.text,
-                    myResponse: null,
-                    postContext: postCaption?.substring(0, 200) || null,
-                    instagramCommentId: `${comment.id}_reply_${reply.timestamp}`,
-                    parentCommentId: comment.id,
-                    isOwnerReply: false, // Never true for stored entries
-                    interactedAt: reply.timestamp ? new Date(reply.timestamp) : new Date(),
-                });
-            }
-        }
+        console.log(`[SYNC] 💾 Saved interaction pair: @${senderUsername} → Owner reply`);
     }
 
-    console.log(`[SYNC] Parsed ${interactions.length} interactions (owner replies embedded, not duplicated)`);
+    console.log(`[SYNC] ✅ Created ${interactions.length} valid interaction pairs (comment + owner reply)`);
     return interactions;
 }
 
