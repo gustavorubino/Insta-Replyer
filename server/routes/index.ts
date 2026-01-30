@@ -8,7 +8,7 @@ import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "../replit_integrations/auth";
 import crypto from "crypto";
 import { downloadAndStoreMedia } from "../utils/media-storage";
-import { decrypt, isEncrypted } from "../encryption";
+import { decrypt, isEncrypted, encrypt } from "../encryption";
 import { refreshInstagramToken } from "../utils/token-refresh";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
@@ -1610,7 +1610,7 @@ export async function registerRoutes(
       }
 
       // Encrypt the secret before storing
-      const { encrypt } = await import("./encryption");
+      // Fixed: Use static import to avoid build issues with dynamic require not finding module in dist
       const encryptedSecret = encrypt(facebookAppSecret);
 
       await authStorage.updateUser(userId, {
