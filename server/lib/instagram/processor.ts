@@ -192,6 +192,7 @@ interface ParsedInteraction {
 async function parseCommentsForInteractions(
     comments: InstagramComment[] | undefined,
     ownerUsername: string,
+    ownerInstagramId: string,
     postCaption: string | null,
     accessToken: string
 ): Promise<ParsedInteraction[]> {
@@ -207,8 +208,12 @@ async function parseCommentsForInteractions(
     for (const comment of limitedComments) {
         // Get username from 'from' field first, then fallback to 'username'
         const commentUsername = comment.from?.username?.trim().toLowerCase() || comment.username?.trim().toLowerCase() || '';
+        const commentUserId = comment.from?.id;
 
-        if (commentUsername === ownerUsername.toLowerCase()) {
+        // Robust check: ID match (if available) OR Username match
+        const isOwnerComment = (commentUserId && commentUserId === ownerInstagramId) || (commentUsername === ownerUsername.toLowerCase());
+
+        if (isOwnerComment) {
             const textPreview = (comment.text || '[sem texto]').substring(0, 30);
             console.log(`[SYNC] Skipping owner's own comment: ${textPreview}...`);
             continue;
@@ -222,10 +227,16 @@ async function parseCommentsForInteractions(
         let ownerReplyText: string | null = null;
         for (const reply of replies) {
             const replyUsername = reply.from?.username?.toLowerCase() || reply.username?.toLowerCase() || '';
-            if (replyUsername === ownerUsername.toLowerCase()) {
+            const replyUserId = reply.from?.id;
+
+            const isIdMatch = replyUserId && replyUserId === ownerInstagramId;
+            const isUserMatch = replyUsername && replyUsername === ownerUsername.toLowerCase();
+
+            if (isIdMatch || isUserMatch) {
                 ownerReplyText = reply.text || '';
                 const replyPreview = ownerReplyText.substring(0, 50);
-                console.log(`[SYNC] ✅ Found owner reply: "${replyPreview}..."`);
+                const matchType = isIdMatch ? "ID" : "Username";
+                console.log(`[SYNC] ✅ Found owner reply (matched by ${matchType}): "${replyPreview}..."`);
                 break;
             }
         }
@@ -278,6 +289,7 @@ async function insertMediaAndInteractions(
     userId: string,
     posts: InstagramMedia[],
     ownerUsername: string,
+    ownerInstagramId: string,
     accessToken: string,
     onProgress?: (progress: SyncProgress) => void
 ): Promise<{ mediaCount: number; interactionCount: number }> {
@@ -363,6 +375,7 @@ async function insertMediaAndInteractions(
             const interactions = await parseCommentsForInteractions(
                 post.comments?.data,
                 ownerUsername,
+                ownerInstagramId,
                 post.caption || null,
                 accessToken
             );
@@ -444,6 +457,7 @@ export async function syncInstagramProcessor(
         userId,
         validPosts,
         username,
+        instagramAccountId,
         accessToken,
         onProgress
     );
