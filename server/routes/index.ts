@@ -1446,10 +1446,15 @@ export async function registerRoutes(
 
       // Merge: user personalization takes precedence over global defaults
       // If user has not set a value (null/undefined), use global default
-      const operationMode = user.operationMode || globalOperationMode?.value || "manual";
-      const autoApproveThreshold = user.autoApproveThreshold || globalAutoApproveThreshold?.value || "0.9";
-      const aiTone = user.aiTone || globalAiTone?.value || "";
-      const aiContext = user.aiContext || globalAiContext?.value || "";
+      // CRITICAL: We must respect empty strings ("") if the user explicitly cleared the value
+
+      const operationMode = user.operationMode !== null ? user.operationMode : (globalOperationMode?.value || "manual");
+
+      const autoApproveThreshold = user.autoApproveThreshold !== null ? user.autoApproveThreshold : (globalAutoApproveThreshold?.value || "0.9");
+
+      const aiTone = user.aiTone !== null ? user.aiTone : (globalAiTone?.value || "");
+
+      const aiContext = user.aiContext !== null ? user.aiContext : (globalAiContext?.value || "");
 
       const isInstagramConnected = !!(user.instagramAccountId && user.instagramAccessToken);
 

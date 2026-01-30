@@ -9,6 +9,7 @@ import {
   Bot,
   Pencil,
   X,
+  Trash2,
 } from "lucide-react";
 import {
   Card,
@@ -38,7 +39,7 @@ export default function Personality() {
   const queryClient = useQueryClient();
   const { t } = useLanguage();
 
-  const { data: settings, isLoading } = useQuery<SettingsData>({
+  const { data: settings, isLoading, isError } = useQuery<SettingsData>({
     queryKey: ["/api/settings"],
   });
 
@@ -83,6 +84,19 @@ export default function Personality() {
       ? JSON.stringify(localSettings) !== JSON.stringify(settings)
       : false;
 
+  if (isError) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertCircle className="h-10 w-10 text-destructive" />
+        <h3 className="font-semibold text-lg">{t.common.error}</h3>
+        <p className="text-muted-foreground">Erro ao carregar configurações. Verifique sua conexão.</p>
+        <Button onClick={() => window.location.reload()}>
+          Tentar novamente
+        </Button>
+      </div>
+    );
+  }
+
   if (isLoading || !localSettings) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
@@ -119,14 +133,28 @@ export default function Personality() {
                   Prompt do Sistema
                 </CardTitle>
                 {!isEditingPrompt ? (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setIsEditingPrompt(true)}
-                    title="Editar prompt"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setLocalSettings({ ...localSettings, systemPrompt: "" });
+                        setIsEditingPrompt(true);
+                      }}
+                      title="Excluir prompt"
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setIsEditingPrompt(true)}
+                      title="Editar prompt"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </div>
                 ) : (
                   <Button
                     variant="ghost"
@@ -175,22 +203,20 @@ export default function Personality() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div
-                className={`p-4 rounded-lg border cursor-pointer transition-colors ${
-                  localSettings.operationMode === "manual"
-                    ? "border-primary bg-primary/5"
-                    : "hover:bg-muted/50"
-                }`}
+                className={`p-4 rounded-lg border cursor-pointer transition-colors ${localSettings.operationMode === "manual"
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted/50"
+                  }`}
                 onClick={() =>
                   setLocalSettings({ ...localSettings, operationMode: "manual" })
                 }
               >
                 <div className="flex items-start gap-3">
                   <div
-                    className={`h-4 w-4 rounded-full border-2 mt-0.5 ${
-                      localSettings.operationMode === "manual"
-                        ? "border-primary bg-primary"
-                        : "border-muted-foreground"
-                    }`}
+                    className={`h-4 w-4 rounded-full border-2 mt-0.5 ${localSettings.operationMode === "manual"
+                      ? "border-primary bg-primary"
+                      : "border-muted-foreground"
+                      }`}
                   >
                     {localSettings.operationMode === "manual" && (
                       <div className="h-full w-full flex items-center justify-center">
@@ -208,11 +234,10 @@ export default function Personality() {
               </div>
 
               <div
-                className={`p-4 rounded-lg border cursor-pointer transition-colors ${
-                  localSettings.operationMode === "semi_auto"
-                    ? "border-primary bg-primary/5"
-                    : "hover:bg-muted/50"
-                }`}
+                className={`p-4 rounded-lg border cursor-pointer transition-colors ${localSettings.operationMode === "semi_auto"
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted/50"
+                  }`}
                 onClick={() =>
                   setLocalSettings({
                     ...localSettings,
@@ -222,11 +247,10 @@ export default function Personality() {
               >
                 <div className="flex items-start gap-3">
                   <div
-                    className={`h-4 w-4 rounded-full border-2 mt-0.5 ${
-                      localSettings.operationMode === "semi_auto"
-                        ? "border-primary bg-primary"
-                        : "border-muted-foreground"
-                    }`}
+                    className={`h-4 w-4 rounded-full border-2 mt-0.5 ${localSettings.operationMode === "semi_auto"
+                      ? "border-primary bg-primary"
+                      : "border-muted-foreground"
+                      }`}
                   >
                     {localSettings.operationMode === "semi_auto" && (
                       <div className="h-full w-full flex items-center justify-center">
@@ -275,11 +299,10 @@ export default function Personality() {
               </div>
 
               <div
-                className={`p-4 rounded-lg border cursor-pointer transition-colors ${
-                  localSettings.operationMode === "auto"
-                    ? "border-primary bg-primary/5"
-                    : "hover:bg-muted/50"
-                }`}
+                className={`p-4 rounded-lg border cursor-pointer transition-colors ${localSettings.operationMode === "auto"
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted/50"
+                  }`}
                 onClick={() =>
                   setLocalSettings({
                     ...localSettings,
@@ -289,11 +312,10 @@ export default function Personality() {
               >
                 <div className="flex items-start gap-3">
                   <div
-                    className={`h-4 w-4 rounded-full border-2 mt-0.5 ${
-                      localSettings.operationMode === "auto"
-                        ? "border-primary bg-primary"
-                        : "border-muted-foreground"
-                    }`}
+                    className={`h-4 w-4 rounded-full border-2 mt-0.5 ${localSettings.operationMode === "auto"
+                      ? "border-primary bg-primary"
+                      : "border-muted-foreground"
+                      }`}
                   >
                     {localSettings.operationMode === "auto" && (
                       <div className="h-full w-full flex items-center justify-center">

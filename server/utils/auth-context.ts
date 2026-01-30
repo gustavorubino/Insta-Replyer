@@ -3,36 +3,39 @@ import { storage } from "../storage";
 
 // Helper to extract user info from request
 export async function getUserContext(req: Request): Promise<{ userId: string; isAdmin: boolean; excludeSenderIds: string[]; excludeSenderUsernames: string[] }> {
-    // Support both Passport (req.user) and direct session (req.session)
-    const userId = (req.user as any)?.id || (req.session as any)?.passport?.user;
+    const user = req.user as any;
+
+    // Use actualUserId for OIDC users with existing email accounts, fallback to claims.sub or id
+    // CRITICAL: This logic must match the original implementation to support all auth providers (Replit, internal, etc)
+    const userId = user?.actualUserId || user?.claims?.sub || user?.id || (req.session as any)?.passport?.user;
 
     if (!userId) {
         throw new Error("Usuário não autenticado");
     }
 
     // Verify user exists in storage
-    const user = await storage.getUser(userId);
-    if (!user) {
+    const dbUser = await storage.getUser(userId);
+    if (!dbUser) {
         throw new Error("Usuário não encontrado");
     }
 
     const excludeSenderIds: string[] = [];
     const excludeSenderUsernames: string[] = [];
 
-    if (user.instagramAccountId) {
-        excludeSenderIds.push(user.instagramAccountId);
+    if (dbUser.instagramAccountId) {
+        excludeSenderIds.push(dbUser.instagramAccountId);
     }
-    if (user.instagramRecipientId) {
-        excludeSenderIds.push(user.instagramRecipientId);
+    if (dbUser.instagramRecipientId) {
+        excludeSenderIds.push(dbUser.instagramRecipientId);
     }
 
-    if (user.instagramUsername) {
-        excludeSenderUsernames.push(user.instagramUsername.toLowerCase());
+    if (dbUser.instagramUsername) {
+        excludeSenderUsernames.push(dbUser.instagramUsername.toLowerCase());
     }
 
     return {
         userId: String(userId),
-        isAdmin: user.isAdmin === true,
+        isAdmin: dbUser.isAdmin === true,
         excludeSenderIds,
         excludeSenderUsernames
     };
