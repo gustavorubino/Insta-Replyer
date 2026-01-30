@@ -1,7 +1,8 @@
 # SESSION_STATE.md — Estado da Sessão (Atualizado pelo agente)
 
 ## Data/Hora (America/Sao_Paulo)
-- Sessão: 2026-01-30 T11:45 (Aproximado - Server Time: 14:45 UTC)
+- Sessão: 2026-01-30 T18:51 (Server Time: 21:51 UTC)
+- ✅ BOOT executado em 30/01/2026
 
 ## Resumo do projeto (curto)
 - SaaS multi-tenant para automação de respostas no Instagram (DMs/Comentários) usando IA.
@@ -21,10 +22,17 @@
 - Banco: `npm run db:push` / `npm run db:studio`
 - Verificar: `npm run check` (TypeScript check)
 
+## Status Git
+- Branch: `main`
+- Status: Limpo (working tree clean)
+- Commits à frente de origin: 4 commits não publicados
+- Último commit: `e421c06 Published your App`
+
 ## Riscos/alertas do dia
 - Risco de segurança SaaS (isolamento `userId` deve ser rigoroso).
 - Pasta `attached_assets` desorganizada.
-- Pendência Crítica: Sistema de Créditos e correção de Webhook.
+- Pendência: Correção de sincronização de respostas manuais (Echo).
+- 4 commits locais não enviados para origin (git push pendente).
 
 ## Próximo objetivo combinado
-- Iniciar Fase 2 (Planejamento) do Sistema de Créditos e Correções.
+- Decidir entre: Correção de sincronização (Echo) ou outras melhorias

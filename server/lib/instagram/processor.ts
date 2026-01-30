@@ -219,18 +219,28 @@ async function parseCommentsForInteractions(
             continue;
         }
 
+        // Get the real username from 'from' field (priority) or 'username' field
+        const senderUsername = comment.from?.username?.trim() || comment.username?.trim() || "Seguidor";
+
         // Fetch replies for this comment via separate API call
         const replies = await fetchRepliesForComment(comment.id, accessToken);
         console.log(`[SYNC] Comment ${comment.id} has ${replies.length} replies from API`);
 
         // Check if owner has replied to this comment
         let ownerReplyText: string | null = null;
+        console.log(`[SYNC] 🔍 Checking ${replies.length} replies for comment ${comment.id}`);
+
         for (const reply of replies) {
             const replyUsername = reply.from?.username?.toLowerCase() || reply.username?.toLowerCase() || '';
             const replyUserId = reply.from?.id;
 
+            console.log(`[SYNC]   - Reply by @${replyUsername} (ID: ${replyUserId || 'N/A'}): "${reply.text.substring(0, 30)}..."`);
+
             const isIdMatch = replyUserId && replyUserId === ownerInstagramId;
             const isUserMatch = replyUsername && replyUsername === ownerUsername.toLowerCase();
+
+            console.log(`[SYNC]     ID Match: ${isIdMatch} (${replyUserId} === ${ownerInstagramId})`);
+            console.log(`[SYNC]     Username Match: ${isUserMatch} (${replyUsername} === ${ownerUsername.toLowerCase()})`);
 
             if (isIdMatch || isUserMatch) {
                 ownerReplyText = reply.text || '';
@@ -241,8 +251,10 @@ async function parseCommentsForInteractions(
             }
         }
 
-        // Get the real username from 'from' field (priority) or 'username' field
-        const senderUsername = comment.from?.username?.trim() || comment.username?.trim() || "Seguidor";
+        if (!ownerReplyText) {
+            console.log(`[SYNC] ❌ No owner reply found for comment by @${senderUsername}`);
+        }
+
 
         // SAVE ALL COMMENTS - myResponse will be null if owner didn't reply
         interactions.push({
@@ -417,6 +429,7 @@ export async function syncInstagramProcessor(
     onProgress?: (progress: SyncProgress) => void
 ): Promise<SyncResult> {
     console.log(`[SYNC] Starting synchronization for userId: ${userId}`);
+    console.log(`[SYNC] 🔍 DEBUG - Owner Info: ID=${instagramAccountId}, Token Length=${accessToken.length}`);
 
     const report = (stage: string, percent: number) => {
         console.log(`[SYNC] ${percent}% - ${stage}`);
@@ -436,6 +449,9 @@ export async function syncInstagramProcessor(
     report("Buscando perfil do Instagram...", 15);
     const { username, bio } = await fetchProfile(accessToken);
     console.log(`[SYNC] Profile: @${username}`);
+    console.log(`[SYNC] 🔍 DEBUG - Profile fetched: @${username}, Bio length=${bio.length}`);
+    console.log(`[SYNC] 🔍 DEBUG - Comparison will use: OwnerID="${instagramAccountId}" vs ReplyID, OwnerUsername="${username.toLowerCase()}"`);
+
 
     // ========================================
     // STEP 2: FETCH WITH DEPTH
