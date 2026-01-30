@@ -14,6 +14,9 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { extractFromUrl, extractFromPdf, extractFromText } from "../knowledge-extractor";
 import { ObjectStorageService, registerObjectStorageRoutes } from "../replit_integrations/object_storage";
+import { getOrCreateTranscription } from "../transcription";
+import { syncInstagramKnowledge, synthesizeIdentity } from "../identity-synthesizer";
+import brainRouter from "./brain";
 import { generateEmbedding } from "../utils/openai_embeddings";
 import { runArchitectAgent, runCopilotAgent } from "../modes";
 import { getUserContext } from "../utils/auth-context";
@@ -1647,7 +1650,7 @@ export async function registerRoutes(
 
       // Generate a random nonce and store it in the database with the userId
       // Note: No session fallback - state parameter is the single source of truth
-      const { randomBytes, createHmac } = await import("crypto");
+      const { randomBytes, createHmac } = crypto;
       const nonce = randomBytes(16).toString("hex");
       const expiresAt = Date.now() + (60 * 60 * 1000); // 1 hour expiry
 
@@ -1714,7 +1717,7 @@ export async function registerRoutes(
       }
 
       // Verify the full HMAC signature using timing-safe comparison
-      const { createHmac, timingSafeEqual } = await import("crypto");
+      const { createHmac, timingSafeEqual } = crypto;
       const expectedSignature = createHmac("sha256", process.env.SESSION_SECRET)
         .update(nonce)
         .digest("hex");
@@ -3104,7 +3107,7 @@ export async function registerRoutes(
       if (postVideoUrl && postMediaType === 'video') {
         console.log("[COMMENT-WEBHOOK] 🎤 Iniciando transcrição do áudio do vídeo...");
         try {
-          const { getOrCreateTranscription } = await import("./transcription");
+          // Fixed: Use static import
           postVideoTranscription = await getOrCreateTranscription(newMessage.id, postVideoUrl, null);
           if (postVideoTranscription) {
             console.log(`[COMMENT-WEBHOOK] ✅ Transcrição concluída: ${postVideoTranscription.substring(0, 100)}...`);
@@ -4669,11 +4672,11 @@ export async function registerRoutes(
       }
 
       // Decrypt access token
-      const { decrypt } = await import("./encryption");
       const accessToken = decrypt(user.instagramAccessToken);
 
       // Import and run sync
-      const { syncInstagramKnowledge } = await import("./identity-synthesizer");
+      // Fixed: Static import
+      // const { syncInstagramKnowledge } = await import("./identity-synthesizer");
 
       console.log(`[Sync Official] Iniciando sincronização para userId: ${userId}`);
 
@@ -4753,9 +4756,9 @@ export async function registerRoutes(
       }
 
       // Fetch captions directly from Instagram API
-      const { decrypt } = await import("./encryption");
       const accessToken = decrypt(user.instagramAccessToken);
-      const { syncInstagramKnowledge, synthesizeIdentity } = await import("./identity-synthesizer");
+      // Fixed: Static imports used above
+      // const { syncInstagramKnowledge, synthesizeIdentity } = await import("./identity-synthesizer");
 
       console.log(`[Generate Personality] Buscando legendas para userId: ${userId}...`);
 
@@ -4877,7 +4880,6 @@ export async function registerRoutes(
   // ============================================
 
   // Mount the modular Brain router
-  const brainRouter = (await import("./brain")).default;
   app.use("/api/brain", brainRouter);
 
   return httpServer;
