@@ -17,7 +17,7 @@ const openai = new OpenAI();
 // CONSTANTS
 // ============================================
 const MAX_POSTS = 50;
-const MAX_COMMENTS_PER_POST = 10;
+const MAX_COMMENTS_PER_POST = 50;
 
 // ============================================
 // TYPES
@@ -126,7 +126,7 @@ async function fetchProfile(accessToken: string): Promise<{ username: string; bi
 // ============================================
 async function fetchPostsWithComments(accessToken: string): Promise<InstagramMedia[]> {
     // Query fields include nested comments with from{} for username
-    const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(10){id,text,username,timestamp,from{id,username}}";
+    const fields = `id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(${MAX_COMMENTS_PER_POST}){id,text,username,timestamp,from{id,username}}`;
     const mediaUrl = `https://graph.instagram.com/me/media?fields=${encodeURIComponent(fields)}&access_token=${accessToken}&limit=${MAX_POSTS}`;
 
     const response = await fetch(mediaUrl);
@@ -147,7 +147,7 @@ async function fetchPostsWithComments(accessToken: string): Promise<InstagramMed
 // ============================================
 async function fetchRepliesForComment(commentId: string, accessToken: string): Promise<InstagramReply[]> {
     try {
-        const url = `https://graph.instagram.com/${commentId}/replies?fields=id,text,username,timestamp,from{id,username}&access_token=${accessToken}`;
+        const url = `https://graph.instagram.com/${commentId}/replies?fields=id,text,username,timestamp,from{id,username,name}&access_token=${accessToken}&limit=${MAX_COMMENTS_PER_POST}`;
         const response = await fetch(url);
 
         if (!response.ok) {
