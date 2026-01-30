@@ -188,7 +188,7 @@ export default function Dataset() {
   const syncMutation = useMutation({
     mutationFn: async () => {
       setIsSyncing(true);
-      const response = await apiRequest("POST", "/api/brain/sync-knowledge", {});
+      const response = await apiRequest("POST", "/api/instagram/sync", {});
       return response.json();
     },
     onSuccess: (data) => {
