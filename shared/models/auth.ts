@@ -42,6 +42,7 @@ export const users = pgTable("users", {
   autoApproveThreshold: varchar("auto_approve_threshold").default("0.9"),
   aiTone: varchar("ai_tone"),
   aiContext: varchar("ai_context"),
+  credits: varchar("credits", { length: 255 }).default("30").notNull(), // Add default 30 credits (stored as string for consistency with other fields, parse to int in app)
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -154,7 +154,7 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
           </div>
         </div>
       </SidebarHeader>
-      
+
       {user?.showTokenWarning && (
         <div className="mx-4 mb-2 p-3 rounded-md bg-destructive/10 border border-destructive/30">
           <div className="flex items-start gap-2">
@@ -166,8 +166,8 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
               <span className="text-xs text-muted-foreground">
                 {t.sidebar.tokenWarningDesc}
               </span>
-              <Link 
-                href="/settings" 
+              <Link
+                href="/settings"
                 className="text-xs text-foreground underline"
                 data-testid="link-token-warning-settings"
               >
@@ -177,7 +177,7 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
           </div>
         </div>
       )}
-      
+
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>{t.nav.menu}</SidebarGroupLabel>
@@ -348,6 +348,26 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
         )}
       </SidebarContent>
       <SidebarFooter className="p-4 space-y-3">
+        {/* Credits Display */}
+        <div className="flex items-center justify-between rounded-md bg-muted/50 p-2 px-3 border border-border/50">
+          <div className="flex items-center gap-2">
+            <div className="bg-yellow-500/10 p-1.5 rounded-full">
+              <Database className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-xs font-medium">Créditos IA</span>
+              <span className="text-xs text-muted-foreground font-mono">
+                {user?.credits || 0} disponíveis
+              </span>
+            </div>
+          </div>
+          <Link href="/settings">
+            <Button variant="ghost" size="icon" className="h-7 w-7">
+              <ChevronDown className="h-3 w-3 -rotate-90" />
+            </Button>
+          </Link>
+        </div>
+
         <div className="flex items-center gap-2 rounded-md bg-muted p-3">
           {user?.isAdmin ? (
             <Shield className="h-5 w-5 text-primary" />
@@ -356,8 +376,8 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
           )}
           <div className="flex flex-col flex-1 min-w-0">
             <span className="text-xs font-medium truncate" data-testid="text-user-name">
-              {user?.firstName 
-                ? `${user.firstName} ${user.lastName || ''}`.trim() 
+              {user?.firstName
+                ? `${user.firstName} ${user.lastName || ''}`.trim()
                 : user?.email?.split('@')[0] || t.sidebar.user}
             </span>
             <span className="text-xs text-muted-foreground truncate" data-testid="text-user-email">
