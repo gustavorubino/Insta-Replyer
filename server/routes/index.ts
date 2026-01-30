@@ -3004,30 +3004,22 @@ export async function registerRoutes(
       console.log("  - fromUsername:", username);
       console.log("  - instagramUsername:", instagramUser.instagramUsername);
 
+      let isManualReply = false;
+
       if (fromUserId && fromUserId === instagramUser.instagramAccountId) {
-        console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Comentário do próprio dono (match por ID)");
-        console.log("  - Comment ID:", commentId);
-        addWebhookProcessingResult({
-          action: 'ignored',
-          reason: `Comentário do próprio dono (fromUserId=${fromUserId} === instagramAccountId)`,
-          messageType: 'comment',
-          userId: instagramUser.id
-        }, currentWebhookTimestamp);
-        return;
+        console.log("[COMMENT-WEBHOOK] ⚠️ Detectado comentário do próprio dono (match por ID) - Registrando como resposta manual");
+        console.log("  - fromUserId:", fromUserId);
+        isManualReply = true;
+        // Não retornamos mais, permitimos o registro
       }
 
       // Also check by username match
       if (username && instagramUser.instagramUsername &&
         username.toLowerCase() === instagramUser.instagramUsername.toLowerCase()) {
-        console.log("[COMMENT-WEBHOOK] ❌ IGNORANDO: Comentário do próprio dono (match por username)");
-        console.log("  - Comment ID:", commentId);
-        addWebhookProcessingResult({
-          action: 'ignored',
-          reason: `Comentário do próprio dono (username=${username} === instagramUsername)`,
-          messageType: 'comment',
-          userId: instagramUser.id
-        }, currentWebhookTimestamp);
-        return;
+        console.log("[COMMENT-WEBHOOK] ⚠️ Detectado comentário do próprio dono (match por username) - Registrando como resposta manual");
+        console.log("  - username:", username);
+        isManualReply = true;
+        // Não retornamos mais, permitimos o registro
       }
 
       console.log("[COMMENT-WEBHOOK] ✅ Comentário de terceiro, processando...");
@@ -3265,76 +3257,80 @@ export async function registerRoutes(
       }
 
       // Generate AI response with post context (including image for vision and transcription)
-      console.log("[COMMENT-WEBHOOK] Gerando resposta IA...");
-      console.log("[COMMENT-WEBHOOK] Contexto da publicação:", {
-        postCaption: postCaption?.substring(0, 100),
-        postThumbnailUrl: postThumbnailUrl?.substring(0, 50),
-        postMediaType,
-        hasTranscription: !!postVideoTranscription,
-        parentCommentText,
-        parentCommentUsername
-      });
-      const aiResult = await generateAIResponse(text, "comment", displayName, instagramUser.id, {
-        postCaption,
-        postPermalink,
-        postThumbnailUrl, // Include image URL for AI vision analysis
-        postVideoUrl,
-        postMediaType,
-        postVideoTranscription, // Include video transcription for audio context
-        parentCommentText,
-        parentCommentUsername,
-      });
-      await storage.createAiResponse({
-        messageId: newMessage.id,
-        suggestedResponse: aiResult.suggestedResponse,
-        confidenceScore: aiResult.confidenceScore,
-      });
-      console.log("[COMMENT-WEBHOOK] ✅ Resposta IA gerada!");
-      console.log("  - Confiança:", aiResult.confidenceScore);
+      if (!isManualReply) {
+        console.log("[COMMENT-WEBHOOK] Gerando resposta IA...");
+        console.log("[COMMENT-WEBHOOK] Contexto da publicação:", {
+          postCaption: postCaption?.substring(0, 100),
+          postThumbnailUrl: postThumbnailUrl?.substring(0, 50),
+          postMediaType,
+          hasTranscription: !!postVideoTranscription,
+          parentCommentText,
+          parentCommentUsername
+        });
+        const aiResult = await generateAIResponse(text, "comment", displayName, instagramUser.id, {
+          postCaption,
+          postPermalink,
+          postThumbnailUrl, // Include image URL for AI vision analysis
+          postVideoUrl,
+          postMediaType,
+          postVideoTranscription, // Include video transcription for audio context
+          parentCommentText,
+          parentCommentUsername,
+        });
+        await storage.createAiResponse({
+          messageId: newMessage.id,
+          suggestedResponse: aiResult.suggestedResponse,
+          confidenceScore: aiResult.confidenceScore,
+        });
+        console.log("[COMMENT-WEBHOOK] ✅ Resposta IA gerada!");
+        console.log("  - Confiança:", aiResult.confidenceScore);
 
-      // Check for auto-send using user-specific settings
-      const userOperationMode = instagramUser.operationMode || "manual";
-      const userThreshold = parseFloat(instagramUser.autoApproveThreshold || "0.9");
+        // Check for auto-send using user-specific settings
+        const userOperationMode = instagramUser.operationMode || "manual";
+        const userThreshold = parseFloat(instagramUser.autoApproveThreshold || "0.9");
 
-      console.log("[COMMENT-WEBHOOK] Verificando auto-envio...");
-      console.log("  - Modo de operação:", userOperationMode);
-      console.log("  - Threshold:", userThreshold);
-      console.log("  - Confiança IA:", aiResult.confidenceScore);
+        console.log("[COMMENT-WEBHOOK] Verificando auto-envio...");
+        console.log("  - Modo de operação:", userOperationMode);
+        console.log("  - Threshold:", userThreshold);
+        console.log("  - Confiança IA:", aiResult.confidenceScore);
 
-      const shouldAutoSend =
-        userOperationMode === "auto" || // 100% automatic mode
-        (userOperationMode === "semi_auto" &&
-          aiResult.confidenceScore >= userThreshold);
+        const shouldAutoSend =
+          userOperationMode === "auto" || // 100% automatic mode
+          (userOperationMode === "semi_auto" &&
+            aiResult.confidenceScore >= userThreshold);
 
-      console.log("  - Deve auto-enviar:", shouldAutoSend);
+        console.log("  - Deve auto-enviar:", shouldAutoSend);
 
-      if (shouldAutoSend && instagramUser.instagramAccessToken) {
-        // Get the AI response to update it
-        const aiResponse = await storage.getAiResponse(newMessage.id);
-        if (aiResponse) {
-          // Actually send the comment reply via Instagram API
-          console.log("[COMMENT-WEBHOOK] Enviando resposta automática...");
-          const encAutoToken = instagramUser.instagramAccessToken;
-          const autoToken = isEncrypted(encAutoToken) ? decrypt(encAutoToken) : encAutoToken;
-          const sendResult = await replyToInstagramComment(
-            commentId,
-            aiResult.suggestedResponse,
-            autoToken
-          );
+        if (shouldAutoSend && instagramUser.instagramAccessToken) {
+          // Get the AI response to update it
+          const aiResponse = await storage.getAiResponse(newMessage.id);
+          if (aiResponse) {
+            // Actually send the comment reply via Instagram API
+            console.log("[COMMENT-WEBHOOK] Enviando resposta automática...");
+            const encAutoToken = instagramUser.instagramAccessToken;
+            const autoToken = isEncrypted(encAutoToken) ? decrypt(encAutoToken) : encAutoToken;
+            const sendResult = await replyToInstagramComment(
+              commentId,
+              aiResult.suggestedResponse,
+              autoToken
+            );
 
-          if (sendResult.success) {
-            await storage.updateMessageStatus(newMessage.id, "auto_sent");
-            await storage.updateAiResponse(aiResponse.id, {
-              finalResponse: aiResult.suggestedResponse,
-              wasApproved: true,
-              approvedAt: new Date(),
-            });
-            console.log(`[COMMENT-WEBHOOK] ✅ Resposta automática enviada para ${username}`);
-          } else {
-            console.error(`[COMMENT-WEBHOOK] ❌ Falha ao enviar resposta automática: ${sendResult.error}`);
-            // Keep as pending if send failed
+            if (sendResult.success) {
+              await storage.updateMessageStatus(newMessage.id, "auto_sent");
+              await storage.updateAiResponse(aiResponse.id, {
+                finalResponse: aiResult.suggestedResponse,
+                wasApproved: true,
+                approvedAt: new Date(),
+              });
+              console.log(`[COMMENT-WEBHOOK] ✅ Resposta automática enviada para ${username}`);
+            } else {
+              console.error(`[COMMENT-WEBHOOK] ❌ Falha ao enviar resposta automática: ${sendResult.error}`);
+              // Keep as pending if send failed
+            }
           }
         }
+      } else {
+        console.log("[COMMENT-WEBHOOK] ⏭️ Pulando IA pois é uma resposta manual (Sincronização)");
       }
 
       console.log("╔══════════════════════════════════════════════════════════════╗");
@@ -3488,27 +3484,30 @@ export async function registerRoutes(
       const text = messageData.message?.text;
       const attachments = messageData.message?.attachments;
       const isEcho = messageData.message?.is_echo === true;
+      let isManualReply = false;
 
       console.log(`[DM-WEBHOOK] entryId=${entryId}, senderId=${senderId}, recipientId=${recipientId}, is_echo=${isEcho}`);
 
-      // CRITICAL: Skip "echo" messages - these are messages SENT by the business account
-      // We only want to process RECEIVED messages, not echoes of what we sent
+      // CRITICAL: "echo" messages are messages SENT by the business account
+      // We want to process them as MANUAL REPLIES for synchronization
       if (isEcho) {
-        console.log(`[SKIP] Message is an echo (sent by business): mid=${messageId}`);
-        return;
+        console.log(`[DM-WEBHOOK] Message is an echo (sent by business): mid=${messageId} -> REGISTRANDO COMO MANUAL`);
+        isManualReply = true;
+        // return; // REMOVED RETURN
       }
 
-      // CRITICAL: Skip if sender is the same as recipient (self-messages)
+      // CRITICAL: Sender is the same as recipient (self-messages)
       if (senderId && recipientId && senderId === recipientId) {
-        console.log(`[SKIP] Sender equals recipient (self-message): senderId=${senderId}`);
-        return;
+        console.log(`[DM-WEBHOOK] Sender equals recipient (self-message): senderId=${senderId} -> REGISTRANDO COMO MANUAL`);
+        isManualReply = true;
+        // return; // REMOVED RETURN
       }
 
-      // CRITICAL: Skip if the sender is the same as the entry ID
-      // This means the webhook was sent to the account that sent the message (echo without is_echo flag)
+      // CRITICAL: Sender is the same as the entry ID
       if (entryId && senderId && entryId === senderId) {
-        console.log(`[SKIP] Sender matches entry ID - outgoing message from account ${entryId}`);
-        return;
+        console.log(`[DM-WEBHOOK] Sender matches entry ID - outgoing message from account ${entryId} -> REGISTRANDO COMO MANUAL`);
+        isManualReply = true;
+        // return; // REMOVED RETURN
       }
 
       // Accept messages with text OR attachments
@@ -3704,12 +3703,11 @@ export async function registerRoutes(
       const recipientMatchesUser = (recipientId === instagramUser.instagramAccountId || recipientId === instagramUser.instagramRecipientId);
 
       if (senderMatchesUser) {
-        // Sender is the user = OUTGOING message, skip it
-        console.log(`SKIPPING OUTGOING MESSAGE: Sender ${senderId} matches user's own Instagram account`);
+        // Sender is the user = OUTGOING message
+        console.log(`[DM-WEBHOOK] Sender ${senderId} matches user's own Instagram account -> REGISTRANDO COMO MANUAL`);
         console.log(`  User: ${instagramUser.email}`);
-        console.log(`  instagramAccountId: ${instagramUser.instagramAccountId}`);
-        console.log(`  instagramRecipientId: ${instagramUser.instagramRecipientId}`);
-        return;
+        isManualReply = true;
+        // return; // REMOVED RETURN
       }
 
       if (!recipientMatchesUser) {
@@ -4001,21 +3999,29 @@ export async function registerRoutes(
         }));
 
       // Generate AI response with conversation history
-      const aiResult = await generateAIResponse(contentForAI, "dm", senderName, instagramUser.id, undefined, conversationHistory);
-      await storage.createAiResponse({
-        messageId: newMessage.id,
-        suggestedResponse: aiResult.suggestedResponse,
-        confidenceScore: aiResult.confidenceScore,
-      });
+      let aiResult: any = null;
+
+      if (!isManualReply) {
+        aiResult = await generateAIResponse(contentForAI, "dm", senderName, instagramUser.id, undefined, conversationHistory);
+        await storage.createAiResponse({
+          messageId: newMessage.id,
+          suggestedResponse: aiResult.suggestedResponse,
+          confidenceScore: aiResult.confidenceScore,
+        });
+      } else {
+        console.log("[DM-WEBHOOK] ⏭️ Pulando IA pois é uma resposta manual (Sincronização)");
+      }
 
       // Check for auto-send using user-specific settings
       const userOperationMode = instagramUser.operationMode || "manual";
       const userThreshold = parseFloat(instagramUser.autoApproveThreshold || "0.9");
 
+      // Only auto-send if we have an AI result (not manual reply)
       const shouldAutoSend =
-        userOperationMode === "auto" || // 100% automatic mode
-        (userOperationMode === "semi_auto" &&
-          aiResult.confidenceScore >= userThreshold);
+        !isManualReply && aiResult && (
+          userOperationMode === "auto" || // 100% automatic mode
+          (userOperationMode === "semi_auto" &&
+            aiResult.confidenceScore >= userThreshold));
 
       if (shouldAutoSend && senderId) {
         // Get the AI response to update it

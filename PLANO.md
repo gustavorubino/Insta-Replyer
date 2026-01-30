@@ -1,50 +1,53 @@
-# PLANO.md — Correção de Sincronização de Threads/Replies
+# Plano de Correção: Sincronização de Respostas Manuais (Echo)
 
-## 1. Problema
-O sistema de "Sincronizar Minha Conta Oficial" não está importando corretamente as **respostas do dono da conta** (replies) aos comentários dos seguidores.
-**Sintoma:** O usuário vê "Sem resposta registrada" em interações que ele sabe que respondeu.
-**Impacto:** A "Personalidade da IA" fica incompleta, pois ela não aprende como o usuário responde de fato.
+## Problema
+O usuário responde a DMs e Comentários diretamente pelo aplicativo do Instagram, mas essas respostas não aparecem no painel do sistema ("Instagram AI"). Isso causa inconsistência, pois o sistema continua achando que a conversa está "Sem resposta".
 
-## 2. Contexto
-- **Arquivo Alvo:** `server/lib/instagram/processor.ts` (Função `parseCommentsForInteractions`).
-- **Lógica Atual:** O código busca os comentários e suas respostas (replies). Para identificar se uma resposta é do dono, ele compara `reply.username === ownerUsername`.
-- **Falha Provável:** A comparação por *string* (username) é frágil (pode haver divergência de case, espaços ou mudança de nome). Além disso, a API pode não estar retornando todas as replies se houver paginação.
+**Causa Raiz:** O código atual do Webhook (`server/routes/index.ts`) descarta explicitamente qualquer evento identificado como "Echo" (DMs enviadas pela própria conta) ou onde o remetente é igual ao proprietário da conta (Comentários).
 
-## 3. Solução Proposta
-Refatorar a lógica de identificação de respostas para usar **IDs** (que são imutáveis e precisos) em vez de usernames, e garantir que estamos "pegando" a conversa correta.
+## User Review Required
+> [!IMPORTANT]
+> A partir de agora, **todas** as mensagens enviadas pelo usuário no Instagram serão salvas no banco de dados do sistema. Isso aumentará o volume de dados armazenados.
 
-### Mudanças Específicas:
-1.  **Matching por ID:** Usar `instagramAccountId` (ID numérico do usuário) para verificar a autoria da resposta, em vez do username.
-2.  **Captura de Contexto:** Se houver múltiplas respostas no fio (thread), concatenar ou estruturar melhor para o "Dataset".
-3.  **Logs Detalhados:** Adicionar logs para mostrar exatamente *por que* um reply foi ignorado (ex: "ID mismatch: esperado X, recebeu Y").
+## Proposed Changes
 
-## 4. Plano de Execução
+### Backend (`server/routes/index.ts`)
 
-### Passo 1: Preparação
-- [ ] Verificar se temos o `instagramAccountId` disponível na função `syncInstagramProcessor`. (Temos, ele é passado como argumento).
+#### [MODIFY] [index.ts](file:///home/runner/workspace/server/routes/index.ts)
+1.  **Rota de Comentários (`processWebhookMessage`):**
+    *   Alterar a lógica que faz `return` quando `senderMatchesUser` é verdadeiro.
+    *   Em vez de retornar, permitir o fluxo prosseguir para `storage.createMessage`.
+    *   Adicionar uma flag `isManualReply = true` nesse fluxo.
+    *   Envolver a chamada de `generateAIResponse` (linha ~3267) em um `if (!isManualReply)`. Se for resposta manual, **PULAR** a geração de IA e apenas logar "Sincronização de resposta manual realizada".
 
-### Passo 2: Refatoração (`server/lib/instagram/processor.ts`)
-- [ ] Alterar assinatura de `parseCommentsForInteractions` para receber `ownerId`.
-- [ ] Atualizar a lógica de loop de replies:
-    ```typescript
-    // ANTES: if (replyUsername === ownerUsername)
-    // DEPOIS: if (reply.from.id === ownerId)
-    ```
-- [ ] Melhorar a query da API para garantir que `replies` traga o campo `from`.
+2.  **Rota de DMs (`processWebhookMessage` para DMs - *nota: o nome da função no código analisado parece ser o mesmo, preciso verificar se a lógica de DM está na mesma função ou separada. O código que li parecia ser mais genérico ou misturado. Na análise vi `isEcho` (linha 3490).***
+    *   Localizar o bloco `if (isEcho) { ... return; }`.
+    *   Substituir o `return` por lógica de persistência.
+    *   Buscar a conversa (Thread) existente.
+    *   Criar a mensagem com `role: 'assistant'` (ou equivalente no schema, verificar `senderId`).
+    *   **PULAR** qualquer lógica de auto-resposta ou análise de IA para essas mensagens.
 
-### Passo 3: Validação
-- [ ] Rodar o comando de Sync manualmente via UI.
-- [ ] Verificar nos logs do servidor se aparece: `[SYNC] ✅ Found owner reply (matched by ID)`.
-- [ ] Verificar na UI (Dataset) se as respostas apareceram.
+**Schema de Dados:**
+*   Verificar se precisaremos de novos campos. Provavelmente não, apenas usar o `senderId` correto (o ID do usuário/negócio) já indica que foi uma resposta.
 
-## 5. Rollback
-- Reverter o arquivo `server/lib/instagram/processor.ts` para o estado anterior caso a API pare de retornar IDs.
+## Verification Plan
 
-## 6. Riscos & Mitigação
-- **Risco:** A API do Instagram Graph v21 às vezes esconde o ID de usuários "Business" em certos contextos.
-- **Mitigação:** Manter o *fallback* por Username caso o ID falhe. (Lógica híbrida: Tenta ID, se falhar, tenta Username).
+### Teste de Regressão (Manual)
+1.  **DMs de Clientes:** Enviar mensagem de uma conta de teste para a conta conectada.
+    *   *Resultado Esperado:* Sistema recebe, processa e IA gera sugestão (como normal).
+2.  **Comentários de Clientes:** Comentar num post da conta conectada.
+    *   *Resultado Esperado:* Sistema recebe, processa e IA sugere resposta.
 
-## Threat Model (Segurança)
-- **Dados:** Apenas leitura de comentários públicos.
-- **Privacidade:** IDs são públicos na API Graph. Nenhuma PII sensível exposta além do público.
-- **Limites:** Continuaremos respeitando o limite de 50 posts para não estourar quotas.
+### Teste da Correção
+1.  **Resposta Manual (DM):**
+    *   Enviar DM de uma conta teste.
+    *   Responder essa DM **pelo app do Instagram** (celular ou web).
+    *   *Resultado Esperado:* A resposta manual deve aparecer no histórico da conversa no painel do sistema em poucos segundos. O status da conversa deve sair de "Sem resposta" (se aplicável).
+2.  **Resposta Manual (Comentário):**
+    *   Fazer um comentário teste.
+    *   Responder esse comentário **pelo app do Instagram**.
+    *   *Resultado Esperado:* A resposta deve aparecer na lista de mensagens/comentários no painel. A IA **NÃO** deve tentar responder a essa resposta manual.
+
+### Comandos de Validação
+Não há testes unitários cobrindo o webhook. Usarei logs detalhados:
+- Monitorar logs no terminal do Replit: `[DM-WEBHOOK] ECHO recebido e processado: <mid>`
