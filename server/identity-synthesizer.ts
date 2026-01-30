@@ -105,6 +105,7 @@ interface SyncResult {
     interactionCount: number;
     username: string;
     bio: string;
+    accountId: string;
 }
 
 interface SyncProgress {

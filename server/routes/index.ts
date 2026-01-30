@@ -20,6 +20,7 @@ import brainRouter from "./brain";
 import { generateEmbedding } from "../utils/openai_embeddings";
 import { runArchitectAgent, runCopilotAgent } from "../modes";
 import { getUserContext } from "../utils/auth-context";
+import { TokenScheduler } from "../services/token-scheduler";
 
 // Store last 50 webhooks received for debugging (in-memory)
 interface WebhookProcessingResult {
@@ -2004,7 +2005,7 @@ export async function registerRoutes(
   });
 
   // Global sync progress map (In-memory, per user)
-  const syncProgress = new Map<number, number>();
+  const syncProgress = new Map<string, number>();
 
   // Get sync status
   app.get("/api/instagram/sync-status", isAuthenticated, async (req, res) => {
@@ -2056,7 +2057,7 @@ export async function registerRoutes(
               const processComments = async (comments: any[]) => {
                 for (const comment of comments) {
                   try {
-                    const existingMessage = await storage.getMessageByInstagramId(comment.id);
+                    const existingMessage = await storage.getMessageByInstagramId(comment.id, userId);
 
                     const postCaption = post.caption || null;
                     const postThumbnailUrl = post.thumbnail_url || post.media_url || null;
@@ -2115,15 +2116,15 @@ export async function registerRoutes(
                         const replyUsername = reply.username || reply.from?.username;
                         const myUsername = user.instagramUsername;
 
-                        // Check if this reply is from ME (the owner)
-                        const isMyReply = myUsername && replyUsername === myUsername;
+                        // Check if this reply is from ME (the owner) using ID
+                        const isMyReply = user.instagramAccountId && reply.from?.id === user.instagramAccountId;
 
                         // Identify the reply sender
                         const replyDisplayName = reply.from?.name || replyUsername || "Usuário do Instagram";
 
                         // A. Store the reply as a Message entity (for context/history)
                         //    Check if reply already exists to avoid duplicates
-                        const existingReply = await storage.getMessageByInstagramId(reply.id);
+                        const existingReply = await storage.getMessageByInstagramId(reply.id, userId);
 
                         if (!existingReply) {
                           console.log(`[SYNC] Storing reply from ${replyUsername}: "${reply.text}"`);
@@ -2148,9 +2149,9 @@ export async function registerRoutes(
                         // B. If it's MY reply, update the parent status (ticket closing logic)
                         if (isMyReply) {
                           console.log(`[SYNC] Found OWNER reply: "${reply.text}"`);
-                          const parentMessage = await storage.getMessageByInstagramId(comment.id);
+                          const parentMessage = await storage.getMessageByInstagramId(comment.id, userId);
                           if (parentMessage && parentMessage.status !== "replied") {
-                            await storage.updateMessage(parentMessage.id, {
+                            await storage.updateMessage(parentMessage.id, userId, {
                               status: "replied",
                               sentResponse: reply.text,
                               respondedAt: new Date(reply.timestamp)

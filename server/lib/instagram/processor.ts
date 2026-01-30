@@ -65,6 +65,7 @@ interface SyncResult {
     interactionCount: number;
     username: string;
     bio: string;
+    accountId: string;
 }
 
 interface SyncProgress {
@@ -101,7 +102,7 @@ async function nuclearClean(userId: string): Promise<{ mediaDeleted: number; int
 // ============================================
 // STEP 2: FETCH PROFILE
 // ============================================
-async function fetchProfile(accessToken: string): Promise<{ username: string; bio: string }> {
+async function fetchProfile(accessToken: string): Promise<{ username: string; bio: string; id: string }> {
     const profileUrl = `https://graph.instagram.com/me?fields=id,username,biography&access_token=${accessToken}`;
     const response = await fetch(profileUrl);
 
@@ -118,6 +119,7 @@ async function fetchProfile(accessToken: string): Promise<{ username: string; bi
     return {
         username: data.username || "usuario",
         bio: data.biography || "",
+        id: data.id,
     };
 }
 
@@ -191,7 +193,7 @@ interface ParsedInteraction {
 
 async function parseCommentsForInteractions(
     comments: InstagramComment[] | undefined,
-    ownerUsername: string,
+    ownerId: string,
     postCaption: string | null,
     accessToken: string
 ): Promise<ParsedInteraction[]> {
@@ -205,41 +207,36 @@ async function parseCommentsForInteractions(
     console.log(`[SYNC] Processing ${limitedComments.length} comments, looking for owner replies...`);
 
     for (const comment of limitedComments) {
-        // Get username from 'from' field first, then fallback to 'username'
-        const commentUsername = comment.from?.username?.trim().toLowerCase() || comment.username?.trim().toLowerCase() || '';
+        // Get account ID from 'from' field
+        const commentAuthorId = comment.from?.id;
 
-        if (commentUsername === ownerUsername.toLowerCase()) {
-            const textPreview = (comment.text || '[sem texto]').substring(0, 30);
-            console.log(`[SYNC] Skipping owner's own comment: ${textPreview}...`);
+        // Skip owner's own top-level comments (usually ads or announcements)
+        if (commentAuthorId === ownerId) {
+            console.log(`[SYNC] Skipping owner's own top-level comment: ${comment.id}`);
             continue;
         }
 
-        // Fetch replies for this comment via separate API call
-        const replies = await fetchRepliesForComment(comment.id, accessToken);
-        console.log(`[SYNC] Comment ${comment.id} has ${replies.length} replies from API`);
+        // 1. Add the main comment
+        const senderUsername = comment.from?.username?.trim() || comment.username?.trim() || "Seguidor";
 
-        // Check if owner has replied to this comment
+        // Fetch replies for this comment
+        const replies = await fetchRepliesForComment(comment.id, accessToken);
+
+        // Check if owner has replied to this comment for the 'myResponse' field (legacy/shortcut)
         let ownerReplyText: string | null = null;
         for (const reply of replies) {
-            const replyUsername = reply.from?.username?.toLowerCase() || reply.username?.toLowerCase() || '';
-            if (replyUsername === ownerUsername.toLowerCase()) {
+            if (reply.from?.id === ownerId) {
                 ownerReplyText = reply.text || '';
-                const replyPreview = ownerReplyText.substring(0, 50);
-                console.log(`[SYNC] ✅ Found owner reply: "${replyPreview}..."`);
                 break;
             }
         }
 
-        // Get the real username from 'from' field (priority) or 'username' field
-        const senderUsername = comment.from?.username?.trim() || comment.username?.trim() || "Seguidor";
-
-        // SAVE ALL COMMENTS - myResponse will be null if owner didn't reply
         interactions.push({
             channelType: 'public_comment',
             senderName: senderUsername,
             senderUsername: senderUsername,
             userMessage: comment.text || '',
-            myResponse: ownerReplyText, // null if no owner reply
+            myResponse: ownerReplyText,
             postContext: postCaption?.substring(0, 200) || null,
             instagramCommentId: comment.id,
             parentCommentId: null,
@@ -247,15 +244,28 @@ async function parseCommentsForInteractions(
             interactedAt: comment.timestamp ? new Date(comment.timestamp) : new Date(),
         });
 
-        if (ownerReplyText) {
-            console.log(`[SYNC] 💾 Saved WITH owner reply: @${senderUsername}`);
-        } else {
-            console.log(`[SYNC] 💾 Saved comment: @${senderUsername} (no reply yet)`);
+        // 2. Add ALL replies to the dialect (new Deep Sync logic)
+        for (const reply of replies) {
+            const isOwner = reply.from?.id === ownerId;
+            const replySenderUsername = reply.from?.username?.trim() || reply.username?.trim() || (isOwner ? "Você" : "Seguidor");
+
+            interactions.push({
+                channelType: 'public_comment',
+                senderName: replySenderUsername,
+                senderUsername: replySenderUsername,
+                userMessage: reply.text || '',
+                myResponse: null, // Replies themselves don't have nested responses in this flat structure
+                postContext: postCaption?.substring(0, 200) || null,
+                instagramCommentId: reply.id,
+                parentCommentId: comment.id,
+                isOwnerReply: isOwner,
+                interactedAt: reply.timestamp ? new Date(reply.timestamp) : new Date(),
+            });
         }
     }
 
-    const withReplies = interactions.filter(i => i.myResponse).length;
-    console.log(`[SYNC] ✅ Saved ${interactions.length} comments (${withReplies} with owner replies)`);
+    const withReplies = interactions.filter(i => !i.parentCommentId && i.myResponse).length;
+    console.log(`[SYNC] ✅ Saved ${interactions.length} total interaction entries (${withReplies} threads with owner replies)`);
     return interactions;
 }
 
@@ -277,7 +287,7 @@ interface MediaEntry {
 async function insertMediaAndInteractions(
     userId: string,
     posts: InstagramMedia[],
-    ownerUsername: string,
+    ownerId: string,
     accessToken: string,
     onProgress?: (progress: SyncProgress) => void
 ): Promise<{ mediaCount: number; interactionCount: number }> {
@@ -362,7 +372,7 @@ async function insertMediaAndInteractions(
             // Parse comments and create interactions (now async with API calls for replies)
             const interactions = await parseCommentsForInteractions(
                 post.comments?.data,
-                ownerUsername,
+                ownerId,
                 post.caption || null,
                 accessToken
             );
@@ -443,7 +453,7 @@ export async function syncInstagramProcessor(
     const { mediaCount, interactionCount } = await insertMediaAndInteractions(
         userId,
         validPosts,
-        username,
+        id,
         accessToken,
         onProgress
     );
@@ -459,6 +469,7 @@ export async function syncInstagramProcessor(
         interactionCount,
         username,
         bio,
+        accountId: id,
     };
 }
 
