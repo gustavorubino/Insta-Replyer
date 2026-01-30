@@ -747,56 +747,59 @@ export default function Dataset() {
                                   };
 
                                   return (
-                                    <div key={interaction.id} className="bg-background rounded-lg p-4 space-y-3">
+                                    <div key={interaction.id} className="bg-background/80 backdrop-blur-sm rounded-xl p-4 space-y-3 border border-border/50 shadow-sm hover:shadow-md transition-all duration-300 animate-slide-up">
                                       {/* USER COMMENT - Always first */}
-                                      <div className="flex items-start gap-3">
-                                        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">
+                                      <div className="flex items-start gap-4">
+                                        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-base font-bold flex-shrink-0 shadow-sm ring-2 ring-white dark:ring-gray-800">
                                           {(interaction.senderUsername || "A").charAt(0).toUpperCase()}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                           <div className="flex items-center gap-2">
-                                            <span className="font-semibold text-sm">
+                                            <span className="font-semibold text-sm text-foreground/90">
                                               {formatUsername(interaction.senderUsername)}
                                             </span>
-                                            <span className="text-xs text-muted-foreground">
+                                            <span className="text-xs text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
                                               {new Date(interaction.interactedAt).toLocaleDateString("pt-BR", {
                                                 day: "2-digit",
                                                 month: "short"
                                               })}
                                             </span>
                                           </div>
-                                          <p className="text-sm mt-1">{interaction.userMessage}</p>
+                                          <p className="text-sm mt-2 text-foreground/80 leading-relaxed">{interaction.userMessage}</p>
                                         </div>
                                       </div>
 
                                       {/* OWNER REPLY - Nested below with connection line */}
                                       {interaction.myResponse && (
-                                        <div className="flex items-start gap-2 ml-5">
-                                          {/* Connection line */}
-                                          <div className="flex flex-col items-center">
-                                            <div className="w-px h-2 bg-primary/40"></div>
-                                            <div className="text-xs text-primary/60">└</div>
-                                          </div>
-                                          <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-sm font-semibold flex-shrink-0">
-                                            R
-                                          </div>
-                                          <div className="flex-1 bg-primary/5 rounded-lg p-3 border-l-3 border-primary">
-                                            <div className="flex items-center justify-between gap-2 mb-1">
-                                              <span className="font-semibold text-sm text-primary">
-                                                @você (Resposta)
-                                              </span>
-                                              <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={() => promoteToGoldMutation.mutate(interaction.id)}
-                                                disabled={promoteToGoldMutation.isPending}
-                                                className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 h-7 px-2"
-                                              >
-                                                <Star className="h-3 w-3 mr-1" />
-                                                Promover
-                                              </Button>
+                                        <div className="relative mt-2 ml-5">
+                                          {/* Connection line design */}
+                                          <div className="absolute -left-5 top-0 bottom-0 w-px bg-gradient-to-b from-border to-transparent"></div>
+                                          <div className="absolute -left-5 top-[18px] w-4 h-px bg-border"></div>
+
+                                          <div className="flex items-start gap-3">
+                                            <div className="h-9 w-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold flex-shrink-0 shadow-lg z-10">
+                                              R
                                             </div>
-                                            <p className="text-sm">{interaction.myResponse}</p>
+                                            <div className="flex-1 bg-gradient-to-r from-primary/5 to-transparent rounded-r-xl rounded-bl-xl p-4 border border-primary/10">
+                                              <div className="flex items-center justify-between gap-2 mb-2">
+                                                <span className="font-bold text-sm gradient-text">
+                                                  @você (Resposta)
+                                                </span>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  onClick={() => promoteToGoldMutation.mutate(interaction.id)}
+                                                  disabled={promoteToGoldMutation.isPending}
+                                                  className="text-amber-600 hover:text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30 h-7 px-3 rounded-full text-xs font-medium transition-colors"
+                                                >
+                                                  <Star className="h-3 w-3 mr-1.5 fill-current" />
+                                                  Promover a Ouro
+                                                </Button>
+                                              </div>
+                                              <p className="text-sm italic text-foreground/90 border-l-2 border-primary/30 pl-3 py-1">
+                                                "{interaction.myResponse}"
+                                              </p>
+                                            </div>
                                           </div>
                                         </div>
                                       )}
@@ -848,10 +851,10 @@ export default function Dataset() {
             </TabsContent>
           </Tabs>
         </CardContent>
-      </Card>
+      </Card >
 
       {/* Guideline Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      < Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen} >
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>{editingGuideline ? "Editar Diretriz" : "Nova Diretriz"}</DialogTitle>
@@ -912,10 +915,10 @@ export default function Dataset() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
 
       {/* Media Analysis Dialog */}
-      <Dialog open={isMediaDialogOpen} onOpenChange={setIsMediaDialogOpen}>
+      < Dialog open={isMediaDialogOpen} onOpenChange={setIsMediaDialogOpen} >
         <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -971,7 +974,7 @@ export default function Dataset() {
             </div>
           )}
         </DialogContent>
-      </Dialog>
-    </div>
+      </Dialog >
+    </div >
   );
 }

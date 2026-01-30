@@ -2130,6 +2130,33 @@ export async function registerRoutes(
   });
 
   // Disconnect Instagram
+  // ==========================================================
+  // SYSTEM INTEGRITY CHECK (Startup)
+  // ==========================================================
+  const requiredEnvVars = [
+    'DATABASE_URL',
+    'SESSION_SECRET',
+    'INSTAGRAM_APP_SECRET' // Critical for webhook security
+  ];
+
+  const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
+
+  if (missingEnvVars.length > 0) {
+    console.error("╔══════════════════════════════════════════════════════════════╗");
+    console.error("║  🚨 CRITICAL SYSTEM ERROR - MISSING CONFIGURATION            ║");
+    console.error("╚══════════════════════════════════════════════════════════════╝");
+    console.error(`Missing environment variables: ${missingEnvVars.join(', ')}`);
+    console.error("The server cannot start safely without these variables.");
+
+    // In production, we might want to exit. In Replit dev, we warn aggressively.
+    if (process.env.NODE_ENV === 'production') {
+      console.error("EXITING due to missing configuration.");
+      process.exit(1);
+    }
+  } else {
+    console.log("[SYSTEM] ✅ Integrity Check Passed: Critical environment variables present.");
+  }
+
   app.post("/api/instagram/disconnect", isAuthenticated, async (req, res) => {
     try {
       const { userId } = await getUserContext(req);
@@ -2468,12 +2495,14 @@ export async function registerRoutes(
       const verification = verifyWebhookSignature(bodyString, signature);
       console.log("Webhook signature verification:", verification.debug);
 
-      // TODO: Re-enable signature verification after confirming correct App Secret
-      // For now, log but don't reject to test webhook processing
+      // CRITICAL SECURITY: Enforce signature verification
+      // This prevents forgeability of Instagram events
       if (!verification.valid) {
-        console.warn("WARNING: Webhook signature mismatch - processing anyway for testing");
-        // return res.sendStatus(401);
+        console.warn(`[SECURITY] ❌ Webhook signature verification FAILED: ${verification.debug}`);
+        return res.status(401).send("Invalid signature");
       }
+
+      console.log(`[SECURITY] ✅ Webhook signature verified successfully`);
 
       const { object, entry } = req.body;
 
