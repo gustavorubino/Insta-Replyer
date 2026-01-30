@@ -2003,6 +2003,16 @@ export async function registerRoutes(
     }
   });
 
+  // Global sync progress map (In-memory, per user)
+  const syncProgress = new Map<number, number>();
+
+  // Get sync status
+  app.get("/api/instagram/sync-status", isAuthenticated, async (req, res) => {
+    const { userId } = await getUserContext(req);
+    const progress = syncProgress.get(userId) || 0;
+    res.json({ progress });
+  });
+
   // Sync Instagram messages and comments
   app.post("/api/instagram/sync", isAuthenticated, async (req, res) => {
     try {
@@ -2017,6 +2027,9 @@ export async function registerRoutes(
       const instagramId = user.instagramAccountId;
       const results = { messages: 0, comments: 0, errors: [] as string[] };
 
+      // Initialize progress
+      syncProgress.set(userId, 5); // Started
+
       // Fetch recent media (posts) to get comments
       try {
         const mediaUrl = `https://graph.instagram.com/me/media?fields=id,caption,timestamp,comments_count,permalink,media_url,thumbnail_url,media_type&access_token=${accessToken}&limit=10`;
@@ -2030,6 +2043,11 @@ export async function registerRoutes(
           results.errors.push("Failed to fetch posts: " + (mediaData.error.message || "API error"));
         } else if (mediaData.data) {
           console.log(`Found ${mediaData.data.length} posts`);
+          syncProgress.set(userId, 15); // Media Fetched
+
+          const totalPosts = mediaData.data.length;
+          let processedPosts = 0;
+
           for (const post of mediaData.data) {
             console.log(`Post ${post.id}: comments_count=${post.comments_count}`);
             // Try to get comments - using graph.instagram.com for Instagram Business Login tokens
@@ -2041,15 +2059,14 @@ export async function registerRoutes(
                     const existingMessage = await storage.getMessageByInstagramId(comment.id);
 
                     const postCaption = post.caption || null;
-                    // Use thumbnail_url for videos, media_url for images
                     const postThumbnailUrl = post.thumbnail_url || post.media_url || null;
 
+                    // 1. Process the main comment (Top Level)
                     if (!existingMessage) {
-                      // Extract username from different possible fields
                       const username = comment.username || comment.from?.username || "instagram_user";
                       const displayName = comment.from?.name || comment.username || "Usuário do Instagram";
 
-                      console.log(`Processing comment ${comment.id}: username=${username}, from=${JSON.stringify(comment.from)}`);
+                      console.log(`Processing comment ${comment.id}: username=${username}`);
 
                       const newMessage = await storage.createMessage({
                         userId,
@@ -2065,6 +2082,7 @@ export async function registerRoutes(
                         status: "pending",
                       });
 
+                      // AI Response Logic for new messages
                       try {
                         const aiResult = await generateAIResponse(
                           comment.text,
@@ -2074,7 +2092,7 @@ export async function registerRoutes(
                           {
                             postCaption,
                             postPermalink: post.permalink || null,
-                            postThumbnailUrl, // Include image for AI vision analysis
+                            postThumbnailUrl,
                           }
                         );
 
@@ -2084,23 +2102,64 @@ export async function registerRoutes(
                           confidenceScore: aiResult.confidenceScore,
                         });
                       } catch (aiError: any) {
-                        console.error("AI response error for comment:", aiError);
-                        results.errors.push(`AI error for comment ${comment.id}: ${aiError.message}`);
+                        console.error("AI error:", aiError);
                       }
-
                       results.comments++;
-                    } else {
-                      // If message exists but is missing post info, update it
-                      if ((!existingMessage.postCaption && postCaption) ||
-                        (!existingMessage.postThumbnailUrl && postThumbnailUrl)) {
-                        console.log(`Updating existing message ${existingMessage.id} with post details`);
-                        await storage.updateMessage(existingMessage.id, {
-                          postCaption: postCaption || existingMessage.postCaption,
-                          postThumbnailUrl: postThumbnailUrl || existingMessage.postThumbnailUrl,
-                          postPermalink: post.permalink || existingMessage.postPermalink
-                        });
+                    }
+
+                    // 2. Process Replies (Nested Comments) - STORE ALL REPLIES
+                    if (comment.replies && comment.replies.data) {
+                      console.log(`Found ${comment.replies.data.length} replies for comment ${comment.id}`);
+
+                      for (const reply of comment.replies.data) {
+                        const replyUsername = reply.username || reply.from?.username;
+                        const myUsername = user.instagramUsername;
+
+                        // Check if this reply is from ME (the owner)
+                        const isMyReply = myUsername && replyUsername === myUsername;
+
+                        // Identify the reply sender
+                        const replyDisplayName = reply.from?.name || replyUsername || "Usuário do Instagram";
+
+                        // A. Store the reply as a Message entity (for context/history)
+                        //    Check if reply already exists to avoid duplicates
+                        const existingReply = await storage.getMessageByInstagramId(reply.id);
+
+                        if (!existingReply) {
+                          console.log(`[SYNC] Storing reply from ${replyUsername}: "${reply.text}"`);
+                          await storage.createMessage({
+                            userId,
+                            instagramId: reply.id,
+                            type: "comment", // It's still a comment
+                            senderName: replyDisplayName,
+                            senderUsername: replyUsername || "unknown",
+                            content: reply.text,
+                            postId: post.id,
+                            postPermalink: post.permalink || null,
+                            postCaption,
+                            postThumbnailUrl,
+                            status: isMyReply ? "approved" : "replied", // Owner replies are approved, others are just replies
+                            parentCommentId: comment.id, // LINK TO PARENT
+                            parentCommentText: comment.text,
+                            parentCommentUsername: comment.username || comment.from?.username || "instagram_user"
+                          });
+                        }
+
+                        // B. If it's MY reply, update the parent status (ticket closing logic)
+                        if (isMyReply) {
+                          console.log(`[SYNC] Found OWNER reply: "${reply.text}"`);
+                          const parentMessage = await storage.getMessageByInstagramId(comment.id);
+                          if (parentMessage && parentMessage.status !== "replied") {
+                            await storage.updateMessage(parentMessage.id, {
+                              status: "replied",
+                              sentResponse: reply.text,
+                              respondedAt: new Date(reply.timestamp)
+                            });
+                          }
+                        }
                       }
                     }
+
                   } catch (commentError: any) {
                     console.error("Error processing comment:", commentError);
                     results.errors.push(`Error processing comment: ${commentError.message}`);
@@ -2108,8 +2167,8 @@ export async function registerRoutes(
                 }
               };
 
-              // Fetch comments with pagination support - include 'from' field for user info
-              let commentsUrl: string | null = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from&access_token=${accessToken}&limit=50`;
+              // Fetch comments with pagination support - include 'replies' field to get nested comments
+              let commentsUrl: string | null = `https://graph.instagram.com/${post.id}/comments?fields=id,text,username,timestamp,from,replies{id,text,username,timestamp,from}&access_token=${accessToken}&limit=50`;
               let pageCount = 0;
               const maxPages = 3; // Limit to 3 pages per post to avoid timeout
 
@@ -2138,6 +2197,11 @@ export async function registerRoutes(
             } catch (postError: any) {
               console.error("Error fetching comments for post:", postError);
             }
+
+            processedPosts++;
+            // Calculate progress: 15% to 90% based on posts processed
+            const currentProgress = 15 + Math.round((processedPosts / totalPosts) * 75);
+            syncProgress.set(userId, currentProgress);
           }
         }
       } catch (error: any) {
@@ -2158,7 +2222,17 @@ export async function registerRoutes(
         },
         errors: results.errors.length > 0 ? results.errors : undefined,
       });
+
+      // Finish progress
+      syncProgress.set(userId, 100);
+      // Clear after a short delay to allow client to read 100%
+      setTimeout(() => syncProgress.delete(userId), 5000);
+
     } catch (error) {
+      // Clear progress on error
+      const { userId } = await getUserContext(req).catch(() => ({ userId: 0 }));
+      if (userId) syncProgress.delete(userId);
+
       console.error("Error syncing Instagram:", error);
       res.status(500).json({ error: "Failed to sync Instagram" });
     }

@@ -166,17 +166,36 @@ export default function Dataset() {
     enabled: !!expandedMediaId,
   });
 
+  // Sync Status Polling
+  const { data: syncStatus } = useQuery({
+    queryKey: ["/api/instagram/sync-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/instagram/sync-status", { credentials: "include" });
+      if (!res.ok) return { progress: 0 };
+      return res.json();
+    },
+    // Only poll when syncing OR when progress is > 0 and < 100
+    refetchInterval: (query) => {
+      const progress = query.state.data?.progress || 0;
+      return (isSyncing || (progress > 0 && progress < 100)) ? 1000 : false;
+    },
+    enabled: true
+  });
+
+  const syncProgress = syncStatus?.progress || 0;
+
   // Sync Knowledge mutation
   const syncMutation = useMutation({
     mutationFn: async () => {
       setIsSyncing(true);
-      const response = await apiRequest("POST", "/api/brain/sync-knowledge", {});
+      const response = await apiRequest("POST", "/api/instagram/sync", {});
       return response.json();
     },
     onSuccess: (data) => {
       setIsSyncing(false);
       queryClient.invalidateQueries({ queryKey: ["/api/brain/knowledge/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/brain/media-library"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/instagram/sync-status"] }); // Force update status to clear or show 100
       toast({
         title: "✅ Sincronização Concluída",
         description: data.message || `${data.mediaCount} posts sincronizados!`,
@@ -648,6 +667,45 @@ export default function Dataset() {
 
                         {/* Content */}
                         <div className="flex-1 p-4">
+                          {/* Smart Progress Bar - Real-time feedback */}
+                          {(isSyncing || syncProgress > 0) && (
+                            <div className="w-full space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                              <div className="flex justify-between text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  {syncProgress < 100 && <Loader2 className="h-3 w-3 animate-spin" />}
+                                  {syncProgress < 20 ? "Iniciando conexão..." :
+                                    syncProgress < 40 ? "Buscando posts recentes..." :
+                                      syncProgress < 80 ? "Processando comentários e threads..." :
+                                        syncProgress < 100 ? "Finalizando análise de IA..." :
+                                          "Concluído!"}
+                                </span>
+                                <span className="font-medium text-primary">{syncProgress}%</span>
+                              </div>
+                              <Progress value={syncProgress} className="h-2 transition-all duration-500 ease-out" />
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border border-border/50">
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white">
+                                <RefreshCw className={`h-5 w-5 ${isSyncing ? "animate-spin" : ""}`} />
+                              </div>
+                              <div className="space-y-1">
+                                <h3 className="font-medium text-sm">Clonagem Automática de Personalidade</h3>
+                                <p className="text-xs text-muted-foreground">
+                                  Sincronize seus dados para treinar a IA com seu estilo real.
+                                </p>
+                              </div>
+                            </div>
+
+                            <Button
+                              onClick={() => syncMutation.mutate()}
+                              disabled={syncMutation.isPending || isSyncing}
+                              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-md hover:shadow-lg transition-all"
+                            >
+                              {syncMutation.isPending || isSyncing ? "Sincronizando..." : "Sincronizar Minha Conta Oficial"}
+                            </Button>
+                          </div>
                           <div className="flex items-center gap-2 mb-2">
                             <Badge variant="secondary">{media.mediaType}</Badge>
                             <span className="text-xs text-muted-foreground flex items-center gap-1">
