@@ -26,7 +26,12 @@ const allowlist = [
     "express-session", "jsonwebtoken", "memorystore", "multer", "nanoid",
     "nodemailer", "passport", "passport-local", "pg", "stripe", "uuid",
     "ws", "xlsx", "zod", "zod-validation-error",
+    "nodemailer", "passport", "passport-local", "pg", "stripe", "uuid",
+    "ws", "xlsx", "zod", "zod-validation-error",
 ];
+
+// Force exclusion of development files that break CJS build
+const forceExternal = ["./vite", "../vite.config", "../../vite.config"];
 
 async function checkBuild() {
     console.log("BUILD... Simulando compilação do servidor...");
@@ -36,7 +41,11 @@ async function checkBuild() {
             ...Object.keys(pkg.dependencies || {}),
             ...Object.keys(pkg.devDependencies || {}),
         ];
+        // Tudo que não está na allowlist é externo
         const externals = allDeps.filter((dep) => !allowlist.includes(dep));
+
+        // Adiciona exclusões manuais
+        const finalExternals = [...externals, ...forceExternal];
 
         // Simula o build do esbuild para o server
         await build({
@@ -45,7 +54,7 @@ async function checkBuild() {
             bundle: true,
             format: "cjs",
             outfile: "dist/test-build.cjs", // Temporário
-            external: externals,
+            external: finalExternals,
             logLevel: "error", // Só mostra erros
         });
         console.log("✅ Build do Servidor: SUCESSO. Sem erros de importação.");

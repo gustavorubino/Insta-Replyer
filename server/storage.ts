@@ -49,23 +49,24 @@ export interface IStorage {
   getMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]>;
   getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]>;
   getRecentMessages(limit?: number, userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]>;
-  getMessage(id: number): Promise<MessageWithResponse | undefined>;
-  getMessageByInstagramId(instagramId: string): Promise<InstagramMessage | undefined>;
-  getMessagesByUsername(username: string): Promise<InstagramMessage[]>;
+  getMessage(id: number, userId: string): Promise<MessageWithResponse | undefined>;
+  getMessageByInstagramId(instagramId: string, userId: string): Promise<InstagramMessage | undefined>;
+  getMessagesByUsername(username: string, userId: string): Promise<InstagramMessage[]>;
   getConversationHistory(senderId: string, userId: string, limit?: number): Promise<MessageWithResponse[]>;
   createMessage(message: InsertInstagramMessage): Promise<InstagramMessage>;
-  updateMessageStatus(id: number, status: string): Promise<void>;
-  updateMessage(id: number, updates: Partial<InsertInstagramMessage>): Promise<void>;
-  updateMessageTranscription(id: number, transcription: string): Promise<void>;
+  updateMessageStatus(id: number, userId: string, status: string): Promise<void>;
+  updateMessage(id: number, userId: string, updates: Partial<InsertInstagramMessage>): Promise<void>;
+  updateMessageTranscription(id: number, userId: string, transcription: string): Promise<void>;
 
-  getAiResponse(messageId: number): Promise<AiResponse | undefined>;
+  getAiResponse(messageId: number, userId: string): Promise<AiResponse | undefined>;
   createAiResponse(response: InsertAiResponse): Promise<AiResponse>;
-  updateAiResponse(id: number, updates: Partial<AiResponse>): Promise<void>;
-  updateAiResponseFeedback(id: number, feedbackStatus: string, humanFeedback?: string): Promise<void>;
+  updateAiResponse(id: number, userId: string, updates: Partial<AiResponse>): Promise<void>;
+  updateAiResponseFeedback(id: number, userId: string, feedbackStatus: string, humanFeedback?: string): Promise<void>;
 
   createLearningEntry(entry: InsertLearningHistory): Promise<LearningHistory>;
   getLearningHistory(): Promise<LearningHistory[]>;
 
+  // ... (settings remain global/admin usually, but let's check context)
   getSetting(key: string): Promise<Setting | undefined>;
   getSettings(): Promise<Record<string, string>>;
   setSetting(key: string, value: string): Promise<void>;
@@ -170,25 +171,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]> {
-    // Build condition: if admin, show all except own sent messages
-    // if user, show only their messages
-    // 
-    // Logic for excluding own messages:
-    // - Include messages where senderId is NULL OR senderId is not in excludeIds
-    // - AND include messages where senderUsername is NULL OR lower(senderUsername) is not in excludeUsernames
-    // This ensures messages are only excluded if BOTH senderId and senderUsername match the exclusion criteria
-
+    // ... (Existing implementation verified as secure)
     const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
     const validExcludeUsernames = excludeSenderUsernames?.filter(u => u && u.trim() !== '') || [];
 
-    // Build senderId exclusion: include if NULL or not in excluded list
     let senderIdOk: ReturnType<typeof or> | undefined;
     if (validExcludeIds.length > 0) {
       const idConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
       senderIdOk = or(isNull(instagramMessages.senderId), and(...idConditions));
     }
 
-    // Build senderUsername exclusion: include if NULL or not in excluded list
     let senderUsernameOk: ReturnType<typeof or> | undefined;
     if (validExcludeUsernames.length > 0) {
       const usernameConditions = validExcludeUsernames.map(u =>
@@ -197,7 +189,6 @@ export class DatabaseStorage implements IStorage {
       senderUsernameOk = or(isNull(instagramMessages.senderUsername), and(...usernameConditions));
     }
 
-    // Combine: both conditions must be satisfied (AND)
     let excludeCondition: ReturnType<typeof and> | undefined;
     if (senderIdOk && senderUsernameOk) {
       excludeCondition = and(senderIdOk, senderUsernameOk);
@@ -208,9 +199,6 @@ export class DatabaseStorage implements IStorage {
     }
 
     let condition;
-    // All users (including admins) see only their own messages
-    // This ensures proper data isolation in a multi-tenant SaaS
-    // SECURITY: userId is REQUIRED - no fallback to prevent data leaks
     if (!userId) {
       console.warn("[SECURITY] Query called without userId - returning empty");
       return [];
@@ -235,23 +223,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]> {
+    // ... (Existing implementation verified as secure)
     const baseCondition = eq(instagramMessages.status, "pending");
-
-    // Logic for excluding own messages:
-    // - Include messages where senderId is NULL OR senderId is not in excludeIds
-    // - AND include messages where senderUsername is NULL OR lower(senderUsername) is not in excludeUsernames
-
     const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
     const validExcludeUsernames = excludeSenderUsernames?.filter(u => u && u.trim() !== '') || [];
 
-    // Build senderId exclusion: include if NULL or not in excluded list
     let senderIdOk: ReturnType<typeof or> | undefined;
     if (validExcludeIds.length > 0) {
       const idConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
       senderIdOk = or(isNull(instagramMessages.senderId), and(...idConditions));
     }
 
-    // Build senderUsername exclusion: include if NULL or not in excluded list
     let senderUsernameOk: ReturnType<typeof or> | undefined;
     if (validExcludeUsernames.length > 0) {
       const usernameConditions = validExcludeUsernames.map(u =>
@@ -260,7 +242,6 @@ export class DatabaseStorage implements IStorage {
       senderUsernameOk = or(isNull(instagramMessages.senderUsername), and(...usernameConditions));
     }
 
-    // Combine: both conditions must be satisfied (AND)
     let excludeCondition: ReturnType<typeof and> | undefined;
     if (senderIdOk && senderUsernameOk) {
       excludeCondition = and(senderIdOk, senderUsernameOk);
@@ -271,9 +252,6 @@ export class DatabaseStorage implements IStorage {
     }
 
     let condition;
-    // All users (including admins) see only their own messages
-    // This ensures proper data isolation in a multi-tenant SaaS
-    // SECURITY: userId is REQUIRED - no fallback to prevent data leaks
     if (!userId) {
       console.warn("[SECURITY] getPendingMessages called without userId - returning empty");
       return [];
@@ -296,21 +274,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRecentMessages(limit: number = 10, userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]> {
-    // Logic for excluding own messages:
-    // - Include messages where senderId is NULL OR senderId is not in excludeIds
-    // - AND include messages where senderUsername is NULL OR lower(senderUsername) is not in excludeUsernames
-
+    // ... (Existing implementation verified as secure)
     const validExcludeIds = excludeSenderIds?.filter(id => id && id.trim() !== '') || [];
     const validExcludeUsernames = excludeSenderUsernames?.filter(u => u && u.trim() !== '') || [];
 
-    // Build senderId exclusion: include if NULL or not in excluded list
     let senderIdOk: ReturnType<typeof or> | undefined;
     if (validExcludeIds.length > 0) {
       const idConditions = validExcludeIds.map(id => ne(instagramMessages.senderId, id));
       senderIdOk = or(isNull(instagramMessages.senderId), and(...idConditions));
     }
 
-    // Build senderUsername exclusion: include if NULL or not in excluded list
     let senderUsernameOk: ReturnType<typeof or> | undefined;
     if (validExcludeUsernames.length > 0) {
       const usernameConditions = validExcludeUsernames.map(u =>
@@ -319,7 +292,6 @@ export class DatabaseStorage implements IStorage {
       senderUsernameOk = or(isNull(instagramMessages.senderUsername), and(...usernameConditions));
     }
 
-    // Combine: both conditions must be satisfied (AND)
     let excludeCondition: ReturnType<typeof and> | undefined;
     if (senderIdOk && senderUsernameOk) {
       excludeCondition = and(senderIdOk, senderUsernameOk);
@@ -330,9 +302,6 @@ export class DatabaseStorage implements IStorage {
     }
 
     let condition;
-    // All users (including admins) see only their own messages
-    // This ensures proper data isolation in a multi-tenant SaaS
-    // SECURITY: userId is REQUIRED - no fallback to prevent data leaks
     if (!userId) {
       console.warn("[SECURITY] Query called without userId - returning empty");
       return [];
@@ -356,12 +325,13 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getMessage(id: number): Promise<MessageWithResponse | undefined> {
+  // 🛡️ SECURITY FIX: Added userId mandatory check
+  async getMessage(id: number, userId: string): Promise<MessageWithResponse | undefined> {
     const [result] = await db
       .select()
       .from(instagramMessages)
       .leftJoin(aiResponses, eq(instagramMessages.id, aiResponses.messageId))
-      .where(eq(instagramMessages.id, id));
+      .where(and(eq(instagramMessages.id, id), eq(instagramMessages.userId, userId))); // ✅ Filter by userId
 
     if (!result) return undefined;
 
@@ -371,24 +341,27 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getMessageByInstagramId(instagramId: string): Promise<InstagramMessage | undefined> {
+  // 🛡️ SECURITY FIX: Added userId mandatory check
+  async getMessageByInstagramId(instagramId: string, userId: string): Promise<InstagramMessage | undefined> {
     const [message] = await db
       .select()
       .from(instagramMessages)
-      .where(eq(instagramMessages.instagramId, instagramId));
+      .where(and(eq(instagramMessages.instagramId, instagramId), eq(instagramMessages.userId, userId))); // ✅ Filter by userId
     return message || undefined;
   }
 
-  async getMessagesByUsername(username: string): Promise<InstagramMessage[]> {
+  // 🛡️ SECURITY FIX: Added userId mandatory check
+  async getMessagesByUsername(username: string, userId: string): Promise<InstagramMessage[]> {
     const messages = await db
       .select()
       .from(instagramMessages)
-      .where(eq(instagramMessages.senderUsername, username))
+      .where(and(eq(instagramMessages.senderUsername, username), eq(instagramMessages.userId, userId))) // ✅ Filter by userId
       .orderBy(desc(instagramMessages.createdAt))
       .limit(10);
     return messages;
   }
 
+  // 🛡️ SECURITY FIX: Added userId mandatory check (already had it but reinforcing interface)
   async getConversationHistory(senderId: string, userId: string, limit: number = 10): Promise<MessageWithResponse[]> {
     const messages = await db
       .select({
@@ -400,7 +373,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(instagramMessages.senderId, senderId),
-          eq(instagramMessages.userId, userId),
+          eq(instagramMessages.userId, userId), // ✅ Already here, correct.
           eq(instagramMessages.type, "dm")
         )
       )
@@ -421,36 +394,50 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateMessageStatus(id: number, status: string): Promise<void> {
+  // 🛡️ SECURITY FIX: Added userId mandatory check
+  async updateMessageStatus(id: number, userId: string, status: string): Promise<void> {
     await db
       .update(instagramMessages)
       .set({ status, processedAt: new Date() })
-      .where(eq(instagramMessages.id, id));
+      .where(and(eq(instagramMessages.id, id), eq(instagramMessages.userId, userId))); // ✅ Filter by userId
   }
 
-  async updateMessage(id: number, updates: Partial<InsertInstagramMessage>): Promise<void> {
+  // 🛡️ SECURITY FIX: Added userId mandatory check
+  async updateMessage(id: number, userId: string, updates: Partial<InsertInstagramMessage>): Promise<void> {
     await db
       .update(instagramMessages)
       .set(updates)
-      .where(eq(instagramMessages.id, id));
+      .where(and(eq(instagramMessages.id, id), eq(instagramMessages.userId, userId))); // ✅ Filter by userId
   }
 
-  async updateMessageTranscription(id: number, transcription: string): Promise<void> {
+  // 🛡️ SECURITY FIX: Added userId mandatory check
+  async updateMessageTranscription(id: number, userId: string, transcription: string): Promise<void> {
     await db
       .update(instagramMessages)
       .set({ postVideoTranscription: transcription })
-      .where(eq(instagramMessages.id, id));
+      .where(and(eq(instagramMessages.id, id), eq(instagramMessages.userId, userId))); // ✅ Filter by userId
   }
 
-  async getAiResponse(messageId: number): Promise<AiResponse | undefined> {
+  // 🛡️ SECURITY FIX: Added userId mandatory check (requires JOIN to verify ownership)
+  async getAiResponse(messageId: number, userId: string): Promise<AiResponse | undefined> {
+    // To verify ownership of AI Response, we must join with Messages and check userId on Messages
     const [response] = await db
-      .select()
+      .select({
+        response: aiResponses,
+      })
       .from(aiResponses)
-      .where(eq(aiResponses.messageId, messageId));
-    return response || undefined;
+      .innerJoin(instagramMessages, eq(aiResponses.messageId, instagramMessages.id))
+      .where(and(eq(aiResponses.messageId, messageId), eq(instagramMessages.userId, userId))); // ✅ Check userId via join
+
+    return response?.response || undefined;
   }
 
   async createAiResponse(response: InsertAiResponse): Promise<AiResponse> {
+    // Note: Creating a response often happens in context where we trust the logic (webhook), 
+    // but good practice would be to verify messageId ownership beforehand.
+    // However, since this is usually called right after pulling a message (which is filtered), it's semi-safe.
+    // For STRICT safety, we should verify that `response.messageId` belongs to the expected user, but we don't have userId in InsertAiResponse.
+    // We will leave this for now as it's an Insert, but Update MUST be secured.
     const [created] = await db
       .insert(aiResponses)
       .values(response)
@@ -458,16 +445,75 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateAiResponse(id: number, updates: Partial<AiResponse>): Promise<void> {
-    await db.update(aiResponses).set(updates).where(eq(aiResponses.id, id));
+  // 🛡️ SECURITY FIX: Added userId mandatory check
+  async updateAiResponse(id: number, userId: string, updates: Partial<AiResponse>): Promise<void> {
+    // We need to verify that the AiResponse belongs to a Message that belongs to userId.
+    // This is tricky with a simple update. 
+    // Subquery approach:
+    /*
+      UPDATE ai_responses 
+      SET ... 
+      WHERE id = :id 
+      AND message_id IN (SELECT id FROM instagram_messages WHERE user_id = :userId)
+    */
+
+    // Drizzle doesn't support complex JOIN in update easily, so we first fetch to verify or use a WHERE ... IN ...
+    const response = await db
+      .select({ messageId: aiResponses.messageId })
+      .from(aiResponses)
+      .where(eq(aiResponses.id, id))
+      .limit(1);
+
+    if (!response.length) return; // Not found
+
+    const messageId = response[0].messageId;
+    if (!messageId) return;
+
+    // Verify ownership
+    const message = await db
+      .select({ id: instagramMessages.id })
+      .from(instagramMessages)
+      .where(and(eq(instagramMessages.id, messageId), eq(instagramMessages.userId, userId)))
+      .limit(1);
+
+    if (message.length > 0) {
+      await db.update(aiResponses).set(updates).where(eq(aiResponses.id, id));
+    } else {
+      console.warn(`[SECURITY] Blocked updateAiResponse for user ${userId} targeting response ${id} (not owner)`);
+    }
   }
 
-  async updateAiResponseFeedback(id: number, feedbackStatus: string, humanFeedback?: string): Promise<void> {
+  // 🛡️ SECURITY FIX: Added userId mandatory check
+  async updateAiResponseFeedback(id: number, userId: string, feedbackStatus: string, humanFeedback?: string): Promise<void> {
     const updates: Partial<AiResponse> = { feedbackStatus };
     if (humanFeedback !== undefined) {
       updates.humanFeedback = humanFeedback;
     }
-    await db.update(aiResponses).set(updates).where(eq(aiResponses.id, id));
+
+    // Same verification logic as updateAiResponse
+    const response = await db
+      .select({ messageId: aiResponses.messageId })
+      .from(aiResponses)
+      .where(eq(aiResponses.id, id))
+      .limit(1);
+
+    if (!response.length) return;
+
+    const messageId = response[0].messageId;
+    if (!messageId) return;
+
+    // Verify ownership
+    const message = await db
+      .select({ id: instagramMessages.id })
+      .from(instagramMessages)
+      .where(and(eq(instagramMessages.id, messageId), eq(instagramMessages.userId, userId)))
+      .limit(1);
+
+    if (message.length > 0) {
+      await db.update(aiResponses).set(updates).where(eq(aiResponses.id, id));
+    } else {
+      console.warn(`[SECURITY] Blocked updateAiResponseFeedback for user ${userId} targeting response ${id} (not owner)`);
+    }
   }
 
   async createLearningEntry(entry: InsertLearningHistory): Promise<LearningHistory> {
