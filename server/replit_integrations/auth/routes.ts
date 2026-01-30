@@ -67,12 +67,12 @@ export const isAuthenticated: RequestHandler = async (req: any, res, next) => {
   }
 
   const user = req.user as any;
-
+  
   // For regular email/password users (no claims = local auth)
   if (user.id && !user.claims) {
     return next();
   }
-
+  
   // For Replit Auth users - check token expiration
   if (!user.expires_at) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -107,7 +107,7 @@ export function registerAuthRoutes(app: Express): void {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
-
+    
     try {
       // Support both auth types - use actualUserId for OIDC users with existing email accounts
       const userId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
@@ -116,9 +116,7 @@ export function registerAuthRoutes(app: Express): void {
         return res.status(404).json({ message: "User not found" });
       }
       // Remove sensitive fields before sending to client
-      const safeUser = sanitizeUser(user);
-      // Explicitly ensure credits are sent (should be standard, but reinforcing for clarity)
-      res.json({ ...safeUser, credits: user.credits });
+      res.json(sanitizeUser(user));
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
@@ -129,7 +127,7 @@ export function registerAuthRoutes(app: Express): void {
   app.post("/api/auth/register", async (req, res) => {
     try {
       const validatedData = registerSchema.parse(req.body);
-
+      
       // Check if email already exists
       const existingUser = await authStorage.getUserByEmail(validatedData.email);
       if (existingUser) {
@@ -137,7 +135,7 @@ export function registerAuthRoutes(app: Express): void {
       }
 
       const user = await authStorage.createUserWithPassword(validatedData);
-
+      
       // Log user in after registration
       req.login({ id: user.id, isAdmin: user.isAdmin }, (err: any) => {
         if (err) {
@@ -159,7 +157,7 @@ export function registerAuthRoutes(app: Express): void {
   app.post("/api/auth/login", async (req, res) => {
     try {
       const validatedData = loginSchema.parse(req.body);
-
+      
       const user = await authStorage.verifyPassword(validatedData.email, validatedData.password);
       if (!user) {
         return res.status(401).json({ message: "Email ou senha incorretos" });
@@ -197,7 +195,7 @@ export function registerAuthRoutes(app: Express): void {
     try {
       const userId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
       const currentUser = await authStorage.getUser(userId);
-
+      
       if (!currentUser?.isAdmin) {
         return res.status(403).json({ message: "Acesso negado" });
       }
@@ -217,7 +215,7 @@ export function registerAuthRoutes(app: Express): void {
     try {
       const currentUserId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
       const currentUser = await authStorage.getUser(currentUserId);
-
+      
       if (!currentUser?.isAdmin) {
         return res.status(403).json({ message: "Acesso negado" });
       }
@@ -240,7 +238,7 @@ export function registerAuthRoutes(app: Express): void {
       }
 
       await authStorage.updateUser(userId, { isAdmin });
-
+      
       res.json({ success: true, message: isAdmin ? "Usuário promovido a admin" : "Permissões de admin removidas" });
     } catch (error) {
       console.error("Error updating user admin status:", error);
@@ -253,7 +251,7 @@ export function registerAuthRoutes(app: Express): void {
     try {
       const currentUserId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
       const currentUser = await authStorage.getUser(currentUserId);
-
+      
       if (!currentUser?.isAdmin) {
         return res.status(403).json({ message: "Acesso negado" });
       }
@@ -272,16 +270,16 @@ export function registerAuthRoutes(app: Express): void {
 
       // Delete user's messages first (AI responses cascade automatically due to FK)
       const deletedData = await storage.deleteUserData(userId);
-
+      
       // Delete the user
       const deleted = await authStorage.deleteUser(userId);
-
+      
       if (!deleted) {
         return res.status(500).json({ message: "Erro ao excluir usuário" });
       }
 
-      res.json({
-        success: true,
+      res.json({ 
+        success: true, 
         message: "Usuário excluído com sucesso",
         deleted: {
           messages: deletedData.messages
@@ -298,27 +296,27 @@ export function registerAuthRoutes(app: Express): void {
     try {
       const currentUserId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
       const currentUser = await authStorage.getUser(currentUserId);
-
+      
       if (!currentUser?.isAdmin) {
         return res.status(403).json({ message: "Acesso negado" });
       }
-
+      
       const { userId } = req.params;
       const { instagramRecipientId } = req.body;
-
+      
       const targetUser = await authStorage.getUser(userId);
       if (!targetUser) {
         return res.status(404).json({ message: "Usuário não encontrado" });
       }
-
+      
       const updatedUser = await authStorage.updateUser(userId, {
         instagramRecipientId: instagramRecipientId || null
       });
-
+      
       if (!updatedUser) {
         return res.status(500).json({ message: "Erro ao atualizar usuário" });
       }
-
+      
       res.json({ success: true, message: "ID de Webhook atualizado com sucesso" });
     } catch (error) {
       console.error("Error updating Instagram mapping:", error);
@@ -331,11 +329,11 @@ export function registerAuthRoutes(app: Express): void {
     try {
       const currentUserId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
       const currentUser = await authStorage.getUser(currentUserId);
-
+      
       if (!currentUser?.isAdmin) {
         return res.status(403).json({ message: "Acesso negado" });
       }
-
+      
       const allSettings = await storage.getSettings();
       res.json({
         lastUnmappedWebhookRecipientId: allSettings.lastUnmappedWebhookRecipientId || null,
@@ -352,11 +350,11 @@ export function registerAuthRoutes(app: Express): void {
     try {
       const currentUserId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
       const currentUser = await authStorage.getUser(currentUserId);
-
+      
       if (!currentUser?.isAdmin) {
         return res.status(403).json({ message: "Acesso negado" });
       }
-
+      
       await storage.setSetting("lastUnmappedWebhookRecipientId", "");
       await storage.setSetting("lastUnmappedWebhookTimestamp", "");
       res.json({ success: true });

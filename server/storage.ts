@@ -45,8 +45,6 @@ import { eq, desc, and, sql, ne, or, isNull } from "drizzle-orm";
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   createUser(user: UpsertUser): Promise<User>;
-  getCredits(userId: string): Promise<number>;
-  deductCredit(userId: string): Promise<boolean>;
 
   getMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]>;
   getPendingMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]>;
@@ -170,23 +168,6 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: UpsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
-  }
-
-  async getCredits(userId: string): Promise<number> {
-    const [user] = await db.select({ credits: users.credits }).from(users).where(eq(users.id, userId));
-    return parseInt(user?.credits || "0", 10);
-  }
-
-  async deductCredit(userId: string): Promise<boolean> {
-    const currentCredits = await this.getCredits(userId);
-    if (currentCredits <= 0) return false;
-
-    await db
-      .update(users)
-      .set({ credits: (currentCredits - 1).toString() })
-      .where(eq(users.id, userId));
-
-    return true;
   }
 
   async getMessages(userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]> {

@@ -291,18 +291,6 @@ router.post("/simulate", isAuthenticated, async (req, res) => {
             return res.status(400).json({ error: "Message is required" });
         }
 
-        // Credit System Check
-        const credits = await storage.getCredits(userId);
-        if (credits <= 0) {
-            return res.status(403).json({
-                error: "Créditos insuficientes. Por favor, recarregue para continuar usando a IA.",
-                code: "INSUFFICIENT_CREDITS"
-            });
-        }
-
-        // Deduct credit for simulation
-        await storage.deductCredit(userId);
-
         // Default to simulator
         const currentMode = mode || "simulator";
 
