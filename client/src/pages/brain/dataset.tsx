@@ -399,33 +399,6 @@ export default function Dataset() {
             Gerencie as fontes de conhecimento que treinam a IA.
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button
-            variant="outline"
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending || isSyncing}
-            className="bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200"
-          >
-            {syncMutation.isPending || isSyncing ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Sincronizar Instagram
-          </Button>
-          <Button
-            onClick={() => synthesizeMutation.mutate()}
-            disabled={synthesizeMutation.isPending}
-            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
-          >
-            {synthesizeMutation.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4 mr-2" />
-            )}
-            Gerar Personalidade
-          </Button>
-        </div>
       </div>
 
       {/* Stats Cards - 3 abas agora */}
@@ -684,28 +657,6 @@ export default function Dataset() {
                               <Progress value={syncProgress} className="h-2 transition-all duration-500 ease-out" />
                             </div>
                           )}
-
-                          <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border border-border/50">
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white">
-                                <RefreshCw className={`h-5 w-5 ${isSyncing ? "animate-spin" : ""}`} />
-                              </div>
-                              <div className="space-y-1">
-                                <h3 className="font-medium text-sm">Clonagem Automática de Personalidade</h3>
-                                <p className="text-xs text-muted-foreground">
-                                  Sincronize seus dados para treinar a IA com seu estilo real.
-                                </p>
-                              </div>
-                            </div>
-
-                            <Button
-                              onClick={() => syncMutation.mutate()}
-                              disabled={syncMutation.isPending || isSyncing}
-                              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-md hover:shadow-lg transition-all"
-                            >
-                              {syncMutation.isPending || isSyncing ? "Sincronizando..." : "Sincronizar Minha Conta Oficial"}
-                            </Button>
-                          </div>
                           <div className="flex items-center gap-2 mb-2">
                             <Badge variant="secondary">{media.mediaType}</Badge>
                             <span className="text-xs text-muted-foreground flex items-center gap-1">
