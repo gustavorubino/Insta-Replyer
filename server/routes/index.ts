@@ -1876,6 +1876,9 @@ export async function registerRoutes(
       const instagramAccountId = String(igUserData.id || instagramUserId);
       let instagramUsername = igUserData.username || "";
 
+      console.log(`[OAUTH] 🔍 Extracted Account ID: ${instagramAccountId}`);
+      console.log(`[OAUTH] 🔍 Extracted Username: ${instagramUsername || "(empty)"}`);
+
       // FALLBACK: If username not returned, try additional API calls
       if (!instagramUsername && instagramAccountId) {
         console.log("Username not in primary response, trying fallback APIs...");
@@ -1983,7 +1986,12 @@ export async function registerRoutes(
       console.log(`instagramRecipientId AUTO-CONFIGURED to: ${instagramAccountId}`);
       console.log(`OAuth IDs for reference - tokenUserId: ${tokenUserId}, instagramAccountId: ${instagramAccountId}`);
 
+      console.log(`[OAUTH] 💾 ABOUT TO SAVE - UserID: ${userId}`);
+      console.log(`[OAUTH] 💾 Updates object:`, JSON.stringify(updates, null, 2));
+
       await authStorage.updateUser(userId, updates);
+
+      console.log(`[OAUTH] ✅ SAVE COMPLETED for user ${userId}`);
 
       // Store a pending webhook association marker with timestamp
       // This enables secure auto-association within a 15-minute window
