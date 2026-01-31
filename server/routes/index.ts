@@ -4,7 +4,7 @@ import fs from "fs";
 import { storage } from "../storage";
 import { generateAIResponse, regenerateResponse, type ConversationHistoryEntry } from "../openai";
 import { getOpenAIConfig } from "../utils/openai-config";
-import { createMessageApiSchema } from "@shared/schema";
+import { createMessageApiSchema, instagramMessages, aiResponses, interactionDialect, mediaLibrary } from "@shared/schema";
 import * as schema from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "../replit_integrations/auth";
@@ -779,6 +779,76 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error clearing messages:", error);
       res.status(500).json({ error: "Failed to clear messages" });
+    }
+  });
+
+  // ============ USER DATA PURGE (LIMPEZA NUCLEAR DO PRÓPRIO USUÁRIO) ============
+  // Este endpoint permite que o usuário logado apague TODOS os seus dados
+  // Seguro para multi-tenant: só apaga dados do userId da sessão
+  app.delete("/api/my-data/purge", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      if (!userId) {
+        return res.status(401).json({ error: "Usuário não autenticado" });
+      }
+
+      console.log(`[PURGE] Iniciando limpeza nuclear para usuário ${userId}`);
+
+      // 1. Deletar respostas de IA associadas às mensagens do usuário
+      // (precisa ser feito antes de deletar as mensagens por causa da FK)
+      const userMessages = await db.select({ id: instagramMessages.id })
+        .from(instagramMessages)
+        .where(eq(instagramMessages.userId, userId));
+
+      const messageIds = userMessages.map(m => m.id);
+      let deletedResponses = 0;
+      if (messageIds.length > 0) {
+        for (const msgId of messageIds) {
+          const deleted = await db.delete(aiResponses)
+            .where(eq(aiResponses.messageId, msgId))
+            .returning();
+          deletedResponses += deleted.length;
+        }
+      }
+      console.log(`[PURGE] ${deletedResponses} respostas de IA removidas`);
+
+      // 2. Deletar mensagens (DMs e comentários)
+      const deletedMessages = await db.delete(instagramMessages)
+        .where(eq(instagramMessages.userId, userId))
+        .returning();
+      console.log(`[PURGE] ${deletedMessages.length} mensagens removidas`);
+
+      // 3. Deletar histórico de interações
+      const deletedInteractions = await db.delete(interactionDialect)
+        .where(eq(interactionDialect.userId, userId))
+        .returning();
+      console.log(`[PURGE] ${deletedInteractions.length} interações removidas`);
+
+      // 4. Deletar biblioteca de mídia
+      const deletedMedia = await db.delete(mediaLibrary)
+        .where(eq(mediaLibrary.userId, userId))
+        .returning();
+      console.log(`[PURGE] ${deletedMedia.length} mídias removidas`);
+
+      // 5. Limpar marcadores de webhook pendentes
+      await storage.deleteSetting(`pending_webhook_${userId}`);
+      console.log(`[PURGE] Marcadores de webhook limpos`);
+
+      console.log(`[PURGE] ✅ Limpeza completa para usuário ${userId}`);
+
+      res.json({
+        success: true,
+        message: "Todos os seus dados foram removidos com sucesso",
+        deleted: {
+          aiResponses: deletedResponses,
+          messages: deletedMessages.length,
+          interactions: deletedInteractions.length,
+          media: deletedMedia.length
+        }
+      });
+    } catch (error) {
+      console.error("[PURGE] Erro na limpeza:", error);
+      res.status(500).json({ error: "Falha ao limpar dados" });
     }
   });
 
