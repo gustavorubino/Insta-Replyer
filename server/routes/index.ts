@@ -2032,12 +2032,29 @@ export async function registerRoutes(
 
       console.log(`OAuth IDs - Token user_id: ${tokenUserId}, API id: ${instagramAccountId}, username: ${instagramUsername}`);
 
+      // 🔧 FIX: Verificar se o usuário já tem um instagramAccountId configurado por webhook
+      // Se sim, PRESERVAR esse ID em vez de sobrescrever com o ID do OAuth
+      const existingUser = await authStorage.getUser(userId);
+      let finalInstagramAccountId = instagramAccountId;
+      let finalInstagramRecipientId = instagramAccountId;
+
+      if (existingUser?.instagramAccountId && existingUser.instagramAccountId !== instagramAccountId) {
+        // O usuário já tem um ID diferente configurado (provavelmente pelo webhook)
+        console.log(`[OAUTH] ⚠️ PRESERVANDO ID EXISTENTE!`);
+        console.log(`  OAuth retornou: ${instagramAccountId}`);
+        console.log(`  ID existente (preservado): ${existingUser.instagramAccountId}`);
+        finalInstagramAccountId = existingUser.instagramAccountId;
+        finalInstagramRecipientId = existingUser.instagramRecipientId || existingUser.instagramAccountId;
+      } else {
+        console.log(`[OAUTH] 📝 Usando ID do OAuth: ${instagramAccountId}`);
+      }
+
       // Store Instagram data
       // AUTO-CONFIGURE: Set instagramRecipientId equal to instagramAccountId
       // This ensures the webhook ID is configured immediately for the best user experience
       // If webhooks arrive with a different ID, the auto-association system will correct it
       const updates: any = {
-        instagramAccountId,
+        instagramAccountId: finalInstagramAccountId,
         instagramUsername,
         instagramProfilePic: profilePictureUrl || null,
         instagramAccessToken: longLivedToken,
@@ -2050,18 +2067,19 @@ export async function registerRoutes(
         // AUTO-CONFIGURE: Set instagramRecipientId = instagramAccountId
         // This works for most Instagram Business accounts where the IDs are the same
         // If different, auto-association will update on first webhook
-        instagramRecipientId: instagramAccountId,
+        instagramRecipientId: finalInstagramRecipientId,
       };
 
       console.log(`Storing Instagram profile pic: ${profilePictureUrl ? "found" : "not available"}`);
 
-      console.log(`instagramRecipientId AUTO-CONFIGURED to: ${instagramAccountId}`);
-      console.log(`OAuth IDs for reference - tokenUserId: ${tokenUserId}, instagramAccountId: ${instagramAccountId}`);
+      console.log(`instagramRecipientId AUTO-CONFIGURED to: ${finalInstagramRecipientId}`);
+      console.log(`OAuth IDs for reference - tokenUserId: ${tokenUserId}, instagramAccountId: ${finalInstagramAccountId}`);
 
       console.log(`[OAUTH] 💾 ABOUT TO SAVE - UserID: ${userId}`);
       console.log(`[OAUTH] 💾 Updates object:`, JSON.stringify(updates, null, 2));
 
       await authStorage.updateUser(userId, updates);
+
 
       console.log(`[OAUTH] ✅ SAVE COMPLETED for user ${userId}`);
 
