@@ -28,9 +28,9 @@
 - Commits à frente de origin: 4 commits não publicados
 
 ## Estado Atual do Problema
-- **VAZAMENTO RESOLVIDO:** Patch de segurança + Auditoria (Logs) ativos.
-- **MÍDIA/PERFIL:** Correção aplicada para "Usuário IG" e Story Mentions.
-- **DEPLOY:** Build validado (Sucesso).
+- **VAZAMENTO:** Totalmente Corrigido (DMs + Comentários blindados).
+- **MÍDIA/PERFIL:** Corrigido.
+- **DEPLOY:** Sucesso. Pronto para Restart.
 
 ## Próximo objetivo combinado
 - **CONCLUÍDO:** Correção de Deploy e Limpeza Final.

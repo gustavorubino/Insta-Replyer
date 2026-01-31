@@ -1,7 +1,8 @@
 # PROJECT_CONTEXT.md — Contexto do Projeto (Memória Persistente)
 
 ## O que é este projeto (em linguagem simples)
-Este é um **SaaS de Automação e Inteligência Artificial para Instagram**.
+**DEFINIÇÃO DO PRODUTO:**
+Este é um SaaS de Automação e Inteligência Artificial para Instagram.
 O objetivo principal é conectar nas contas de Instagram dos clientes e utilizar IA para responder automaticamente:
 1. Direct Messages (DMs)
 2. Comentários em posts
@@ -9,9 +10,9 @@ O objetivo principal é conectar nas contas de Instagram dos clientes e utilizar
 O sistema deve agir como um atendimento humano, rápido e preciso, para engajar seguidores e fechar vendas/atendimentos sem intervenção manual.
 
 ## Como eu uso no dia a dia
-- **Meu objetivo:** Conectar contas e deixar a IA responder DMs e Comentários para engajar seguidores/vendas 24/7.
-- **O que é mais importante:** Qualidade das respostas da IA (não falar besteira), Segurança dos dados (isolamento entre clientes) e Estabilidade (não cair).
-- **Perfil do usuário:** Sou Gestor, não sou programador. A comunicação técnica deve ser traduzida para linguagem de negócios.
+- **Meu objetivo:** automatizar respostas no Instagram com IA.
+- **O que é mais importante:** qualidade e segurança.
+- **Eu sou gestor, não sou programador.** Comunicação simples.
 
 ## Stack Tecnológica
 - **Frontend:** React, Vite, TailwindCSS, Radix UI.
@@ -51,9 +52,9 @@ O sistema deve agir como um atendimento humano, rápido e preciso, para engajar 
 **Onde configurar:** Replit Secrets.
 
 ## Riscos e Regras de Ouro
-1. **Riscos de Plataforma:**
-    - **Bloqueio do Instagram:** Monitorar *Rate Limits* para não perder a conta.
-    - **Alucinação da IA:** A IA pode responder algo errado ou ofensivo (exige *human in the loop* ou prompt rígido).
-    - **Privacidade (LGPD):** DMs contém dados pessoais; vazamento é inaceitável.
+1. **Principais Riscos:**
+    - **Risco de bloqueio da conta do Instagram (Rate Limits).**
+    - **Risco de "alucinação" da IA (responder algo ofensivo ou errado).**
+    - **Privacidade das DMs (LGPD).**
 2. **Nunca expor dados de um cliente para outro** (Isolamento rígido por `userId`).
 3. **Nunca comitar senhas ou chaves reais** (Segredos apenas no Replit Secrets).

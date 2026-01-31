@@ -747,10 +747,9 @@ export async function registerRoutes(
       if (message.aiResponse) {
         // 🛡️ SECURITY FIX: Pass userId to updateAiResponse
         await storage.updateAiResponse(message.aiResponse.id, userId, {
-          responseContent: response,
+          finalResponse: response,
           feedbackStatus: feedbackStatus || message.aiResponse.feedbackStatus,
           wasEdited: true,
-          updatedAt: new Date(),
         });
       } else {
         // ... existing create logic (should also be guarded but usually context implies creation for owned message)
@@ -1187,8 +1186,8 @@ export async function registerRoutes(
 
       if (shouldAutoSend) {
         // Auto-approve and send
-        await storage.updateMessageStatus(message.id, "auto_sent");
-        await storage.updateAiResponse(aiResponse.id, {
+        await storage.updateMessageStatus(message.id, userId, "auto_sent");
+        await storage.updateAiResponse(aiResponse.id, userId, {
           finalResponse: aiResult.suggestedResponse,
           wasApproved: true,
           approvedAt: new Date(),
@@ -2787,91 +2786,16 @@ export async function registerRoutes(
         }
       }
 
-      // FALLBACK #2: If still not found, try SMART AUTO-ASSOCIATION (same logic as DMs)
-      if (!instagramUser) {
-        console.log("[COMMENT-WEBHOOK] ⚠️ Tentando auto-associação inteligente...");
-        const usersWithToken = allUsers.filter((u: any) => u.instagramAccessToken);
-        console.log(`  - Usuários com token: ${usersWithToken.length}`);
+      // FALLBACK #2: REMOVIDO POR SEGURANÇA
+      // A lógica anterior tentava adivinhar o usuário, causando vazamentos.
+      // Agora exigimos match explícito.
 
-        if (usersWithToken.length === 1) {
-          // STRATEGY 1: Only one user with Instagram - use them
-          instagramUser = usersWithToken[0];
-          console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIANDO: Único usuário com token: ${instagramUser.email}`);
-          console.log(`  Current instagramAccountId: ${instagramUser.instagramAccountId}`);
-          console.log(`  New pageId from webhook: ${pageId}`);
-
-          // Update their instagramAccountId for future matches
-          try {
-            await authStorage.updateUser(instagramUser.id, { instagramAccountId: pageId });
-            console.log(`[COMMENT-WEBHOOK] ✅ instagramAccountId atualizado para ${pageId}`);
-          } catch (e) {
-            console.log("[COMMENT-WEBHOOK] ⚠️ Não foi possível atualizar instagramAccountId:", e);
-          }
-        } else if (usersWithToken.length > 1) {
-          // STRATEGY 2: Multiple users - try pending webhook markers (time-based association)
-          console.log("[COMMENT-WEBHOOK] 🔍 Múltiplos usuários - tentando associação por janela de tempo...");
-
-          const ASSOCIATION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours - expanded for better UX
-          const now = Date.now();
-          const eligibleUsers: { user: any; pendingTime: number }[] = [];
-
-          for (const u of usersWithToken) {
-            // Check if user has a pending webhook marker within the time window
-            try {
-              const pendingSetting = await storage.getSetting(`pending_webhook_${u.id}`);
-              if (pendingSetting?.value) {
-                const pendingTime = new Date(pendingSetting.value).getTime();
-                const elapsedMs = now - pendingTime;
-
-                if (elapsedMs <= ASSOCIATION_WINDOW_MS) {
-                  console.log(`  [✓] Usuário ${u.email} tem marcador pendente de ${Math.round(elapsedMs / 1000)}s atrás`);
-                  eligibleUsers.push({ user: u, pendingTime });
-                } else {
-                  console.log(`  [✗] Usuário ${u.email} - marcador expirado (${Math.round(elapsedMs / 3600000)}h atrás)`);
-                  // Clean up expired marker
-                  await storage.deleteSetting(`pending_webhook_${u.id}`);
-                }
-              } else {
-                console.log(`  [✗] Usuário ${u.email} - sem marcador pendente`);
-              }
-            } catch (err) {
-              console.log(`  [!] Erro ao verificar marcador do usuário ${u.id}:`, err);
-            }
-          }
-
-          if (eligibleUsers.length === 1) {
-            // Exactly one user within the time window - auto-associate
-            instagramUser = eligibleUsers[0].user;
-            console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIANDO por janela de tempo: ${instagramUser.email}`);
-
-            try {
-              await authStorage.updateUser(instagramUser.id, { instagramAccountId: pageId });
-              console.log(`[COMMENT-WEBHOOK] ✅ instagramAccountId atualizado para ${pageId}`);
-
-              // Clear the pending marker
-              await storage.deleteSetting(`pending_webhook_${instagramUser.id}`);
-              console.log(`[COMMENT-WEBHOOK] ✅ Marcador pendente removido`);
-            } catch (e) {
-              console.log("[COMMENT-WEBHOOK] ⚠️ Erro ao atualizar:", e);
-            }
-          } else if (eligibleUsers.length > 1) {
-            // Multiple users within window - sort by most recent and use that one
-            eligibleUsers.sort((a, b) => b.pendingTime - a.pendingTime);
-            instagramUser = eligibleUsers[0].user;
-            console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIANDO (mais recente): ${instagramUser.email}`);
-
-            try {
-              await authStorage.updateUser(instagramUser.id, { instagramAccountId: pageId });
-              console.log(`[COMMENT-WEBHOOK] ✅ instagramAccountId atualizado para ${pageId}`);
-              await storage.deleteSetting(`pending_webhook_${instagramUser.id}`);
-            } catch (e) {
-              console.log("[COMMENT-WEBHOOK] ⚠️ Erro ao atualizar:", e);
-            }
-          } else {
-            // No users within time window - try FALLBACK #3
-            console.log("[COMMENT-WEBHOOK] ⚠️ Nenhum usuário dentro da janela de associação, tentando FALLBACK #3...");
-          }
-        }
+      // 🛡️ SECURITY AUDIT LOG (CAIXA PRETA - COMMENT)
+      const auditLog = `[${new Date().toISOString()}] TYPE:COMMENT PAGE_ID:${pageId} MSG_ID:${commentId} -> MATCH:${instagramUser ? instagramUser.id : 'NENHUM (BLOQUEADO)'}\n`;
+      try {
+        await fs.promises.appendFile('webhook_audit.log', auditLog);
+      } catch (err) {
+        console.error("Falha ao gravar audit log comentario:", err);
       }
 
       // 🛡️ SECURITY PATCH: FALLBACKS DISABLED
@@ -3221,8 +3145,8 @@ export async function registerRoutes(
             );
 
             if (sendResult.success) {
-              await storage.updateMessageStatus(newMessage.id, "auto_sent");
-              await storage.updateAiResponse(aiResponse.id, {
+              await storage.updateMessageStatus(newMessage.id, instagramUser.id, "auto_sent");
+              await storage.updateAiResponse(aiResponse.id, instagramUser.id, {
                 finalResponse: aiResult.suggestedResponse,
                 wasApproved: true,
                 approvedAt: new Date(),
@@ -3880,8 +3804,8 @@ export async function registerRoutes(
           );
 
           if (sendResult.success) {
-            await storage.updateMessageStatus(newMessage.id, "auto_sent");
-            await storage.updateAiResponse(aiResponse.id, {
+            await storage.updateMessageStatus(newMessage.id, instagramUser.id, "auto_sent");
+            await storage.updateAiResponse(aiResponse.id, instagramUser.id, {
               finalResponse: aiResult.suggestedResponse,
               wasApproved: true,
               approvedAt: new Date(),
