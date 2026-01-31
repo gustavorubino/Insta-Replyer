@@ -1,53 +1,46 @@
-# Plano de Correção: Sincronização de Respostas Manuais (Echo)
+# PLANO DE CORREÇÃO: Vazamento de Dados e Alucinação de Contexto
 
-## Problema
-O usuário responde a DMs e Comentários diretamente pelo aplicativo do Instagram, mas essas respostas não aparecem no painel do sistema ("Instagram AI"). Isso causa inconsistência, pois o sistema continua achando que a conversa está "Sem resposta".
+## 1. Problema Identificado
+- **Vazamento:** O usuário "Gustavo" (Admin) visualiza DMs e Comentários que parecem pertencer a outro usuário ("Rodolfo"), mesmo sem ter conta do Instagram conectada.
+- **Alucinação:** A IA assina mensagens como "#EquipeRODOLFODONETTI", indicando que o contexto do sistema está contaminado.
+- **Insegurança no Webhook:** O código atual de webhook possui lógica de "fallback" (tentativa de adivinhar o usuário) que pode associar mensagens de contas desconhecidas a usuários sem conta conectada, causando o vazamento.
 
-**Causa Raiz:** O código atual do Webhook (`server/routes/index.ts`) descarta explicitamente qualquer evento identificado como "Echo" (DMs enviadas pela própria conta) ou onde o remetente é igual ao proprietário da conta (Comentários).
+## 2. Hipótese de Causa Raiz
+O sistema de recebimento de mensagens (Webhook) tem uma regra de "auto-associação" que, ao receber uma mensagem de um Instagram desconhecido, tenta atribuí-la a um usuário do sistema que ainda não tem Instagram conectado (no caso, o Gustavo). Isso faz com que as mensagens do "Rodolfo" (que deve estar mandando webhooks para este servidor) sejam atribuídas erroneamente ao Gustavo.
 
-## User Review Required
-> [!IMPORTANT]
-> A partir de agora, **todas** as mensagens enviadas pelo usuário no Instagram serão salvas no banco de dados do sistema. Isso aumentará o volume de dados armazenados.
+## 3. Solução Proposta
 
-## Proposed Changes
+### 3.1. Segurança: Bloquear Webhooks Órfãos (Prioridade Máxima)
+- **Alteração:** Modificar `server/routes/index.ts`.
+- **Lógica:** Remover ou comentar os "FALLBACK #3" e "FALLBACK #4" que tentam "adivinhar" o dono da mensagem.
+- **Regra:** Se o `instagramAccountId` do webhook não bater EXATAMENTE com um usuário no banco, a mensagem DEVE ser ignorada (retornando 200 OK para o Instagram não retentar).
 
-### Backend (`server/routes/index.ts`)
+### 3.2. Limpeza: Remover Dados Contaminados do Gustavo
+- **Script:** Criar e executar `scripts/clean-gustavo-data.ts`.
+- **Ação:**
+    - `DELETE FROM instagram_messages WHERE userId = '51200739'`
+    - `DELETE FROM interaction_dialect WHERE userId = '51200739'`
+    - `DELETE FROM media_library WHERE userId = '51200739'`
+    - Resetar campos de autenticação do Instagram para garantir estado limpo.
 
-#### [MODIFY] [index.ts](file:///home/runner/workspace/server/routes/index.ts)
-1.  **Rota de Comentários (`processWebhookMessage`):**
-    *   Alterar a lógica que faz `return` quando `senderMatchesUser` é verdadeiro.
-    *   Em vez de retornar, permitir o fluxo prosseguir para `storage.createMessage`.
-    *   Adicionar uma flag `isManualReply = true` nesse fluxo.
-    *   Envolver a chamada de `generateAIResponse` (linha ~3267) em um `if (!isManualReply)`. Se for resposta manual, **PULAR** a geração de IA e apenas logar "Sincronização de resposta manual realizada".
+### 3.3. IA: Resetar Contexto
+- **Script:** No mesmo script de limpeza, forçar atualização do `aiContext` e `aiTone` do Gustavo para valores padrão seguros ("Assistente Profissional").
 
-2.  **Rota de DMs (`processWebhookMessage` para DMs - *nota: o nome da função no código analisado parece ser o mesmo, preciso verificar se a lógica de DM está na mesma função ou separada. O código que li parecia ser mais genérico ou misturado. Na análise vi `isEcho` (linha 3490).***
-    *   Localizar o bloco `if (isEcho) { ... return; }`.
-    *   Substituir o `return` por lógica de persistência.
-    *   Buscar a conversa (Thread) existente.
-    *   Criar a mensagem com `role: 'assistant'` (ou equivalente no schema, verificar `senderId`).
-    *   **PULAR** qualquer lógica de auto-resposta ou análise de IA para essas mensagens.
+## 4. Plano de Execução
 
-**Schema de Dados:**
-*   Verificar se precisaremos de novos campos. Provavelmente não, apenas usar o `senderId` correto (o ID do usuário/negócio) já indica que foi uma resposta.
+1. **Aprovação do Plano** (GATE 1).
+2. **Executar Script de Limpeza** (`npx tsx scripts/clean-gustavo-data.ts`).
+3. **Aplicar Patch de Segurança no Webhook** (Editar `server/routes/index.ts`).
+4. **Verificar** (Rodar diagnósticos novamente para confirmar zero mensagens).
+5. **Instruir o Usuário** a reconectar o Instagram (Processo limpo).
 
-## Verification Plan
+## 5. Rollback
+- Se o script de limpeza apagar algo errado, teremos backup (mas o banco atual diz ter 0 registros legítimos, então risco é baixo).
+- Desfazer alteração no `server/routes/index.ts` recupera o comportamento antigo.
 
-### Teste de Regressão (Manual)
-1.  **DMs de Clientes:** Enviar mensagem de uma conta de teste para a conta conectada.
-    *   *Resultado Esperado:* Sistema recebe, processa e IA gera sugestão (como normal).
-2.  **Comentários de Clientes:** Comentar num post da conta conectada.
-    *   *Resultado Esperado:* Sistema recebe, processa e IA sugere resposta.
+## 6. Threat Model
+- **Risco:** Perda de mensagens legítimas de novos usuários.
+- **Mitigação:** É preferível perder mensagens de uma conta não-configurada do que vazar dados privados de uma conta para outra (violação grave de privacidade/LGPD).
 
-### Teste da Correção
-1.  **Resposta Manual (DM):**
-    *   Enviar DM de uma conta teste.
-    *   Responder essa DM **pelo app do Instagram** (celular ou web).
-    *   *Resultado Esperado:* A resposta manual deve aparecer no histórico da conversa no painel do sistema em poucos segundos. O status da conversa deve sair de "Sem resposta" (se aplicável).
-2.  **Resposta Manual (Comentário):**
-    *   Fazer um comentário teste.
-    *   Responder esse comentário **pelo app do Instagram**.
-    *   *Resultado Esperado:* A resposta deve aparecer na lista de mensagens/comentários no painel. A IA **NÃO** deve tentar responder a essa resposta manual.
-
-### Comandos de Validação
-Não há testes unitários cobrindo o webhook. Usarei logs detalhados:
-- Monitorar logs no terminal do Replit: `[DM-WEBHOOK] ECHO recebido e processado: <mid>`
+---
+**Este plano respeita os princípios de Privacy by Design e isolamento de tenants.**
