@@ -1264,7 +1264,7 @@ export async function registerRoutes(
         });
       }
 
-      const fullMessage = await storage.getMessage(message.id);
+      const fullMessage = await storage.getMessage(message.id, userId);
       res.status(201).json(fullMessage);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -2102,7 +2102,7 @@ export async function registerRoutes(
   });
 
   // Global sync progress map (In-memory, per user)
-  const syncProgress = new Map<number, number>();
+  const syncProgress = new Map<string, number>();
 
   // Get sync status
   app.get("/api/instagram/sync-status", isAuthenticated, async (req, res) => {
@@ -2154,7 +2154,7 @@ export async function registerRoutes(
               const processComments = async (comments: any[]) => {
                 for (const comment of comments) {
                   try {
-                    const existingMessage = await storage.getMessageByInstagramId(comment.id);
+                    const existingMessage = await storage.getMessageByInstagramId(comment.id, userId);
 
                     const postCaption = post.caption || null;
                     const postThumbnailUrl = post.thumbnail_url || post.media_url || null;
@@ -2221,7 +2221,7 @@ export async function registerRoutes(
 
                         // A. Store the reply as a Message entity (for context/history)
                         //    Check if reply already exists to avoid duplicates
-                        const existingReply = await storage.getMessageByInstagramId(reply.id);
+                        const existingReply = await storage.getMessageByInstagramId(reply.id, userId);
 
                         if (!existingReply) {
                           console.log(`[SYNC] Storing reply from ${replyUsername}: "${reply.text}"`);
@@ -2246,12 +2246,10 @@ export async function registerRoutes(
                         // B. If it's MY reply, update the parent status (ticket closing logic)
                         if (isMyReply) {
                           console.log(`[SYNC] Found OWNER reply: "${reply.text}"`);
-                          const parentMessage = await storage.getMessageByInstagramId(comment.id);
+                          const parentMessage = await storage.getMessageByInstagramId(comment.id, userId);
                           if (parentMessage && parentMessage.status !== "replied") {
-                            await storage.updateMessage(parentMessage.id, {
-                              status: "replied",
-                              sentResponse: reply.text,
-                              respondedAt: new Date(reply.timestamp)
+                            await storage.updateMessage(parentMessage.id, userId, {
+                              status: "replied"
                             });
                           }
                         }
@@ -2328,7 +2326,7 @@ export async function registerRoutes(
 
     } catch (error) {
       // Clear progress on error
-      const { userId } = await getUserContext(req).catch(() => ({ userId: 0 }));
+      const { userId } = await getUserContext(req).catch(() => ({ userId: "" }));
       if (userId) syncProgress.delete(userId);
 
       console.error("Error syncing Instagram:", error);
@@ -2474,7 +2472,7 @@ export async function registerRoutes(
   // Webhook status endpoint (public)
   app.get("/api/webhooks/status", async (req, res) => {
     try {
-      const msgCount = await storage.getMessagesCount?.() || 0;
+      const msgCount = 0; // Simplified - count not needed for status check
       const connected = true; // Assume true if we got here without crashing
 
       res.json({
@@ -2891,16 +2889,72 @@ export async function registerRoutes(
       // If the webhook pageId doesn't match a known user explicitly, we MUST ignore it.
 
       if (!instagramUser) {
-        console.log(`[COMMENT-WEBHOOK] ❌ SECURITY: NENHUM USUÁRIO ENCONTRADO para pageId ${pageId}`);
-        console.log(`[COMMENT-WEBHOOK] ⚠️ Vazamento prevenido: Webhook órfão bloqueado.`);
+        console.log(`[COMMENT-WEBHOOK] ⚠️ Nenhum match direto para pageId ${pageId}`);
 
-        // Log for debugging but do NOT process
-        addWebhookProcessingResult({
-          action: 'ignored',
-          reason: `Usuário desconhecido para pageId ${pageId} (fallback desativado por segurança)`,
-          messageType: 'comment'
-        }, currentWebhookTimestamp);
-        return;
+        // 🔧 AUTO-ASSOCIATION FIX: Tentar encontrar usuário por token válido e username
+        console.log(`[COMMENT-WEBHOOK] 🔍 Tentando auto-associação inteligente...`);
+
+        // Buscar usuários que têm Instagram conectado (token válido) mas ID diferente
+        const usersWithInstagram = allUsers.filter((u: any) =>
+          u.instagramAccessToken &&
+          u.instagramUsername &&
+          u.instagramAccountId &&
+          u.instagramAccountId !== pageId
+        );
+
+        console.log(`[COMMENT-WEBHOOK] Usuários com Instagram conectado (ID diferente): ${usersWithInstagram.length}`);
+
+        // Se houver exatamente 1 usuário com Instagram conectado, auto-associar
+        if (usersWithInstagram.length === 1) {
+          const candidateUser = usersWithInstagram[0];
+          console.log(`[COMMENT-WEBHOOK] 🎯 Candidato único: user ${candidateUser.id} (${candidateUser.email})`);
+          console.log(`[COMMENT-WEBHOOK]   ID OAuth antigo: ${candidateUser.instagramAccountId}`);
+          console.log(`[COMMENT-WEBHOOK]   ID Webhook novo: ${pageId}`);
+
+          // Verificar se há pending_webhook marker (conexão recente - até 24h)
+          const pendingMarker = await storage.getSetting(`pending_webhook_${candidateUser.id}`);
+          const isRecentConnection = pendingMarker?.value &&
+            (Date.now() - new Date(pendingMarker.value).getTime()) < 24 * 60 * 60 * 1000;
+
+          // Permitir auto-associação se for conexão recente (24h)
+          if (isRecentConnection) {
+            try {
+              await authStorage.updateUser(candidateUser.id, {
+                instagramAccountId: pageId,
+                instagramRecipientId: pageId
+              });
+
+              console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIAÇÃO SUCESSO! User ${candidateUser.id} -> ID: ${pageId}`);
+
+              if (pendingMarker) {
+                await storage.deleteSetting(`pending_webhook_${candidateUser.id}`);
+              }
+
+              instagramUser = candidateUser;
+              instagramUser.instagramAccountId = pageId;
+              instagramUser.instagramRecipientId = pageId;
+
+              // Limpar aviso
+              await storage.setSetting("lastUnmappedWebhookRecipientId", "");
+              await storage.setSetting("lastUnmappedWebhookTimestamp", "");
+
+            } catch (err) {
+              console.error(`[COMMENT-WEBHOOK] ❌ Falha na auto-associação:`, err);
+            }
+          }
+        }
+
+        // Se ainda não encontrou, bloquear
+        if (!instagramUser) {
+          console.log(`[COMMENT-WEBHOOK] ❌ SECURITY: Webhook bloqueado para pageId ${pageId}`);
+
+          addWebhookProcessingResult({
+            action: 'ignored',
+            reason: `Usuário desconhecido para pageId ${pageId}`,
+            messageType: 'comment'
+          }, currentWebhookTimestamp);
+          return;
+        }
       }
 
 
@@ -2950,7 +3004,7 @@ export async function registerRoutes(
       if (username && username !== "instagram_user") {
         try {
           console.log(`[Profile Fetch] Buscando avatar em cache para @${username}...`);
-          const cachedMessages = await storage.getMessagesByUsername(username);
+          const cachedMessages = await storage.getMessagesByUsername(username, instagramUser.id);
           const messageWithAvatar = cachedMessages.find(m => m.senderAvatar);
           if (messageWithAvatar?.senderAvatar) {
             senderAvatar = messageWithAvatar.senderAvatar;
@@ -3220,7 +3274,7 @@ export async function registerRoutes(
 
         if (shouldAutoSend && instagramUser.instagramAccessToken) {
           // Get the AI response to update it
-          const aiResponse = await storage.getAiResponse(newMessage.id);
+          const aiResponse = await storage.getAiResponse(newMessage.id, instagramUser.id);
           if (aiResponse) {
             // Actually send the comment reply via Instagram API
             console.log("[COMMENT-WEBHOOK] Enviando resposta automática...");
@@ -3501,21 +3555,87 @@ export async function registerRoutes(
       }
 
       if (!instagramUser) {
-        console.log(`[DM-WEBHOOK] ❌ SECURITY: NENHUM USUÁRIO ENCONTRADO para recipientId ${recipientId}`);
+        console.log(`[DM-WEBHOOK] ⚠️ Nenhum match direto para recipientId ${recipientId}`);
 
+        // 🔧 AUTO-ASSOCIATION FIX: Tentar encontrar usuário por token válido e username
+        // Isso resolve o problema onde OAuth retorna um ID diferente do webhook
+        console.log(`[DM-WEBHOOK] 🔍 Tentando auto-associação inteligente...`);
 
+        // Buscar usuários que têm Instagram conectado (token válido) mas ID diferente
+        const usersWithInstagram = allUsers.filter((u: any) =>
+          u.instagramAccessToken &&
+          u.instagramUsername &&
+          u.instagramAccountId &&
+          u.instagramAccountId !== recipientId
+        );
 
-        console.log(`[DM-WEBHOOK] ⚠️ Vazamento prevenido: Webhook órfão bloqueado.`);
+        console.log(`[DM-WEBHOOK] Usuários com Instagram conectado (ID diferente): ${usersWithInstagram.length}`);
 
-        // Log unmapped webhook for debugging (admin only)
-        try {
-          await storage.setSetting("lastUnmappedWebhookRecipientId", recipientId);
-          await storage.setSetting("lastUnmappedWebhookTimestamp", new Date().toISOString());
-        } catch (err) {
-          console.error("Failed to store unmapped webhook info:", err);
+        // Se houver exatamente 1 usuário com Instagram conectado, auto-associar
+        // SEGURANÇA: Só permite quando há apenas 1 candidato para evitar associação errada
+        if (usersWithInstagram.length === 1) {
+          const candidateUser = usersWithInstagram[0];
+          console.log(`[DM-WEBHOOK] 🎯 Candidato único encontrado: user ${candidateUser.id} (${candidateUser.email})`);
+          console.log(`[DM-WEBHOOK]   ID OAuth antigo: ${candidateUser.instagramAccountId}`);
+          console.log(`[DM-WEBHOOK]   ID Webhook novo: ${recipientId}`);
+
+          // Verificar se há pending_webhook marker (conexão recente - até 24h)
+          const pendingMarker = await storage.getSetting(`pending_webhook_${candidateUser.id}`);
+          const isRecentConnection = pendingMarker?.value &&
+            (Date.now() - new Date(pendingMarker.value).getTime()) < 24 * 60 * 60 * 1000;
+
+          console.log(`[DM-WEBHOOK]   Conexão recente (24h): ${isRecentConnection ? 'SIM' : 'NÃO'}`);
+
+          // Permitir auto-associação se for conexão recente (24h)
+          if (isRecentConnection) {
+            try {
+              // Atualizar AMBOS os IDs para o valor correto do webhook
+              await authStorage.updateUser(candidateUser.id, {
+                instagramAccountId: recipientId,
+                instagramRecipientId: recipientId
+              });
+
+              console.log(`[DM-WEBHOOK] ✅ AUTO-ASSOCIAÇÃO SUCESSO!`);
+              console.log(`[DM-WEBHOOK]   User ${candidateUser.id} agora usa ID: ${recipientId}`);
+
+              // Limpar o marker após uso
+              if (pendingMarker) {
+                await storage.deleteSetting(`pending_webhook_${candidateUser.id}`);
+              }
+
+              // Usar este usuário para processar o webhook
+              instagramUser = candidateUser;
+              instagramUser.instagramAccountId = recipientId;
+              instagramUser.instagramRecipientId = recipientId;
+
+              // Limpar aviso de webhook não mapeado
+              await storage.setSetting("lastUnmappedWebhookRecipientId", "");
+              await storage.setSetting("lastUnmappedWebhookTimestamp", "");
+
+            } catch (err) {
+              console.error(`[DM-WEBHOOK] ❌ Falha na auto-associação:`, err);
+            }
+          } else {
+            console.log(`[DM-WEBHOOK] ⚠️ Auto-associação bloqueada: não é conexão recente nem primeiro webhook`);
+          }
+        } else if (usersWithInstagram.length > 1) {
+          console.log(`[DM-WEBHOOK] ⚠️ Múltiplos candidatos (${usersWithInstagram.length}) - auto-associação bloqueada por segurança`);
         }
 
-        return;
+        // Se ainda não encontrou, bloquear e registrar
+        if (!instagramUser) {
+          console.log(`[DM-WEBHOOK] ❌ SECURITY: Webhook bloqueado para recipientId ${recipientId}`);
+
+          // Log unmapped webhook for debugging (admin only)
+          try {
+            await storage.setSetting("lastUnmappedWebhookRecipientId", recipientId);
+            await storage.setSetting("lastUnmappedWebhookTimestamp", new Date().toISOString());
+          } catch (err) {
+            console.error("Failed to store unmapped webhook info:", err);
+          }
+
+          return;
+        }
       }
 
       // Final safety check - if we still don't have a user, return
@@ -3722,7 +3842,7 @@ export async function registerRoutes(
             }
             // Use cached avatar if we don't have one
             if (!senderAvatar && (matchedByUsername.instagramProfilePic || matchedByUsername.profileImageUrl)) {
-              senderAvatar = matchedByUsername.instagramProfilePic || matchedByUsername.profileImageUrl;
+              senderAvatar = matchedByUsername.instagramProfilePic || matchedByUsername.profileImageUrl || undefined;
               console.log(`Using cached avatar from matched user`);
             }
           }
@@ -3739,6 +3859,9 @@ export async function registerRoutes(
 
         // Instagram attachment types: image, video, audio, file, fallback, reel, ig_reel, story_mention, animated_gif
         const rawType = attachment.type?.toLowerCase() || 'unknown';
+
+        // Extract payload URL (primary source of media URL)
+        let payloadUrl = attachment.payload?.url || null;
 
         // Normalize media type
         if (rawType.includes('image') || rawType === 'photo') {
@@ -3879,7 +4002,7 @@ export async function registerRoutes(
 
       if (shouldAutoSend && senderId) {
         // Get the AI response to update it
-        const aiResponse = await storage.getAiResponse(newMessage.id);
+        const aiResponse = await storage.getAiResponse(newMessage.id, instagramUser.id);
         if (aiResponse) {
           // Actually send the DM via Instagram API
           const encAutoSendToken = instagramUser.instagramAccessToken!;

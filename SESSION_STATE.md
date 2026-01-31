@@ -1,7 +1,7 @@
 # SESSION_STATE.md — Estado da Sessão (Atualizado pelo agente)
 
 ## Data/Hora (America/Sao_Paulo)
--Sessão: 2026-01-31 T01:11 (Server Time: 04:11 UTC)
+- Sessão: 2026-01-31 T07:30 (Server Time: 10:30 UTC)
 - ✅ BOOT executado em 31/01/2026
 
 ## Resumo do projeto (curto)
@@ -25,13 +25,13 @@
 ## Status Git
 - Branch: `main`
 - Status: Limpo (working tree clean)
-- Commits à frente de origin: 4 commits não publicados
 
 ## Estado Atual do Problema
-- **VAZAMENTO:** Totalmente Corrigido (DMs + Comentários blindados).
-- **MÍDIA/PERFIL:** Corrigido.
-- **DEPLOY:** Sucesso. Pronto para Restart.
+- **BUG Instagram Account ID:** CORRIGIDO ✅
+  - Causa: Meta usa IDs diferentes (OAuth vs Webhook)
+  - Solução: Auto-associação inteligente implementada
+  - Build: Sucesso
 
 ## Próximo objetivo combinado
-- **CONCLUÍDO:** Correção de Deploy e Limpeza Final.
-- **PRÓXIMO:** Usuário validar o deploy em produção (Republish).
+- **EM ANDAMENTO:** Deploy da correção
+- **PRÓXIMO:** Usuário testar enviando DM/comentário para validar auto-associação
