@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import fs from "fs";
 import { storage } from "../storage";
 import { generateAIResponse, regenerateResponse, type ConversationHistoryEntry } from "../openai";
 import { getOpenAIConfig } from "../utils/openai-config";
@@ -3385,7 +3386,7 @@ export async function registerRoutes(
       const senderId = messageData.sender?.id;
       const recipientId = messageData.recipient?.id;
       const messageId = messageData.message?.mid;
-      const text = messageData.message?.text;
+      let text = messageData.message?.text;
       const attachments = messageData.message?.attachments;
       const isEcho = messageData.message?.is_echo === true;
       let isManualReply = false;
@@ -3478,8 +3479,20 @@ export async function registerRoutes(
       // Reason: This logic was causing data leaks by guessing which user owned the webhook.
       // We REQUIRE explicit ID matching for security.
 
+      // 🛡️ SECURITY AUDIT LOG (CAIXA PRETA)
+      // Registra decisão crítica em arquivo para prova futura
+      const auditLog = `[${new Date().toISOString()}] MID:${messageId || 'no-mid'} SENDER:${senderId} RECIPIENT:${recipientId} -> MATCH:${instagramUser ? instagramUser.id : 'NENHUM (BLOQUEADO)'}\n`;
+      try {
+        await fs.promises.appendFile('webhook_audit.log', auditLog);
+      } catch (err) {
+        console.error("Falha ao gravar audit log:", err);
+      }
+
       if (!instagramUser) {
         console.log(`[DM-WEBHOOK] ❌ SECURITY: NENHUM USUÁRIO ENCONTRADO para recipientId ${recipientId}`);
+
+
+
         console.log(`[DM-WEBHOOK] ⚠️ Vazamento prevenido: Webhook órfão bloqueado.`);
 
         // Log unmapped webhook for debugging (admin only)
@@ -3726,16 +3739,25 @@ export async function registerRoutes(
           mediaType = 'gif';
         } else if (rawType === 'story_mention') {
           mediaType = 'story_mention';
+          // FIX: Story mentions often have the image in 'url' (temporary) or 'preview_url'
+          if (!payloadUrl && attachment.payload?.preview_url) {
+            payloadUrl = attachment.payload.preview_url;
+            console.log("Using preview_url for story_mention");
+          }
         } else if (rawType === 'sticker') {
           mediaType = 'sticker';
         } else if (rawType === 'share') {
           mediaType = 'share';
+          // Fix for Shares (shared posts/reels)
+          if (!payloadUrl && attachment.payload?.cover_url) {
+            payloadUrl = attachment.payload.cover_url; // Some shares have cover_url
+          }
         } else {
           mediaType = rawType;
         }
 
         // Try to download and store media
-        const payloadUrl = attachment.payload?.url;
+        // Update payloadUrl reference if we found a better one above
         if (payloadUrl) {
           console.log(`Downloading ${mediaType} from:`, payloadUrl.substring(0, 100) + '...');
           try {
@@ -3745,33 +3767,44 @@ export async function registerRoutes(
               console.log(`Media stored successfully at: ${mediaUrl}`);
             } else {
               console.log(`Failed to store media: ${mediaResult.error}`);
-              // Keep the original URL as fallback
               mediaUrl = payloadUrl;
             }
           } catch (e) {
             console.log(`Error downloading media:`, e);
-            mediaUrl = payloadUrl; // Use original URL as fallback
+            mediaUrl = payloadUrl;
           }
+        } else if (mediaType === 'story_mention') {
+          // Fallback for expired/private stories
+          text = text ? text : "[Story Mention]";
+          console.log("Story mention without accessible URL - marking as text placeholder.");
         }
       }
 
       // Build content description for AI (used for webhook path - uses natural language)
       let contentForAI = text || '';
       if (mediaType && !text) {
-        // If no text, describe what was received in natural language
-        contentForAI = `[O usuário enviou ${getMediaDescriptionNatural(mediaType)}]`;
+        // If no text, describe what was received
+        const typeDesc = getMediaDescriptionNatural(mediaType);
+        contentForAI = `[O usuário enviou ${typeDesc}]`;
       } else if (mediaType && text) {
-        // If both text and media, combine them
         contentForAI = `[Anexo: ${getMediaDescriptionNatural(mediaType)}] ${text}`;
       }
 
       // Fallback: Generate placeholder avatar if none found
-      if (!senderAvatar && senderUsername && senderUsername !== "instagram_user") {
-        const colors = ['9b59b6', '3498db', '1abc9c', 'e74c3c', 'f39c12', '2ecc71', 'e91e63', '00bcd4'];
-        const colorIndex = senderUsername.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) % colors.length;
-        const bgColor = colors[colorIndex];
-        senderAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(senderUsername)}&background=${bgColor}&color=fff&size=128&bold=true`;
-        console.log(`[DM-WEBHOOK] Usando avatar placeholder para @${senderUsername}`);
+      // Improved Fallback: Use a more robust placeholder and cleaner name
+      if (!senderAvatar) {
+        if (senderUsername && senderUsername !== "instagram_user") {
+          const colors = ['9b59b6', '3498db', '1abc9c', 'e74c3c', 'f39c12', '2ecc71', 'e91e63', '00bcd4'];
+          const colorIndex = senderId.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) % colors.length;
+          const bgColor = colors[colorIndex];
+          // Use senderUsername which might be just senderId, so check length
+          const displayName = senderUsername.length > 15 ? "User" : senderUsername;
+          senderAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=${bgColor}&color=fff&size=128&bold=true`;
+          console.log(`[DM-WEBHOOK] Usando avatar placeholder para @${senderUsername}`);
+        } else {
+          // Ultimate fallback if we dont even have a username
+          senderAvatar = "https://ui-avatars.com/api/?name=IG&background=ccc&color=fff";
+        }
       }
 
       // Re-check for existing message now that we have the UserId (SaaS Isolation Secure Check)

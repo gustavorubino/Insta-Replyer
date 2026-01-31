@@ -13,7 +13,7 @@
     "verify": "tsx script/integrity-check.ts"
   },
   "dependencies": {
-    "@google-cloud/storage": "^7.18.0",
+    "@google-cloud/storage": "^7.12.0",
     "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
@@ -67,6 +67,7 @@
     "embla-carousel-react": "^8.6.0",
     "express": "^4.21.2",
     "express-session": "^1.18.2",
+    "fast-xml-parser": "^5.3.4",
     "framer-motion": "^11.13.1",
     "google-auth-library": "^10.5.0",
     "input-otp": "^1.4.2",

@@ -33,6 +33,10 @@ Prioridade absoluta: **qualidade, segurança, rastreabilidade e previsibilidade*
 4) **Registrar tudo**: comandos, arquivos alterados, resultados de testes.
 5) **Nunca expor segredos** (tokens/keys/DATABASE_URL completa) em logs, prints ou commits.
 6) **Não assumir**: se algo estiver ambíguo, perguntar antes.
+7) **Protocolo de Encerramento (Finalização de Tarefa):**
+   - Ao concluir QUALQUER tarefa de código, é OBRIGATÓRIO executar:
+     `npm install && npm run db:push && npm run build`
+   - Se falhar, a tarefa NÃO está concluída. Corrigir e rodar de novo.
 
 ---
 

@@ -28,9 +28,9 @@
 - Commits à frente de origin: 4 commits não publicados
 
 ## Estado Atual do Problema
-- **VAZAMENTO RESOLVIDO:** Patch de segurança ativo. Dados migrados (Gustavo -> Rodolfo).
-- **DEPLOY CORRIGIDO:** Erro de sintaxe (chaves faltantes) reparado. Build passando.
-- **Configuração:** `PROD_DB_URL` configurada e blindada no código.
+- **VAZAMENTO RESOLVIDO:** Patch de segurança + Auditoria (Logs) ativos.
+- **MÍDIA/PERFIL:** Correção aplicada para "Usuário IG" e Story Mentions.
+- **DEPLOY:** Build validado (Sucesso).
 
 ## Próximo objetivo combinado
 - **CONCLUÍDO:** Correção de Deploy e Limpeza Final.
