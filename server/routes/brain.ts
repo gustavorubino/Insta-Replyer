@@ -217,8 +217,8 @@ router.post("/merge-prompts", isAuthenticated, async (req, res) => {
         console.log("[Merge Prompts] Starting merge for user:", userId);
 
         // Get current settings to fetch existing system prompt
-        const settings = await storage.getSettings(userId);
-        const currentPrompt = settings?.systemPrompt || "";
+        const allSettings = await storage.getSettings();
+        const currentPrompt = allSettings[`${userId}_aiContext`] || allSettings["global_aiContext"] || "";
 
         console.log("[Merge Prompts] Current prompt length:", currentPrompt.length);
         console.log("[Merge Prompts] New prompt length:", newPrompt.length);
@@ -226,7 +226,7 @@ router.post("/merge-prompts", isAuthenticated, async (req, res) => {
         // If no current prompt, just save the new one
         if (!currentPrompt.trim()) {
             console.log("[Merge Prompts] No existing prompt, saving new prompt directly");
-            await storage.updateSettings(userId, { systemPrompt: newPrompt });
+            await storage.setSetting(`${userId}_aiContext`, newPrompt);
             return res.json({ success: true, merged: newPrompt });
         }
 
@@ -270,7 +270,7 @@ Retorne APENAS o System Prompt mesclado, sem nenhum texto adicional.`;
         console.log("[Merge Prompts] AI merged prompt successfully. Length:", mergedPrompt.length);
 
         // Save the merged prompt
-        await storage.updateSettings(userId, { systemPrompt: mergedPrompt });
+        await storage.setSetting(`${userId}_aiContext`, mergedPrompt);
 
         console.log("[Merge Prompts] Saved merged prompt for user:", userId);
 
