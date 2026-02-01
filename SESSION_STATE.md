@@ -1,8 +1,8 @@
 # SESSION_STATE.md — Estado da Sessão (Atualizado pelo agente)
 
 ## Data/Hora (America/Sao_Paulo)
-- Sessão: 2026-01-31 T07:30 (Server Time: 10:30 UTC)
-- ✅ BOOT executado em 31/01/2026
+- Sessão: 2026-02-01 T10:00
+- ✅ BOOT executado em 01/02/2026 (atualizado às 10:00)
 
 ## Resumo do projeto (curto)
 - SaaS multi-tenant para automação de respostas no Instagram (DMs/Comentários) usando IA.
@@ -25,13 +25,13 @@
 ## Status Git
 - Branch: `main`
 - Status: Limpo (working tree clean)
+- Último commit: `406836f` (Published your App)
 
 ## Estado Atual do Problema
-- **BUG Instagram Account ID:** CORRIGIDO ✅
+- **BUG Instagram Account ID:** CORRIGIDO (na sessão anterior) ✅
   - Causa: Meta usa IDs diferentes (OAuth vs Webhook)
   - Solução: Auto-associação inteligente implementada
-  - Build: Sucesso
 
 ## Próximo objetivo combinado
-- **EM ANDAMENTO:** Deploy da correção
-- **PRÓXIMO:** Usuário testar enviando DM/comentário para validar auto-associação
+- **VALIDAÇÃO:** Aguardando feedback do usuário sobre testes reais (enviar DM/comentário para validar auto-associação).
+- Se validado, podemos avançar para novas features ou melhorias de robustez.
