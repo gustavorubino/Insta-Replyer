@@ -3574,9 +3574,35 @@ export async function registerRoutes(
 
         // Se houver exatamente 1 usuário com Instagram conectado, auto-associar
         // SEGURANÇA: Só permite quando há apenas 1 candidato para evitar associação errada
+        // ATUALIZAÇÃO: Se houver múltiplos, filtra apenas pelos que têm MARKER PENDING_WEBHOOK recente
+        
+        let targetCandidate = null;
+
         if (usersWithInstagram.length === 1) {
-          const candidateUser = usersWithInstagram[0];
-          console.log(`[DM-WEBHOOK] 🎯 Candidato único encontrado: user ${candidateUser.id} (${candidateUser.email})`);
+          targetCandidate = usersWithInstagram[0];
+        } else if (usersWithInstagram.length > 1) {
+          // Filtrar candidatos que têm o marker
+          console.log(`[DM-WEBHOOK] ⚠️ Múltiplos usuários conectados (${usersWithInstagram.length}). Filtrando por pending_webhook...`);
+          
+          const candidatesWithMarker = [];
+          for (const u of usersWithInstagram) {
+             const pendingMarker = await storage.getSetting(`pending_webhook_${u.id}`);
+             if (pendingMarker?.value && (Date.now() - new Date(pendingMarker.value).getTime()) < 24 * 60 * 60 * 1000) {
+               candidatesWithMarker.push(u);
+             }
+          }
+          
+          if (candidatesWithMarker.length === 1) {
+             targetCandidate = candidatesWithMarker[0];
+             console.log(`[DM-WEBHOOK] 🎯 Candidato único COM MARKER encontrado entre múltiplos: user ${targetCandidate.id}`);
+          } else {
+             console.log(`[DM-WEBHOOK] ⚠️ Bloqueado mesmo após filtro: ${candidatesWithMarker.length} candidatos com marker.`);
+          }
+        }
+
+        if (targetCandidate) {
+          const candidateUser = targetCandidate;
+          console.log(`[DM-WEBHOOK] 🎯 Candidato selecionado: user ${candidateUser.id} (${candidateUser.email})`);
           console.log(`[DM-WEBHOOK]   ID OAuth antigo: ${candidateUser.instagramAccountId}`);
           console.log(`[DM-WEBHOOK]   ID Webhook novo: ${recipientId}`);
 
@@ -3619,8 +3645,8 @@ export async function registerRoutes(
           } else {
             console.log(`[DM-WEBHOOK] ⚠️ Auto-associação bloqueada: não é conexão recente nem primeiro webhook`);
           }
-        } else if (usersWithInstagram.length > 1) {
-          console.log(`[DM-WEBHOOK] ⚠️ Múltiplos candidatos (${usersWithInstagram.length}) - auto-associação bloqueada por segurança`);
+        } else {
+          console.log(`[DM-WEBHOOK] ⚠️ Nenhum candidato válido encontrado para auto-associação.`);
         }
 
         // Se ainda não encontrou, bloquear e registrar
