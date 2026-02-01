@@ -3538,6 +3538,9 @@ export async function registerRoutes(
       // Find the user who owns this Instagram account by matching instagramAccountId with recipient
       const allUsers = await authStorage.getAllUsers?.() || [];
 
+      // #region agent log
+      fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:3500',message:'Start User Matching',data:{recipientId, senderId, totalUsers: allUsers.length, users: allUsers.map(u => ({id: u.id, email: u.email, igId: u.instagramAccountId, igRecip: u.instagramRecipientId, marker: 'check_logs_later'}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
 
       console.log(`Looking for user with Instagram account: ${recipientId}`);
       console.log(`Total users found: ${allUsers.length}`);
@@ -3614,6 +3617,10 @@ export async function registerRoutes(
           u.instagramAccountId !== recipientId
         );
 
+        // #region agent log
+        fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:3570',message:'Auto-Association Candidates',data:{count: usersWithInstagram.length, recipientId, candidates: usersWithInstagram.map((u: any) => ({id: u.id, email: u.email, igId: u.instagramAccountId}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
+
         console.log(`[DM-WEBHOOK] Usuários com Instagram conectado (ID diferente): ${usersWithInstagram.length}`);
 
         // Se houver exatamente 1 usuário com Instagram conectado, auto-associar
@@ -3670,11 +3677,19 @@ export async function registerRoutes(
           let bestCandidate = null;
           let recentConnectionsCount = 0;
 
+          // #region agent log
+          fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:3630',message:'Tie-Breaker Start',data:{candidateCount: usersWithInstagram.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+
           for (const candidate of usersWithInstagram) {
              const pendingMarker = await storage.getSetting(`pending_webhook_${candidate.id}`);
              const isRecentConnection = pendingMarker?.value &&
                (Date.now() - new Date(pendingMarker.value).getTime()) < 24 * 60 * 60 * 1000;
              
+             // #region agent log
+             fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:3640',message:'Checking Candidate Marker',data:{email: candidate.email, hasMarker: !!pendingMarker, markerValue: pendingMarker?.value, isRecent: isRecentConnection},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+             // #endregion
+
              if (isRecentConnection) {
                console.log(`[DM-WEBHOOK]   -> Candidato ${candidate.email} tem conexão recente (marker)!`);
                bestCandidate = candidate;
