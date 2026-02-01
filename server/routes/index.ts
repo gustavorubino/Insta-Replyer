@@ -2085,6 +2085,11 @@ export async function registerRoutes(
 
       // Update global settings
       await storage.setSetting("instagramConnected", "true");
+
+      // Criar marker para auto-associação de webhook (dura 24h)
+      // Isso permite que o sistema "aprenda" o ID correto do webhook se for diferente do ID da API
+      await storage.setSetting(`pending_webhook_${userId}`, new Date().toISOString());
+      console.log(`[OAUTH] 🟢 Pending Webhook Marker created for user ${userId}`);
       await storage.setSetting("instagramUsername", instagramUsername);
 
       // Clear session data
@@ -3594,9 +3599,9 @@ export async function registerRoutes(
               console.log(`[DM-WEBHOOK] ✅ AUTO-ASSOCIAÇÃO SUCESSO!`);
               console.log(`[DM-WEBHOOK]   User ${candidateUser.id} agora usa ID: ${recipientId}`);
 
-              // Limpar o marker após uso
+              // Limpar o marker após uso - DISABLED to prevent race conditions
               if (pendingMarker) {
-                await storage.deleteSetting(`pending_webhook_${candidateUser.id}`);
+                // await storage.deleteSetting(`pending_webhook_${candidateUser.id}`);
               }
 
               // Usar este usuário para processar o webhook
