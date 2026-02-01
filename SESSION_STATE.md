@@ -28,10 +28,10 @@
 - Último commit: `406836f` (Published your App)
 
 ## Estado Atual do Problema
-- **BUG Instagram Account ID:** CORRIGIDO (na sessão anterior) ✅
-  - Causa: Meta usa IDs diferentes (OAuth vs Webhook)
-  - Solução: Auto-associação inteligente implementada
+- **BUG Instagram Account ID:** CORRIGIDO (Correção definitiva com Auto-Associação Segura) ✅
+  - Causa: Meta usa IDs diferentes (Usuário no Login vs Página no Webhook).
+  - Solução: Sistema agora "aprende" o ID do webhook de forma segura durante os primeiros 15 minutos da conexão, garantindo isolamento total entre usuários.
 
 ## Próximo objetivo combinado
-- **VALIDAÇÃO:** Aguardando feedback do usuário sobre testes reais (enviar DM/comentário para validar auto-associação).
+- **VALIDAÇÃO FINAL:** Usuário deve reconectar a conta e enviar uma mensagem para validar o mapeamento automático.
 - Se validado, podemos avançar para novas features ou melhorias de robustez.

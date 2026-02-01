@@ -2872,9 +2872,62 @@ export async function registerRoutes(
         }
       }
 
-      // FALLBACK #2: REMOVIDO POR SEGURANÇA
-      // A lógica anterior tentava adivinhar o usuário, causando vazamentos.
-      // Agora exigimos match explícito.
+      // FALLBACK #2: SECURE AUTO-ASSOCIATION
+      // Se ainda não encontrou, tenta associar a um usuário que acabou de conectar
+      if (!instagramUser) {
+        console.log(`[COMMENT-WEBHOOK] 🔍 Tentando auto-associação segura para pageId ${pageId}...`);
+        
+        // Critério 1: ID não pode pertencer a ninguém
+        const alreadyOwned = allUsers.some((u: any) => 
+          u.instagramAccountId === pageId || u.instagramRecipientId === pageId
+        );
+
+        if (!alreadyOwned) {
+          // Critério 2: Buscar usuários com Instagram conectado mas ID diferente
+          const candidates = allUsers.filter((u: any) => 
+            u.instagramAccessToken && 
+            u.instagramAccountId && 
+            u.instagramAccountId !== pageId
+          );
+
+          // Critério 3: Verificar quem tem o marcador pending_webhook (conexão recente < 15min)
+          const validCandidates = [];
+          for (const u of candidates) {
+            const marker = await storage.getSetting(`pending_webhook_${u.id}`);
+            if (marker?.value) {
+              const markerTime = new Date(marker.value).getTime();
+              if (Date.now() - markerTime < 15 * 60 * 1000) {
+                validCandidates.push(u);
+              }
+            }
+          }
+
+          // Critério 4: Só associa se houver EXATAMENTE 1 candidato (desempate garantido)
+          if (validCandidates.length === 1) {
+            const candidate = validCandidates[0];
+            console.log(`[COMMENT-WEBHOOK] 🎯 Auto-associação SUCESSO: Associando ${pageId} ao user ${candidate.id} (${candidate.email})`);
+            
+            try {
+              await authStorage.updateUser(candidate.id, {
+                instagramAccountId: pageId,
+                instagramRecipientId: pageId // Sincroniza ambos
+              });
+              
+              // Limpa o marcador para não permitir novas associações
+              await storage.deleteSetting(`pending_webhook_${candidate.id}`);
+              
+              instagramUser = candidate;
+              instagramUser.instagramAccountId = pageId;
+            } catch (err) {
+              console.error("[COMMENT-WEBHOOK] Erro ao salvar auto-associação:", err);
+            }
+          } else {
+            console.log(`[COMMENT-WEBHOOK] Auto-associação ignorada: ${validCandidates.length} candidatos válidos encontrados.`);
+          }
+        } else {
+          console.log(`[COMMENT-WEBHOOK] Auto-associação negada: ID ${pageId} já possui dono.`);
+        }
+      }
 
       // 🛡️ SECURITY AUDIT LOG (CAIXA PRETA - COMMENT)
       const auditLog = `[${new Date().toISOString()}] TYPE:COMMENT PAGE_ID:${pageId} MSG_ID:${commentId} -> MATCH:${instagramUser ? instagramUser.id : 'NENHUM (BLOQUEADO)'}\n`;
@@ -3477,6 +3530,64 @@ export async function registerRoutes(
         }
       }
 
+      // FALLBACK: SECURE AUTO-ASSOCIATION
+      // Se ainda não encontrou, tenta associar a um usuário que acabou de conectar
+      if (!instagramUser) {
+        console.log(`[DM-WEBHOOK] 🔍 Tentando auto-associação segura para entryId ${entryId}...`);
+        
+        // Critério 1: ID não pode pertencer a ninguém
+        const alreadyOwned = allUsers.some((u: any) => 
+          u.instagramAccountId === entryId || u.instagramRecipientId === entryId
+        );
+
+        if (!alreadyOwned) {
+          // Critério 2: Buscar usuários com Instagram conectado mas ID diferente
+          const candidates = allUsers.filter((u: any) => 
+            u.instagramAccessToken && 
+            u.instagramAccountId && 
+            u.instagramAccountId !== entryId
+          );
+
+          // Critério 3: Verificar quem tem o marcador pending_webhook (conexão recente < 15min)
+          const validCandidates = [];
+          for (const u of candidates) {
+            const marker = await storage.getSetting(`pending_webhook_${u.id}`);
+            if (marker?.value) {
+              const markerTime = new Date(marker.value).getTime();
+              if (Date.now() - markerTime < 15 * 60 * 1000) {
+                validCandidates.push(u);
+              }
+            }
+          }
+
+          // Critério 4: Só associa se houver EXATAMENTE 1 candidato (desempate garantido)
+          if (validCandidates.length === 1) {
+            const candidate = validCandidates[0];
+            console.log(`[DM-WEBHOOK] 🎯 Auto-associação SUCESSO: Associando ${entryId} ao user ${candidate.id} (${candidate.email})`);
+            
+            try {
+              await authStorage.updateUser(candidate.id, {
+                instagramAccountId: entryId,
+                instagramRecipientId: entryId // Sincroniza ambos
+              });
+              
+              // Limpa o marcador para não permitir novas associações
+              await storage.deleteSetting(`pending_webhook_${candidate.id}`);
+              
+              instagramUser = candidate;
+              instagramUser.instagramAccountId = entryId;
+              instagramUser.instagramRecipientId = entryId;
+            } catch (err) {
+              console.error("[DM-WEBHOOK] Erro ao salvar auto-associação:", err);
+            }
+          } else {
+            console.log(`[DM-WEBHOOK] Auto-associação ignorada: ${validCandidates.length} candidatos válidos encontrados.`);
+          }
+        } else {
+          console.log(`[DM-WEBHOOK] Auto-associação negada: ID ${entryId} já possui dono.`);
+        }
+      }
+
       // Store instagramRecipientId if present and different (helps API calls)
       if (instagramUser && recipientId && instagramUser.instagramRecipientId !== recipientId) {
         try {
@@ -3489,10 +3600,6 @@ export async function registerRoutes(
           console.error("Failed to store instagramRecipientId:", err);
         }
       }
-
-      // 🛡️ SECURITY PATCH: SMART AUTO-ASSOCIATION DISABLED
-      // Reason: This logic was causing data leaks by guessing which user owned the webhook.
-      // We REQUIRE explicit ID matching for security.
 
       // 🛡️ SECURITY AUDIT LOG (CAIXA PRETA)
       // Registra decisão crítica em arquivo para prova futura
