@@ -2,7 +2,7 @@
 import { authStorage } from "./server/replit_integrations/auth/storage";
 
 async function auditIds() {
-  console.log("--- AUDITORIA DE IDS DE USUÁRIOS (FINAL - INVESTIGATE-ID.TS) ---");
+  console.log("--- AUDITORIA DE IDS DE USUÁRIOS (AUDIT_FIXED_V1.TS) ---");
   try {
     const allUsers = await authStorage.getAllUsers();
     

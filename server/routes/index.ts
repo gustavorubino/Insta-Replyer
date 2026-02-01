@@ -2955,6 +2955,7 @@ export async function registerRoutes(
 
 
       console.log("[COMMENT-WEBHOOK] ✅ Usuário encontrado!");
+      console.log(`[COMMENT-WEBHOOK] Usuário final após todas as tentativas: ${instagramUser.email}`);
       console.log("  - User ID:", instagramUser.id);
       console.log("  - Email:", instagramUser.email);
       console.log("  - Instagram Username:", instagramUser.instagramUsername);
