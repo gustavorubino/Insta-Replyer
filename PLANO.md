@@ -1,80 +1,51 @@
-# PLANO — Correção definitiva de “Webhook não mapeado”
+# PLANO — Correção de Vazamento Multi-Tenant e Inconsistência de IDs
 
-## Problema (em português simples)
-Depois de um tempo, o sistema volta a mostrar “Webhook não mapeado” com IDs novos, e você precisa desconectar/conectar de novo.  
-Isso acontece porque o webhook de DM está tentando achar o usuário pelo **recipientId**, mas o ID correto do “dono da conta” vem no **entry.id**.  
-Quando esses IDs não batem, o sistema não encontra o usuário e bloqueia o webhook.
+## Problema
+1. **Vazamento de Dados:** Comentários do usuário "Rodolfo" aparecem no painel do usuário "Gustavo".
+2. **Erro Persistente:** Aviso de "Webhook não mapeado" devido a IDs de Instagram que não correspondem aos salvos no banco.
+3. **Causa Raiz:** O sistema tenta "adivinhar" o dono do webhook quando o ID não bate, usando lógicas inseguras (como "quem logou por último"). Além disso, o Instagram usa IDs diferentes para Login (User ID) e Webhook (Page ID), causando descompasso.
 
-## Contexto (stack e restrições)
-- Backend Node.js/Express, banco Postgres via Drizzle.
-- Multi-tenant: nunca pode haver “adivinhação” de usuário.
-- Já existe bloqueio de segurança quando não há match explícito.
-- Precisamos corrigir o mapeamento sem criar novos riscos de vazamento.
+## Solução Proposta: "Zero Trust" Webhook Processing
 
-## Hipóteses de causa (com sinais)
-1) **DM usa ID errado para match**  
-   - Sinal: “Webhook não mapeado” aparece mesmo com conta conectada.
-   - Sinal: `entry.id` e `recipient.id` são diferentes no payload.
-2) **Auto-associação antiga ainda roda no DM**  
-   - Sinal: trechos de código tentando “auto-associar” usuário pelo marker.
-   - Risco: pode criar associação errada quando há vários usuários.
+Em vez de tentar associar webhooks desconhecidos, vamos implementar uma política de **Confiança Zero**: só aceitar webhooks onde temos certeza absoluta do dono.
 
-## Solução proposta (segura)
-1) **Usar `entry.id` como ID principal para DM** (mesma lógica do comentário).  
-2) **Remover/neutralizar auto-associação por “guess” no DM**.  
-3) **Atualizar somente dados do usuário já identificado**:  
-   - Se `entry.id` casa com o usuário, salvar `instagramRecipientId` quando vier no webhook (para sincronizar).
-4) **Continuar bloqueando webhooks sem match explícito** (segurança).
+### 1. Unificação de IDs no Login (OAuth)
+- **Ação:** No callback do OAuth, vamos capturar e salvar **explicitamente** o ID da Página do Facebook vinculada à conta do Instagram Business.
+- **Por quê:** O webhook envia o ID da Página (`entry.id`), não o ID do Usuário do Instagram. Se salvarmos o ID da Página no banco (`instagramAccountId`), o match será exato e imediato.
 
-### Por que isso resolve
-- O webhook sempre identifica “qual conta recebeu” pelo `entry.id`.  
-- Ao usar esse ID, o match fica estável e não depende de reconectar.  
-- Sem auto-associação, não há risco de misturar contas.
+### 2. Validação Rigorosa no Webhook (Sem Adivinhação)
+- **Ação:** Remover toda a lógica de "auto-associação", "fallback" ou "pending_webhook".
+- **Nova Lógica:**
+    1. Recebe webhook com `entry.id`.
+    2. Busca no banco **apenas** usuários onde `instagramAccountId === entry.id`.
+    3. Se encontrar: Processa.
+    4. Se **NÃO** encontrar:
+        - **NÃO** tenta adivinhar.
+        - **NÃO** associa ao último usuário logado.
+        - Registra o erro de "Não mapeado" e descarta a mensagem.
+        - (Opcional) Tenta uma única chamada à API usando tokens de usuários ativos para ver se alguém é dono desse ID (validação via API, não por "chute").
 
-## Plano de execução (passos pequenos)
-1) Ajustar `processWebhookMessage` para usar `entryId` como chave principal.  
-2) Remover o bloco de auto-associação “inteligente” no DM.  
-3) Quando houver match por `entryId`, salvar `instagramRecipientId` se necessário.  
-4) Manter logs e bloqueio de segurança quando não houver match.
+### 3. Script de Correção de Dados (Sanitização)
+- **Ação:** Criar um script para varrer o banco de dados e remover mensagens que pertencem a um ID de Instagram mas estão associadas ao `userId` errado.
+- **Por quê:** Para limpar o painel do Gustavo dos comentários do Rodolfo que já vazaram.
 
-## Comandos exatos que serão executados
-- Nenhum comando de banco ou deploy nesta etapa.
-- Apenas edição de código.
+## Plano de Execução
 
-## Arquivos exatos que serão alterados
-- `server/routes/index.ts`
+1. **Alterar `server/routes/index.ts` (OAuth):**
+   - Garantir que estamos salvando o ID correto (Page ID) no `instagramAccountId`.
 
-## Validações (critérios de aceite)
-- Webhook DM com `entry.id` conhecido é aceito sem “Webhook não mapeado”.
-- Se o `entry.id` não existir no banco, o webhook é bloqueado (segurança).
-- Não há auto-associação em DM.
+2. **Alterar `server/routes/index.ts` (Webhooks):**
+   - Remover lógica de `pending_webhook`.
+   - Implementar busca estrita: `WHERE instagramAccountId = entry.id`.
+   - Se não achar, bloquear.
 
-## Plano de rollback
-- Reverter o arquivo `server/routes/index.ts` para o commit anterior.
+3. **Executar Script de Limpeza:**
+   - Identificar mensagens do Rodolfo (`owner_instagram_id = ID_DO_RODOLFO`) que estão com `user_id = ID_DO_GUSTAVO` e corrigir/deletar.
 
-## Threat Model (Microsoft SDL)
-- **Componentes e fluxos:** Webhook → API → Match de usuário → Persistência.
-- **Fronteiras de confiança:** Entrada externa (webhook) é não confiável.
-- **Ameaças prováveis:**
-  - Injeção de webhook com ID falso para “sequestrar” conta.
-  - Vazamento multi-tenant por associação errada.
-- **Mitigação:**
-  - Match explícito por `entry.id`.
-  - Bloqueio quando não há match.
-  - Sem heurística/“chute”.
-- **Como validar:**
-  - Teste com IDs não existentes → deve bloquear.
-  - Teste com ID correto → deve processar.
+## Validação
+- O webhook deve funcionar **apenas** se o ID bater.
+- Comentários do Rodolfo **nunca** devem cair para o Gustavo.
+- O aviso de "não mapeado" só deve aparecer se realmente for uma conta nova não configurada.
 
-## Privacidade por design (LGPD)
-- Minimização: processar apenas IDs necessários.
-- Retenção: não aumentar logs com dados sensíveis.
-- Logs: sem token/segredos.
-- Multi-tenant: match explícito por ID, sem adivinhação.
-
-## Gestão de variáveis de ambiente
-- Nenhuma nova variável.
-- Nenhuma mudança em `.env`.
-
-## Débito técnico consciente (se houver)
-- Sem débito técnico planejado.
+## Rollback
+- Reverter para o commit da branch `main` atual.

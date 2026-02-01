@@ -2038,16 +2038,11 @@ export async function registerRoutes(
       let finalInstagramAccountId = instagramAccountId;
       let finalInstagramRecipientId = instagramAccountId;
 
-      if (existingUser?.instagramAccountId && existingUser.instagramAccountId !== instagramAccountId) {
-        // O usuário já tem um ID diferente configurado (provavelmente pelo webhook)
-        console.log(`[OAUTH] ⚠️ PRESERVANDO ID EXISTENTE!`);
-        console.log(`  OAuth retornou: ${instagramAccountId}`);
-        console.log(`  ID existente (preservado): ${existingUser.instagramAccountId}`);
-        finalInstagramAccountId = existingUser.instagramAccountId;
-        finalInstagramRecipientId = existingUser.instagramRecipientId || existingUser.instagramAccountId;
-      } else {
-        console.log(`[OAUTH] 📝 Usando ID do OAuth: ${instagramAccountId}`);
-      }
+      // Always use the latest Instagram Account ID from the OAuth response
+      // This ensures consistency between OAuth and webhook IDs.
+      console.log(`[OAUTH] 📝 Forçando ID do OAuth: ${instagramAccountId} para AccountId e RecipientId.`);
+      finalInstagramAccountId = instagramAccountId;
+      finalInstagramRecipientId = instagramAccountId;
 
       // Store Instagram data
       // AUTO-CONFIGURE: Set instagramRecipientId equal to instagramAccountId
@@ -2083,9 +2078,10 @@ export async function registerRoutes(
 
       console.log(`[OAUTH] ✅ SAVE COMPLETED for user ${userId}`);
 
-      // Store a pending webhook association marker with timestamp
-      // This enables secure auto-association within a 15-minute window
-      await storage.setSetting(`pending_webhook_${userId}`, new Date().toISOString());
+      // Clear any previous unmapped webhook errors upon successful connection
+      await storage.setSetting("lastUnmappedWebhookRecipientId", "");
+      await storage.setSetting("lastUnmappedWebhookTimestamp", "");
+      console.log(`[OAUTH] ✅ Cleared lastUnmappedWebhookRecipientId and Timestamp`);
 
       // Update global settings
       await storage.setSetting("instagramConnected", "true");
@@ -2832,22 +2828,27 @@ export async function registerRoutes(
         return;
       }
 
-      console.log(`[COMMENT-WEBHOOK] entry.id recebido: ${pageId}`);
       const allUsers = await authStorage.getAllUsers?.() || [];
-      console.log(`[COMMENT-WEBHOOK] Total de usuários no banco: ${allUsers.length}`);
-      
-      // Log detalhado dos IDs para identificar o conflito
-      allUsers.forEach(u => {
-        if (u.instagramAccountId || u.instagramRecipientId) {
-          console.log(`[COMMENT-WEBHOOK] Usuário DB: ${u.email} | AccID: ${u.instagramAccountId} | RecID: ${u.instagramRecipientId}`);
-        }
+      console.log("[COMMENT-WEBHOOK] Buscando usuários no banco...");
+      console.log("  - Total de usuários no sistema:", allUsers.length);
+
+      // Log all users with Instagram connected for debugging
+      const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccountId);
+      console.log("  - Usuários com Instagram conectado:", usersWithInstagram.length);
+
+      console.log("[COMMENT-WEBHOOK] Lista de usuários com Instagram:");
+      usersWithInstagram.forEach((u: any, index: number) => {
+        const matches = u.instagramAccountId === pageId;
+        console.log(`  [${index + 1}] ID: ${u.id}, Email: ${u.email}`);
+        console.log(`      instagramAccountId: "${u.instagramAccountId}"`);
+        console.log(`      pageId recebido:    "${pageId}"`);
+        console.log(`      Match: ${matches ? "✅ SIM" : "❌ NÃO"}`);
       });
 
       // Match by pageId (entry.id = Instagram account ID that received the webhook)
       let instagramUser = allUsers.find((u: any) =>
         u.instagramAccountId && u.instagramAccountId === pageId
       );
-      console.log(`[COMMENT-WEBHOOK] Match por instagramAccountId: ${instagramUser ? instagramUser.email : 'NENHUM'}`);
 
       // FALLBACK #1: Try matching by instagramRecipientId
       if (!instagramUser) {
@@ -2855,7 +2856,6 @@ export async function registerRoutes(
         instagramUser = allUsers.find((u: any) =>
           u.instagramRecipientId && u.instagramRecipientId === pageId
         );
-        console.log(`[COMMENT-WEBHOOK] Match por instagramRecipientId: ${instagramUser ? instagramUser.email : 'NENHUM'}`);
         if (instagramUser) {
           console.log("[COMMENT-WEBHOOK] ✅ Encontrado por instagramRecipientId!");
           // Update the instagramAccountId for future matches
@@ -2955,7 +2955,6 @@ export async function registerRoutes(
 
 
       console.log("[COMMENT-WEBHOOK] ✅ Usuário encontrado!");
-      console.log(`[COMMENT-WEBHOOK] Usuário final após todas as tentativas: ${instagramUser.email}`);
       console.log("  - User ID:", instagramUser.id);
       console.log("  - Email:", instagramUser.email);
       console.log("  - Instagram Username:", instagramUser.instagramUsername);
