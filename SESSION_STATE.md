@@ -1,8 +1,8 @@
 # SESSION_STATE.md — Estado da Sessão (Atualizado pelo agente)
 
 ## Data/Hora (America/Sao_Paulo)
-- Sessão: 2026-02-01 T10:00
-- ✅ BOOT executado em 01/02/2026 (atualizado às 10:00)
+- Sessão: 2026-02-01 T22:35
+- ✅ BOOT executado em 01/02/2026
 
 ## Resumo do projeto (curto)
 - SaaS multi-tenant para automação de respostas no Instagram (DMs/Comentários) usando IA.
@@ -24,14 +24,14 @@
 
 ## Status Git
 - Branch: `main`
-- Status: Limpo (working tree clean)
-- Último commit: `406836f` (Published your App)
+- Status: **SUJO** (Modified: `server/routes/index.ts`)
+  - Mudança pendente: Desabilita deleção do marker `pending_webhook` para evitar race condition.
+- Último commit: `6f6e4bc` (Published your App)
 
 ## Estado Atual do Problema
-- **BUG Instagram Account ID:** CORRIGIDO (Correção definitiva com Auto-Associação Segura) ✅
-  - Causa: Meta usa IDs diferentes (Usuário no Login vs Página no Webhook).
-  - Solução: Sistema agora "aprende" o ID do webhook de forma segura durante os primeiros 15 minutos da conexão, garantindo isolamento total entre usuários.
+- **BUG Instagram Account ID:** Em fase de validação final da correção de Auto-Associação.
+  - A mudança não commitada em `server/routes/index.ts` parece ser crítica para essa correção (evita race condition).
 
 ## Próximo objetivo combinado
-- **VALIDAÇÃO FINAL:** Usuário deve reconectar a conta e enviar uma mensagem para validar o mapeamento automático.
-- Se validado, podemos avançar para novas features ou melhorias de robustez.
+- **DECIDIR SOBRE MUDANÇA PENDENTE:** Validar se o código comentado em `server/routes/index.ts` deve ser commitado.
+- **VALIDAÇÃO FINAL:** Executar teste de reconexão e envio de mensagem para confirmar mapeamento automático.
