@@ -2942,6 +2942,51 @@ export async function registerRoutes(
               console.error(`[COMMENT-WEBHOOK] ❌ Falha na auto-associação:`, err);
             }
           }
+        } else if (usersWithInstagram.length > 1) {
+           console.log(`[COMMENT-WEBHOOK] ⚠️ Múltiplos candidatos (${usersWithInstagram.length}) - verificando marcadores para desempate...`);
+           
+           let bestCandidate = null;
+           let recentConnectionsCount = 0;
+
+           for (const candidate of usersWithInstagram) {
+              const pendingMarker = await storage.getSetting(`pending_webhook_${candidate.id}`);
+              const isRecentConnection = pendingMarker?.value &&
+                (Date.now() - new Date(pendingMarker.value).getTime()) < 24 * 60 * 60 * 1000;
+              
+              if (isRecentConnection) {
+                console.log(`[COMMENT-WEBHOOK]   -> Candidato ${candidate.email} tem conexão recente!`);
+                bestCandidate = candidate;
+                recentConnectionsCount++;
+              }
+           }
+
+           if (recentConnectionsCount === 1 && bestCandidate) {
+              console.log(`[COMMENT-WEBHOOK] 🎯 VENCEDOR DO DESEMPATE: ${bestCandidate.email}`);
+              const candidateUser = bestCandidate;
+
+              try {
+                await authStorage.updateUser(candidateUser.id, {
+                  instagramAccountId: pageId,
+                  instagramRecipientId: pageId
+                });
+
+                console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIAÇÃO (DESEMPATE) SUCESSO!`);
+                
+                await storage.deleteSetting(`pending_webhook_${candidateUser.id}`);
+
+                instagramUser = candidateUser;
+                instagramUser.instagramAccountId = pageId;
+                instagramUser.instagramRecipientId = pageId;
+
+                await storage.setSetting("lastUnmappedWebhookRecipientId", "");
+                await storage.setSetting("lastUnmappedWebhookTimestamp", "");
+
+              } catch (err) {
+                console.error(`[COMMENT-WEBHOOK] ❌ Falha na auto-associação (desempate):`, err);
+              }
+           } else {
+              console.log(`[COMMENT-WEBHOOK] ❌ Desempate falhou: ${recentConnectionsCount} conexões recentes.`);
+           }
         }
 
         // Se ainda não encontrou, bloquear
@@ -3619,7 +3664,56 @@ export async function registerRoutes(
             console.log(`[DM-WEBHOOK] ⚠️ Auto-associação bloqueada: não é conexão recente nem primeiro webhook`);
           }
         } else if (usersWithInstagram.length > 1) {
-          console.log(`[DM-WEBHOOK] ⚠️ Múltiplos candidatos (${usersWithInstagram.length}) - auto-associação bloqueada por segurança`);
+          console.log(`[DM-WEBHOOK] ⚠️ Múltiplos candidatos (${usersWithInstagram.length}) - verificando marcadores de conexão recente para desempate...`);
+          
+          // Lógica de desempate: quem conectou mais recentemente?
+          let bestCandidate = null;
+          let recentConnectionsCount = 0;
+
+          for (const candidate of usersWithInstagram) {
+             const pendingMarker = await storage.getSetting(`pending_webhook_${candidate.id}`);
+             const isRecentConnection = pendingMarker?.value &&
+               (Date.now() - new Date(pendingMarker.value).getTime()) < 24 * 60 * 60 * 1000;
+             
+             if (isRecentConnection) {
+               console.log(`[DM-WEBHOOK]   -> Candidato ${candidate.email} tem conexão recente (marker)!`);
+               bestCandidate = candidate;
+               recentConnectionsCount++;
+             }
+          }
+
+          if (recentConnectionsCount === 1 && bestCandidate) {
+             console.log(`[DM-WEBHOOK] 🎯 VENCEDOR DO DESEMPATE: ${bestCandidate.email}`);
+             const candidateUser = bestCandidate;
+
+             try {
+                // Atualizar AMBOS os IDs para o valor correto do webhook
+                await authStorage.updateUser(candidateUser.id, {
+                  instagramAccountId: recipientId,
+                  instagramRecipientId: recipientId
+                });
+
+                console.log(`[DM-WEBHOOK] ✅ AUTO-ASSOCIAÇÃO (DESEMPATE) SUCESSO!`);
+                console.log(`[DM-WEBHOOK]   User ${candidateUser.id} agora usa ID: ${recipientId}`);
+
+                // Limpar o marker após uso
+                await storage.deleteSetting(`pending_webhook_${candidateUser.id}`);
+
+                // Usar este usuário para processar o webhook
+                instagramUser = candidateUser;
+                instagramUser.instagramAccountId = recipientId;
+                instagramUser.instagramRecipientId = recipientId;
+
+                // Limpar aviso de webhook não mapeado
+                await storage.setSetting("lastUnmappedWebhookRecipientId", "");
+                await storage.setSetting("lastUnmappedWebhookTimestamp", "");
+
+             } catch (err) {
+                console.error(`[DM-WEBHOOK] ❌ Falha na auto-associação (desempate):`, err);
+             }
+          } else {
+             console.log(`[DM-WEBHOOK] ❌ Desempate falhou: ${recentConnectionsCount} conexões recentes encontradas (precisa ser exatamente 1).`);
+          }
         }
 
         // Se ainda não encontrou, bloquear e registrar
