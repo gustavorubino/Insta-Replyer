@@ -2085,6 +2085,9 @@ export async function registerRoutes(
 
       // Store a pending webhook association marker with timestamp
       // This enables secure auto-association within a 15-minute window
+      // #region agent log
+      fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:2088',message:'Setting pending_webhook marker',data:{userId,timestamp:new Date().toISOString()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       await storage.setSetting(`pending_webhook_${userId}`, new Date().toISOString());
 
       // Update global settings
@@ -2723,6 +2726,9 @@ export async function registerRoutes(
       console.log(`[SECURITY] ✅ Webhook signature verified successfully`);
 
       const { object, entry } = req.body;
+      // #region agent log
+      fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:2729',message:'Webhook request parsed',data:{object,entryCount:entry?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
 
       // Log completo do webhook recebido para debug
       console.log("=== WEBHOOK INSTAGRAM RECEBIDO ===");
@@ -2875,6 +2881,9 @@ export async function registerRoutes(
       // FALLBACK #2: SECURE AUTO-ASSOCIATION
       // Se ainda não encontrou, tenta associar a um usuário que acabou de conectar
       if (!instagramUser) {
+        // #region agent log
+        fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:2884',message:'Starting secure auto-association (Comment)',data:{pageId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         console.log(`[COMMENT-WEBHOOK] 🔍 Tentando auto-associação segura para pageId ${pageId}...`);
         
         // Critério 1: ID não pode pertencer a ninguém
@@ -3533,6 +3542,9 @@ export async function registerRoutes(
       // FALLBACK: SECURE AUTO-ASSOCIATION
       // Se ainda não encontrou, tenta associar a um usuário que acabou de conectar
       if (!instagramUser) {
+        // #region agent log
+        fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:3544',message:'Starting secure auto-association (DM)',data:{entryId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         console.log(`[DM-WEBHOOK] 🔍 Tentando auto-associação segura para entryId ${entryId}...`);
         
         // Critério 1: ID não pode pertencer a ninguém
