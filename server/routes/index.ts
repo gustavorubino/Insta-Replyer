@@ -2889,117 +2889,20 @@ export async function registerRoutes(
       // If the webhook pageId doesn't match a known user explicitly, we MUST ignore it.
 
       if (!instagramUser) {
-        console.log(`[COMMENT-WEBHOOK] ⚠️ Nenhum match direto para pageId ${pageId}`);
+        console.log(`[COMMENT-WEBHOOK] ❌ SECURITY: Webhook bloqueado para pageId ${pageId} - NENHUM USUÁRIO CORRESPONDE AO ID`);
 
-        // 🔧 AUTO-ASSOCIATION FIX: Tentar encontrar usuário por token válido e username
-        console.log(`[COMMENT-WEBHOOK] 🔍 Tentando auto-associação inteligente...`);
+        // 🛡️ SECURITY AUDIT LOG
+        const securityLog = `[${new Date().toISOString()}] BLOCK:COMMENT PAGE_ID:${pageId} MSG_ID:${commentId} REASON:NO_USER_MATCH\n`;
+        try {
+          await fs.promises.appendFile('webhook_security.log', securityLog);
+        } catch (err) {}
 
-        // Buscar usuários que têm Instagram conectado (token válido) mas ID diferente
-        const usersWithInstagram = allUsers.filter((u: any) =>
-          u.instagramAccessToken &&
-          u.instagramUsername &&
-          u.instagramAccountId &&
-          u.instagramAccountId !== pageId
-        );
-
-        console.log(`[COMMENT-WEBHOOK] Usuários com Instagram conectado (ID diferente): ${usersWithInstagram.length}`);
-
-        // Se houver exatamente 1 usuário com Instagram conectado, auto-associar
-        if (usersWithInstagram.length === 1) {
-          const candidateUser = usersWithInstagram[0];
-          console.log(`[COMMENT-WEBHOOK] 🎯 Candidato único: user ${candidateUser.id} (${candidateUser.email})`);
-          console.log(`[COMMENT-WEBHOOK]   ID OAuth antigo: ${candidateUser.instagramAccountId}`);
-          console.log(`[COMMENT-WEBHOOK]   ID Webhook novo: ${pageId}`);
-
-          // Verificar se há pending_webhook marker (conexão recente - até 24h)
-          const pendingMarker = await storage.getSetting(`pending_webhook_${candidateUser.id}`);
-          const isRecentConnection = pendingMarker?.value &&
-            (Date.now() - new Date(pendingMarker.value).getTime()) < 24 * 60 * 60 * 1000;
-
-          // Permitir auto-associação se for conexão recente (24h)
-          if (isRecentConnection) {
-            try {
-              await authStorage.updateUser(candidateUser.id, {
-                instagramAccountId: pageId,
-                instagramRecipientId: pageId
-              });
-
-              console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIAÇÃO SUCESSO! User ${candidateUser.id} -> ID: ${pageId}`);
-
-              if (pendingMarker) {
-                await storage.deleteSetting(`pending_webhook_${candidateUser.id}`);
-              }
-
-              instagramUser = candidateUser;
-              instagramUser.instagramAccountId = pageId;
-              instagramUser.instagramRecipientId = pageId;
-
-              // Limpar aviso
-              await storage.setSetting("lastUnmappedWebhookRecipientId", "");
-              await storage.setSetting("lastUnmappedWebhookTimestamp", "");
-
-            } catch (err) {
-              console.error(`[COMMENT-WEBHOOK] ❌ Falha na auto-associação:`, err);
-            }
-          }
-        } else if (usersWithInstagram.length > 1) {
-           console.log(`[COMMENT-WEBHOOK] ⚠️ Múltiplos candidatos (${usersWithInstagram.length}) - verificando marcadores para desempate...`);
-           
-           let bestCandidate = null;
-           let recentConnectionsCount = 0;
-
-           for (const candidate of usersWithInstagram) {
-              const pendingMarker = await storage.getSetting(`pending_webhook_${candidate.id}`);
-              const isRecentConnection = pendingMarker?.value &&
-                (Date.now() - new Date(pendingMarker.value).getTime()) < 24 * 60 * 60 * 1000;
-              
-              if (isRecentConnection) {
-                console.log(`[COMMENT-WEBHOOK]   -> Candidato ${candidate.email} tem conexão recente!`);
-                bestCandidate = candidate;
-                recentConnectionsCount++;
-              }
-           }
-
-           if (recentConnectionsCount === 1 && bestCandidate) {
-              console.log(`[COMMENT-WEBHOOK] 🎯 VENCEDOR DO DESEMPATE: ${bestCandidate.email}`);
-              const candidateUser = bestCandidate;
-
-              try {
-                await authStorage.updateUser(candidateUser.id, {
-                  instagramAccountId: pageId,
-                  instagramRecipientId: pageId
-                });
-
-                console.log(`[COMMENT-WEBHOOK] ✅ AUTO-ASSOCIAÇÃO (DESEMPATE) SUCESSO!`);
-                
-                await storage.deleteSetting(`pending_webhook_${candidateUser.id}`);
-
-                instagramUser = candidateUser;
-                instagramUser.instagramAccountId = pageId;
-                instagramUser.instagramRecipientId = pageId;
-
-                await storage.setSetting("lastUnmappedWebhookRecipientId", "");
-                await storage.setSetting("lastUnmappedWebhookTimestamp", "");
-
-              } catch (err) {
-                console.error(`[COMMENT-WEBHOOK] ❌ Falha na auto-associação (desempate):`, err);
-              }
-           } else {
-              console.log(`[COMMENT-WEBHOOK] ❌ Desempate falhou: ${recentConnectionsCount} conexões recentes.`);
-           }
-        }
-
-        // Se ainda não encontrou, bloquear
-        if (!instagramUser) {
-          console.log(`[COMMENT-WEBHOOK] ❌ SECURITY: Webhook bloqueado para pageId ${pageId}`);
-
-          addWebhookProcessingResult({
-            action: 'ignored',
-            reason: `Usuário desconhecido para pageId ${pageId}`,
-            messageType: 'comment'
-          }, currentWebhookTimestamp);
-          return;
-        }
+        addWebhookProcessingResult({
+          action: 'ignored',
+          reason: `SECURITY BLOCK: Nenhum usuário possui o ID ${pageId}`,
+          messageType: 'comment'
+        }, currentWebhookTimestamp);
+        return;
       }
 
 
@@ -3538,10 +3441,6 @@ export async function registerRoutes(
       // Find the user who owns this Instagram account by matching instagramAccountId with recipient
       const allUsers = await authStorage.getAllUsers?.() || [];
 
-      // #region agent log
-      fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:3500',message:'Start User Matching',data:{recipientId, senderId, totalUsers: allUsers.length, users: allUsers.map(u => ({id: u.id, email: u.email, igId: u.instagramAccountId, igRecip: u.instagramRecipientId, marker: 'check_logs_later'}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
-
       console.log(`Looking for user with Instagram account: ${recipientId}`);
       console.log(`Total users found: ${allUsers.length}`);
       console.log(`Users with Instagram accounts: ${allUsers.filter((u: any) => u.instagramAccountId).map((u: any) => ({ id: u.id, instagramAccountId: u.instagramAccountId }))}`);
@@ -3617,10 +3516,6 @@ export async function registerRoutes(
           u.instagramAccountId !== recipientId
         );
 
-        // #region agent log
-        fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:3570',message:'Auto-Association Candidates',data:{count: usersWithInstagram.length, recipientId, candidates: usersWithInstagram.map((u: any) => ({id: u.id, email: u.email, igId: u.instagramAccountId}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
-
         console.log(`[DM-WEBHOOK] Usuários com Instagram conectado (ID diferente): ${usersWithInstagram.length}`);
 
         // Se houver exatamente 1 usuário com Instagram conectado, auto-associar
@@ -3677,19 +3572,11 @@ export async function registerRoutes(
           let bestCandidate = null;
           let recentConnectionsCount = 0;
 
-          // #region agent log
-          fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:3630',message:'Tie-Breaker Start',data:{candidateCount: usersWithInstagram.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
-
           for (const candidate of usersWithInstagram) {
              const pendingMarker = await storage.getSetting(`pending_webhook_${candidate.id}`);
              const isRecentConnection = pendingMarker?.value &&
                (Date.now() - new Date(pendingMarker.value).getTime()) < 24 * 60 * 60 * 1000;
              
-             // #region agent log
-             fetch('http://localhost:7243/ingest/adbf051b-0bea-473e-843b-d208247d9802',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server/routes/index.ts:3640',message:'Checking Candidate Marker',data:{email: candidate.email, hasMarker: !!pendingMarker, markerValue: pendingMarker?.value, isRecent: isRecentConnection},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-             // #endregion
-
              if (isRecentConnection) {
                console.log(`[DM-WEBHOOK]   -> Candidato ${candidate.email} tem conexão recente (marker)!`);
                bestCandidate = candidate;
@@ -3733,7 +3620,13 @@ export async function registerRoutes(
 
         // Se ainda não encontrou, bloquear e registrar
         if (!instagramUser) {
-          console.log(`[DM-WEBHOOK] ❌ SECURITY: Webhook bloqueado para recipientId ${recipientId}`);
+          console.log(`[DM-WEBHOOK] ❌ SECURITY: Webhook bloqueado para recipientId ${recipientId} - NENHUM USUÁRIO CORRESPONDE AO ID`);
+
+          // 🛡️ SECURITY AUDIT LOG
+          const securityLog = `[${new Date().toISOString()}] BLOCK:DM RECIPIENT:${recipientId} SENDER:${senderId} REASON:NO_USER_MATCH\n`;
+          try {
+            await fs.promises.appendFile('webhook_security.log', securityLog);
+          } catch (err) {}
 
           // Log unmapped webhook for debugging (admin only)
           try {
