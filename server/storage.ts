@@ -613,6 +613,8 @@ export class DatabaseStorage implements IStorage {
 
   async cleanupExpiredPendingWebhooks(): Promise<number> {
     const PENDING_WEBHOOK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
+async cleanupExpiredPendingWebhooks(): Promise<number> {
+    const PENDING_WEBHOOK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
     const cutoffDate = new Date(Date.now() - PENDING_WEBHOOK_EXPIRY_MS);
     const cutoffISO = cutoffDate.toISOString();
 
@@ -622,19 +624,21 @@ export class DatabaseStorage implements IStorage {
         and(
           like(settings.key, "pending_webhook_%"),
           sql`(
-            CASE
-              -- If value looks like an ISO date, check if it is older than cutoff
-              WHEN ${settings.value} ~ '^\\d{4}-\\d{2}-\\d{2}T' THEN
-                ${settings.value} < ${cutoffISO}
-              -- If NOT a date (garbage), delete it (matches original isNaN logic)
-              ELSE
-                TRUE
-            END
-          )`
+          CASE
+            -- Verifica se parece uma data ISO (YYYY-MM-DD...)
+            WHEN ${settings.value} ~ '^\\d{4}-\\d{2}-\\d{2}T' THEN
+              ${settings.value} < ${cutoffISO}
+            -- Se NÃO for data (lixo), deleta também (segurança)
+            ELSE
+              TRUE
+          END
+        )`
         )
       )
       .returning({ key: settings.key });
 
+    return result.length;
+  }
     return result.length;
   }
 
