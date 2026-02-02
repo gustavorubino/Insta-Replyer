@@ -612,25 +612,30 @@ export class DatabaseStorage implements IStorage {
   }
 
   async cleanupExpiredPendingWebhooks(): Promise<number> {
-    const allSettings = await db.select().from(settings);
-    const now = Date.now();
     const PENDING_WEBHOOK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
-    let cleanedCount = 0;
+    const cutoffDate = new Date(Date.now() - PENDING_WEBHOOK_EXPIRY_MS);
+    const cutoffISO = cutoffDate.toISOString();
 
-    for (const setting of allSettings) {
-      if (setting.key.startsWith("pending_webhook_")) {
-        // Value is an ISO timestamp
-        const pendingTime = new Date(setting.value).getTime();
-        const elapsedMs = now - pendingTime;
+    const result = await db
+      .delete(settings)
+      .where(
+        and(
+          like(settings.key, "pending_webhook_%"),
+          sql`(
+            CASE
+              -- If value looks like an ISO date, check if it is older than cutoff
+              WHEN ${settings.value} ~ '^\\d{4}-\\d{2}-\\d{2}T' THEN
+                ${settings.value} < ${cutoffISO}
+              -- If NOT a date (garbage), delete it (matches original isNaN logic)
+              ELSE
+                TRUE
+            END
+          )`
+        )
+      )
+      .returning({ key: settings.key });
 
-        if (isNaN(pendingTime) || elapsedMs > PENDING_WEBHOOK_EXPIRY_MS) {
-          await db.delete(settings).where(eq(settings.key, setting.key));
-          cleanedCount++;
-        }
-      }
-    }
-
-    return cleanedCount;
+    return result.length;
   }
 
   async clearAllMessages(): Promise<{ aiResponses: number; messages: number }> {
