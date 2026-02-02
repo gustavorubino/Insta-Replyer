@@ -32,6 +32,33 @@ export async function resolveInstagramSender(
   let apiData: any = { name: null, username: null, avatar: null };
   let dbMatch: User | undefined;
 
+  // 0. First, try to find sender in our database by senderId (ASID match)
+  try {
+    const allUsers = await authStorage.getAllUsers();
+    dbMatch = allUsers.find(u => 
+      u.instagramAccountId === senderId || 
+      u.instagramRecipientId === senderId
+    );
+    
+    if (dbMatch) {
+      console.log(`[Identity] ✅ Early DB Match by ID: User ${dbMatch.id} (@${dbMatch.instagramUsername || 'no-username'})`);
+      // If we have a match with complete data, we can skip API call
+      if (dbMatch.instagramUsername && (dbMatch.instagramProfilePic || dbMatch.profileImageUrl)) {
+        console.log(`[Identity] Using cached DB data, skipping API call`);
+        return {
+          name: [dbMatch.firstName, dbMatch.lastName].filter(Boolean).join(" ") || dbMatch.instagramUsername || "Instagram User",
+          username: dbMatch.instagramUsername || senderId,
+          avatar: dbMatch.instagramProfilePic || dbMatch.profileImageUrl || generateFallbackAvatar(senderId, dbMatch.instagramUsername || senderId),
+          followersCount: undefined,
+          isKnownUser: true,
+          userId: dbMatch.id
+        };
+      }
+    }
+  } catch (e) {
+    console.error("[Identity] Early DB Match failed:", e);
+  }
+
   // 1. Fetch from API (Best Effort)
   try {
     apiData = await fetchFromApi(senderId, recipientAccessToken, recipientInstagramId);
@@ -76,11 +103,8 @@ export async function resolveInstagramSender(
   
   if (!finalAvatar) {
     // Generate robust fallback
-    const displayName = finalUsername.length > 20 ? "User" : finalUsername;
-    const colors = ['9b59b6', '3498db', '1abc9c', 'e74c3c', 'f39c12', '2ecc71', 'e91e63', '00bcd4'];
-    const colorIndex = senderId.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) % colors.length;
-    finalAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=${colors[colorIndex]}&color=fff&size=128&bold=true`;
-    console.log(`[Identity] Generated fallback avatar for ${displayName}`);
+    finalAvatar = generateFallbackAvatar(senderId, finalUsername);
+    console.log(`[Identity] Generated fallback avatar for ${finalUsername}`);
   }
 
   return {
@@ -109,18 +133,35 @@ async function fetchFromApi(userId: string, token: string, userIgId?: string) {
   // Try standard endpoints first
   for (const ep of endpoints) {
     try {
+      console.log(`[Identity API] Trying ${ep.name}: ${ep.url.substring(0, 100)}...`);
       const res = await fetch(ep.url);
       const data = await res.json();
+      
+      console.log(`[Identity API] ${ep.name} Response Status: ${res.status}`);
+      console.log(`[Identity API] ${ep.name} Response Data:`, JSON.stringify(data, null, 2));
+      
       if (res.ok && !data.error && (data.username || data.name)) {
+        console.log(`[Identity API] ✅ ${ep.name} succeeded!`);
         return {
           username: data.username,
           name: data.name,
           avatar: data.profile_picture_url || data.profile_pic,
           followersCount: undefined
         };
+      } else if (data.error) {
+        console.log(`[Identity API] ❌ ${ep.name} error: ${data.error.message || JSON.stringify(data.error)}`);
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { 
+      console.error(`[Identity API] ${ep.name} exception:`, e); 
+    }
   }
 
   return { name: null, username: null, avatar: null };
+}
+
+function generateFallbackAvatar(senderId: string, displayName: string): string {
+  const name = displayName.length > 20 ? "User" : displayName;
+  const colors = ['9b59b6', '3498db', '1abc9c', 'e74c3c', 'f39c12', '2ecc71', 'e91e63', '00bcd4'];
+  const colorIndex = senderId.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) % colors.length;
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=${colors[colorIndex]}&color=fff&size=128&bold=true`;
 }

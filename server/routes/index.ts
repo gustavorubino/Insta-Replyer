@@ -2718,20 +2718,22 @@ export async function registerRoutes(
       // CRITICAL SECURITY: Enforce signature verification
       // This prevents forgeability of Instagram events
       if (!verification.valid) {
-        
+
         // DEBUG MODE LOGGING - SIGNATURE FAILURE
-        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-            location:'server/routes/index.ts:signature_verify',
-            message:'Falha na validação da assinatura',
-            data:{
-                signature: signature,
-                calculated: verification.debug,
-                valid: verification.valid
+        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            location: 'server/routes/index.ts:signature_verify',
+            message: 'Falha na validação da assinatura',
+            data: {
+              signature: signature,
+              calculated: verification.debug,
+              valid: verification.valid
             },
-            timestamp:Date.now(),
-            sessionId:'debug-session',
+            timestamp: Date.now(),
+            sessionId: 'debug-session',
             hypothesisId: '2'
-        })}).catch(()=>{});
+          })
+        }).catch(() => { });
 
         console.warn(`[SECURITY] ❌ Webhook signature verification FAILED: ${verification.debug}`);
         return res.status(401).send("Invalid signature");
@@ -2754,20 +2756,22 @@ export async function registerRoutes(
 
       // Process each entry
       for (const entryItem of entry || []) {
-        
+
         // DEBUG MODE LOGGING - ENTRY PROCESSING
-        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-            location:'server/routes/index.ts:entry_loop',
-            message:'Processando entrada do webhook',
-            data:{
-                entryId: entryItem.id,
-                changesCount: entryItem.changes?.length,
-                messagingCount: entryItem.messaging?.length
+        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            location: 'server/routes/index.ts:entry_loop',
+            message: 'Processando entrada do webhook',
+            data: {
+              entryId: entryItem.id,
+              changesCount: entryItem.changes?.length,
+              messagingCount: entryItem.messaging?.length
             },
-            timestamp:Date.now(),
-            sessionId:'debug-session',
+            timestamp: Date.now(),
+            sessionId: 'debug-session',
             hypothesisId: '3'
-        })}).catch(()=>{});
+          })
+        }).catch(() => { });
 
         const changes = entryItem.changes || [];
         const messaging = entryItem.messaging || [];
@@ -2790,24 +2794,26 @@ export async function registerRoutes(
           }
         }
 
-      // Process direct messages (Messenger Platform format)
-      // IMPORTANT: Pass entryItem.id to identify which account received the webhook
-      for (const messageEvent of messaging) {
-        
-        // DEBUG MODE LOGGING - MESSAGING EVENT
-        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-            location:'server/routes/index.ts:messaging_loop',
-            message:'Processando evento de mensagem',
-            data:{
+        // Process direct messages (Messenger Platform format)
+        // IMPORTANT: Pass entryItem.id to identify which account received the webhook
+        for (const messageEvent of messaging) {
+
+          // DEBUG MODE LOGGING - MESSAGING EVENT
+          fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+              location: 'server/routes/index.ts:messaging_loop',
+              message: 'Processando evento de mensagem',
+              data: {
                 messageEvent: messageEvent,
                 entryId: entryItem.id
-            },
-            timestamp:Date.now(),
-            sessionId:'debug-session',
-            hypothesisId: '3'
-        })}).catch(()=>{});
+              },
+              timestamp: Date.now(),
+              sessionId: 'debug-session',
+              hypothesisId: '3'
+            })
+          }).catch(() => { });
 
-        console.log("=== MESSAGING EVENT RECEIVED ===");
+          console.log("=== MESSAGING EVENT RECEIVED ===");
           console.log("Messaging event:", JSON.stringify(messageEvent).substring(0, 500));
           console.log(`Entry ID (account that received webhook): ${entryItem.id}`);
 
@@ -3063,19 +3069,21 @@ export async function registerRoutes(
 
       // Strategy 2: Try direct IGSID lookup (if fromUserId is available)
       if (!senderAvatar && fromUserId && instagramUser.instagramAccessToken) {
-        
+
         // DEBUG MODE LOGGING - PROFILE FETCH START
-        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-            location:'server/routes/index.ts:profile_fetch',
-            message:'Iniciando busca de perfil (IGSID)',
-            data:{
-                fromUserId: fromUserId,
-                username: username
+        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            location: 'server/routes/index.ts:profile_fetch',
+            message: 'Iniciando busca de perfil (IGSID)',
+            data: {
+              fromUserId: fromUserId,
+              username: username
             },
-            timestamp:Date.now(),
-            sessionId:'debug-session',
+            timestamp: Date.now(),
+            sessionId: 'debug-session',
             hypothesisId: '6'
-        })}).catch(()=>{});
+          })
+        }).catch(() => { });
 
         try {
           console.log(`[Profile Fetch] Tentando busca direta por IGSID ${fromUserId}...`);
@@ -3091,18 +3099,20 @@ export async function registerRoutes(
             senderAvatar = directData.profile_pic || directData.profile_picture_url;
             console.log(`[Profile Fetch] SUCCESS via IGSID direto para ${fromUserId}`);
           } else if (directData?.error) {
-            
+
             // DEBUG MODE LOGGING - IGSID ERROR
-            fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-                location:'server/routes/index.ts:profile_fetch_error',
-                message:'Erro na busca por IGSID direto',
-                data:{
-                    error: directData.error
+            fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+                location: 'server/routes/index.ts:profile_fetch_error',
+                message: 'Erro na busca por IGSID direto',
+                data: {
+                  error: directData.error
                 },
-                timestamp:Date.now(),
-                sessionId:'debug-session',
+                timestamp: Date.now(),
+                sessionId: 'debug-session',
                 hypothesisId: '6'
-            })}).catch(()=>{});
+              })
+            }).catch(() => { });
 
             console.log(`[Profile Fetch] IGSID direto falhou: ${directData.error.message}`);
 
@@ -3407,10 +3417,10 @@ export async function registerRoutes(
   async function fetchInstagramUserInfo(senderId: string, accessToken: string, recipientId?: string) {
     const result = await resolveInstagramSender(senderId, accessToken, recipientId);
     return {
-        name: result.name,
-        username: result.username,
-        avatar: result.avatar,
-        followersCount: result.followersCount
+      name: result.name,
+      username: result.username,
+      avatar: result.avatar,
+      followersCount: result.followersCount
     };
   }
 
@@ -3420,12 +3430,12 @@ export async function registerRoutes(
 
       let senderFollowersCount: number | undefined;
       const senderId = messageData.sender?.id;
-    const recipientId = messageData.recipient?.id;
+      const recipientId = messageData.recipient?.id;
 
-    // DEBUG MODE LOGGING - PROCESS DM START
-    // (Logs removed)
+      // DEBUG MODE LOGGING - PROCESS DM START
+      // (Logs removed)
 
-    const messageId = messageData.message?.mid;
+      const messageId = messageData.message?.mid;
       let text = messageData.message?.text;
       const attachments = messageData.message?.attachments;
       const isEcho = messageData.message?.is_echo === true;
@@ -3532,17 +3542,19 @@ export async function registerRoutes(
         console.log(`[DM-WEBHOOK] ⚠️ Nenhum match direto para recipientId ${recipientId}`);
 
         // DEBUG MODE LOGGING - NO DIRECT MATCH
-        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-            location:'server/routes/index.ts:no_direct_match',
-            message:'Nenhum usuário encontrado para o recipientId',
-            data:{
-                recipientId: recipientId,
-                senderId: senderId
+        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            location: 'server/routes/index.ts:no_direct_match',
+            message: 'Nenhum usuário encontrado para o recipientId',
+            data: {
+              recipientId: recipientId,
+              senderId: senderId
             },
-            timestamp:Date.now(),
-            sessionId:'debug-session',
+            timestamp: Date.now(),
+            sessionId: 'debug-session',
             hypothesisId: '4'
-        })}).catch(()=>{});
+          })
+        }).catch(() => { });
 
         // 🔧 AUTO-ASSOCIATION FIX: Tentar encontrar usuário por token válido e username
         // Isso resolve o problema onde OAuth retorna um ID diferente do webhook
@@ -3561,7 +3573,7 @@ export async function registerRoutes(
         // Se houver exatamente 1 usuário com Instagram conectado, auto-associar
         // SEGURANÇA: Só permite quando há apenas 1 candidato para evitar associação errada
         // ATUALIZAÇÃO: Se houver múltiplos, filtra apenas pelos que têm MARKER PENDING_WEBHOOK recente
-        
+
         let targetCandidate = null;
 
         if (usersWithInstagram.length === 1) {
@@ -3569,20 +3581,20 @@ export async function registerRoutes(
         } else if (usersWithInstagram.length > 1) {
           // Filtrar candidatos que têm o marker
           console.log(`[DM-WEBHOOK] ⚠️ Múltiplos usuários conectados (${usersWithInstagram.length}). Filtrando por pending_webhook...`);
-          
+
           const candidatesWithMarker = [];
           for (const u of usersWithInstagram) {
-             const pendingMarker = await storage.getSetting(`pending_webhook_${u.id}`);
-             if (pendingMarker?.value && (Date.now() - new Date(pendingMarker.value).getTime()) < 24 * 60 * 60 * 1000) {
-               candidatesWithMarker.push(u);
-             }
+            const pendingMarker = await storage.getSetting(`pending_webhook_${u.id}`);
+            if (pendingMarker?.value && (Date.now() - new Date(pendingMarker.value).getTime()) < 24 * 60 * 60 * 1000) {
+              candidatesWithMarker.push(u);
+            }
           }
-          
+
           if (candidatesWithMarker.length === 1) {
-             targetCandidate = candidatesWithMarker[0];
-             console.log(`[DM-WEBHOOK] 🎯 Candidato único COM MARKER encontrado entre múltiplos: user ${targetCandidate.id}`);
+            targetCandidate = candidatesWithMarker[0];
+            console.log(`[DM-WEBHOOK] 🎯 Candidato único COM MARKER encontrado entre múltiplos: user ${targetCandidate.id}`);
           } else {
-             console.log(`[DM-WEBHOOK] ⚠️ Bloqueado mesmo após filtro: ${candidatesWithMarker.length} candidatos com marker.`);
+            console.log(`[DM-WEBHOOK] ⚠️ Bloqueado mesmo após filtro: ${candidatesWithMarker.length} candidatos com marker.`);
           }
         }
 
@@ -3637,18 +3649,20 @@ export async function registerRoutes(
 
         // Se ainda não encontrou, bloquear e registrar
         if (!instagramUser) {
-          
+
           // DEBUG MODE LOGGING - FINAL BLOCK
-          fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-              location:'server/routes/index.ts:final_block',
-              message:'Webhook bloqueado - nenhum usuário associado',
-              data:{
-                  recipientId: recipientId
+          fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+              location: 'server/routes/index.ts:final_block',
+              message: 'Webhook bloqueado - nenhum usuário associado',
+              data: {
+                recipientId: recipientId
               },
-              timestamp:Date.now(),
-              sessionId:'debug-session',
+              timestamp: Date.now(),
+              sessionId: 'debug-session',
               hypothesisId: '4'
-          })}).catch(()=>{});
+            })
+          }).catch(() => { });
 
           console.log(`[DM-WEBHOOK] ❌ SECURITY: Webhook bloqueado para recipientId ${recipientId}`);
 
@@ -3718,77 +3732,77 @@ export async function registerRoutes(
 
       // 🔧 MELHORIA: Tentar match também por Username via API se o ID não bater (IDs diferentes entre escopos)
       if (!knownInstagramUser && instagramUser.instagramAccessToken) {
-         try {
-            // Se ainda não sabemos quem é, vamos tentar pegar o username na API
-            const encToken = instagramUser.instagramAccessToken;
-            const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
-            const userInstagramId = instagramUser.instagramAccountId;
-            
-            // Usamos a função auxiliar existente para pegar info do remetente
-            const userInfo = await fetchInstagramUserInfo(senderId, accessToken, userInstagramId);
-            
-            if (userInfo && userInfo.username && userInfo.username !== senderId) {
-                // Agora buscamos no banco alguém com esse username
-                const matchByUsername = allUsers.find((u: any) => 
-                    u.id !== instagramUser.id && 
-                    u.instagramUsername && 
-                    u.instagramUsername.toLowerCase() === userInfo.username.toLowerCase()
-                );
-                
-                if (matchByUsername) {
-                    console.log(`[DM-WEBHOOK] ✅ Match cross-account por username! ID ${senderId} = @${userInfo.username} = User ${matchByUsername.id}`);
-                    knownInstagramUser = matchByUsername;
-                    
-                    // Opcional: Salvar esse ID alternativo no futuro se tivermos onde guardar
-                }
+        try {
+          // Se ainda não sabemos quem é, vamos tentar pegar o username na API
+          const encToken = instagramUser.instagramAccessToken;
+          const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
+          const userInstagramId = instagramUser.instagramAccountId || undefined;
+
+          // Usamos a função auxiliar existente para pegar info do remetente
+          const userInfo = await fetchInstagramUserInfo(senderId, accessToken, userInstagramId);
+
+          if (userInfo && userInfo.username && userInfo.username !== senderId) {
+            // Agora buscamos no banco alguém com esse username
+            const matchByUsername = allUsers.find((u: any) =>
+              u.id !== instagramUser.id &&
+              u.instagramUsername &&
+              u.instagramUsername.toLowerCase() === userInfo.username.toLowerCase()
+            );
+
+            if (matchByUsername) {
+              console.log(`[DM-WEBHOOK] ✅ Match cross-account por username! ID ${senderId} = @${userInfo.username} = User ${matchByUsername.id}`);
+              knownInstagramUser = matchByUsername;
+
+              // Opcional: Salvar esse ID alternativo no futuro se tivermos onde guardar
             }
-         } catch (err) {
-             console.log("[DM-WEBHOOK] Falha ao tentar match por username:", err);
-         }
+          }
+        } catch (err) {
+          console.log("[DM-WEBHOOK] Falha ao tentar match por username:", err);
+        }
       }
 
       // 🔧 MELHORIA: Tentar match também por Username via API se o ID não bater (IDs diferentes entre escopos)
       if (!knownInstagramUser && instagramUser.instagramAccessToken) {
-         try {
-            // Se ainda não sabemos quem é, vamos tentar pegar o username na API
-            const encToken = instagramUser.instagramAccessToken;
-            const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
-            const userInstagramId = instagramUser.instagramAccountId;
-            
-            // Usamos a função auxiliar existente para pegar info do remetente
-            const userInfo = await fetchInstagramUserInfo(senderId, accessToken, userInstagramId);
-            
-            if (userInfo && userInfo.username && userInfo.username !== senderId) {
-                // Agora buscamos no banco alguém com esse username
-                const matchByUsername = allUsers.find((u: any) => 
-                    u.id !== instagramUser.id && 
-                    u.instagramUsername && 
-                    u.instagramUsername.toLowerCase() === userInfo.username.toLowerCase()
-                );
-                
-                if (matchByUsername) {
-                    console.log(`[DM-WEBHOOK] ✅ Match cross-account por username! ID ${senderId} = @${userInfo.username} = User ${matchByUsername.id}`);
-                    knownInstagramUser = matchByUsername;
-                    
-                    // AUTO-CORREÇÃO: Salvar esse novo ID no usuário para facilitar matches futuros
-                    // O senderId (109...) é o ID que este receptor vê para este usuário.
-                    // Podemos salvar isso em um campo auxiliar ou atualizar se for seguro.
-                    try {
-                        // Se o usuário não tiver instagramRecipientId definido ou for diferente
-                        if (!matchByUsername.instagramRecipientId || matchByUsername.instagramRecipientId !== senderId) {
-                             console.log(`[DM-WEBHOOK] 💾 Salvando novo ID de escopo (${senderId}) para o usuário ${matchByUsername.instagramUsername}`);
-                             await authStorage.updateUser(matchByUsername.id, {
-                                 instagramRecipientId: senderId
-                             });
-                        }
-                    } catch (saveErr) {
-                        console.error("[DM-WEBHOOK] Erro ao salvar ID cross-account:", saveErr);
-                    }
+        try {
+          // Se ainda não sabemos quem é, vamos tentar pegar o username na API
+          const encToken = instagramUser.instagramAccessToken;
+          const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
+          const userInstagramId = instagramUser.instagramAccountId || undefined;
+
+          // Usamos a função auxiliar existente para pegar info do remetente
+          const userInfo = await fetchInstagramUserInfo(senderId, accessToken, userInstagramId);
+
+          if (userInfo && userInfo.username && userInfo.username !== senderId) {
+            // Agora buscamos no banco alguém com esse username
+            const matchByUsername = allUsers.find((u: any) =>
+              u.id !== instagramUser.id &&
+              u.instagramUsername &&
+              u.instagramUsername.toLowerCase() === userInfo.username.toLowerCase()
+            );
+
+            if (matchByUsername) {
+              console.log(`[DM-WEBHOOK] ✅ Match cross-account por username! ID ${senderId} = @${userInfo.username} = User ${matchByUsername.id}`);
+              knownInstagramUser = matchByUsername;
+
+              // AUTO-CORREÇÃO: Salvar esse novo ID no usuário para facilitar matches futuros
+              // O senderId (109...) é o ID que este receptor vê para este usuário.
+              // Podemos salvar isso em um campo auxiliar ou atualizar se for seguro.
+              try {
+                // Se o usuário não tiver instagramRecipientId definido ou for diferente
+                if (!matchByUsername.instagramRecipientId || matchByUsername.instagramRecipientId !== senderId) {
+                  console.log(`[DM-WEBHOOK] 💾 Salvando novo ID de escopo (${senderId}) para o usuário ${matchByUsername.instagramUsername}`);
+                  await authStorage.updateUser(matchByUsername.id, {
+                    instagramRecipientId: senderId
+                  });
                 }
+              } catch (saveErr) {
+                console.error("[DM-WEBHOOK] Erro ao salvar ID cross-account:", saveErr);
+              }
             }
-         } catch (err) {
-             console.log("[DM-WEBHOOK] Falha ao tentar match por username:", err);
-         }
+          }
+        } catch (err) {
+          console.log("[DM-WEBHOOK] Falha ao tentar match por username:", err);
+        }
       }
 
       // Use cached data only if we have usable username info
@@ -3916,33 +3930,33 @@ export async function registerRoutes(
         // RESOLUTION STRATEGY: Use robust identity resolver
         // This handles API calls, DB matching, and fallbacks in one place
         const identity = await resolveInstagramSender(senderId, instagramUser.instagramAccessToken, userInstagramId);
-        
+
         senderName = identity.name;
         senderUsername = identity.username;
         senderAvatar = identity.avatar;
         senderFollowersCount = identity.followersCount;
-        
+
         console.log(`[Identity] Final Resolved: ${senderName} (@${senderUsername})`);
 
         // If matched with a known user (DB match), update cross-account ID mapping
         if (identity.isKnownUser && identity.userId) {
-            const matchedUser = allUsers.find((u: any) => u.id === identity.userId);
-            if (matchedUser) {
-                // Persist the mapping so next time we find it instantly via ID match
-                try {
-                    if (!matchedUser.instagramRecipientId || matchedUser.instagramRecipientId !== senderId) {
-                        console.log(`[Identity] 💾 Persisting new scope ID (${senderId}) for user ${matchedUser.email}`);
-                        await authStorage.updateUser(matchedUser.id, {
-                            instagramRecipientId: senderId
-                        });
-                    }
-                } catch (err) {
-                    console.error("[Identity] Failed to persist ID mapping:", err);
-                }
+          const matchedUser = allUsers.find((u: any) => u.id === identity.userId);
+          if (matchedUser) {
+            // Persist the mapping so next time we find it instantly via ID match
+            try {
+              if (!matchedUser.instagramRecipientId || matchedUser.instagramRecipientId !== senderId) {
+                console.log(`[Identity] 💾 Persisting new scope ID (${senderId}) for user ${matchedUser.email}`);
+                await authStorage.updateUser(matchedUser.id, {
+                  instagramRecipientId: senderId
+                });
+              }
+            } catch (err) {
+              console.error("[Identity] Failed to persist ID mapping:", err);
             }
+          }
         }
       }
-    
+
       // Process attachments (photos, videos, audio, gifs, etc.)
       let mediaUrl: string | null = null;
       let mediaType: string | null = null;
@@ -4122,6 +4136,7 @@ export async function registerRoutes(
           }
         }
       }
+
 
       console.log("Webhook DM processed successfully:", messageId, mediaType ? `(with ${mediaType})` : '');
     } catch (error) {
