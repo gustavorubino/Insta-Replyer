@@ -3810,10 +3810,17 @@ export async function registerRoutes(
           mediaType = 'gif';
         } else if (rawType === 'story_mention') {
           mediaType = 'story_mention';
-          // FIX: Story mentions often have the image in 'url' (temporary) or 'preview_url'
-          if (!payloadUrl && attachment.payload?.preview_url) {
-            payloadUrl = attachment.payload.preview_url;
-            console.log("Using preview_url for story_mention");
+          // ROBUST EXTRACT: media_url > url > thumbnail_url > preview_url
+          const p = attachment.payload || {};
+          // Note: payloadUrl is already initialized with p.url if it exists,
+          // but we want to strictly follow the precedence logic.
+          const extractedUrl = p.media_url || p.url || p.thumbnail_url || p.preview_url || null;
+
+          if (extractedUrl) {
+            payloadUrl = extractedUrl;
+            console.log(`[Story Mention] Extracted URL from priority list: ${payloadUrl.substring(0, 50)}...`);
+          } else {
+            console.log("[Story Mention] No image URL found in payload.");
           }
         } else if (rawType === 'sticker') {
           mediaType = 'sticker';
