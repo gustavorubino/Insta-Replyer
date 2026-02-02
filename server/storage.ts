@@ -122,6 +122,7 @@ export interface IStorage {
   addDatasetEntry(entry: InsertAiDatasetEntry): Promise<AiDatasetEntry>;
   updateDatasetEntry(id: number, userId: string, entry: Partial<InsertAiDatasetEntry>): Promise<AiDatasetEntry | undefined>;
   deleteDatasetEntry(id: number, userId: string): Promise<void>;
+  deleteDatasetEntriesByQuestions(questions: string[], userId: string): Promise<number>;
 
   // Instagram Profiles
   getInstagramProfiles(userId: string): Promise<InstagramProfile[]>;
@@ -951,6 +952,20 @@ async cleanupExpiredPendingWebhooks(): Promise<number> {
     await db
       .delete(aiDataset)
       .where(and(eq(aiDataset.id, id), eq(aiDataset.userId, userId)));
+  }
+
+  async deleteDatasetEntriesByQuestions(questions: string[], userId: string): Promise<number> {
+    if (questions.length === 0) return 0;
+
+    const result = await db
+      .delete(aiDataset)
+      .where(and(
+        eq(aiDataset.userId, userId),
+        inArray(aiDataset.question, questions)
+      ))
+      .returning({ id: aiDataset.id });
+
+    return result.length;
   }
 
   // Instagram Profiles
