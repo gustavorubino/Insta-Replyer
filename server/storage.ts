@@ -1021,8 +1021,9 @@ export class DatabaseStorage implements IStorage {
         .orderBy(manualQA.createdAt)
         .limit(toDelete);
 
-      for (const item of oldest) {
-        await db.delete(manualQA).where(eq(manualQA.id, item.id));
+      const idsToDelete = oldest.map((item) => item.id);
+      if (idsToDelete.length > 0) {
+        await db.delete(manualQA).where(inArray(manualQA.id, idsToDelete));
       }
     }
 
