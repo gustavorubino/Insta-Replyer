@@ -1,6 +1,6 @@
 import { users, type User, type UpsertUser } from "@shared/models/auth";
 import { db } from "../../db";
-import { eq } from "drizzle-orm";
+import { eq, inArray, isNotNull, and, sql, ne } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { encrypt, decrypt, isEncrypted } from "../../encryption";
 
@@ -65,6 +65,7 @@ export interface IAuthStorage {
   verifyPassword(email: string, password: string): Promise<User | null>;
   getAllUsers(): Promise<User[]>;
   deleteUser(id: string): Promise<boolean>;
+  syncInstagramIds(userIds: string[]): Promise<User[]>;
 }
 
 class AuthStorage implements IAuthStorage {
@@ -147,6 +148,28 @@ class AuthStorage implements IAuthStorage {
   async deleteUser(id: string): Promise<boolean> {
     const result = await db.delete(users).where(eq(users.id, id)).returning();
     return result.length > 0;
+  }
+
+  async syncInstagramIds(userIds: string[]): Promise<User[]> {
+    if (userIds.length === 0) return [];
+
+    const results = await db
+      .update(users)
+      .set({
+        instagramAccountId: users.instagramRecipientId,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          inArray(users.id, userIds),
+          isNotNull(users.instagramRecipientId),
+          ne(users.instagramRecipientId, ""),
+          sql`${users.instagramAccountId} IS DISTINCT FROM ${users.instagramRecipientId}`,
+        ),
+      )
+      .returning();
+
+    return results.map((user) => decryptUserFields(user));
   }
 }
 
