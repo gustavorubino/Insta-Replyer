@@ -122,6 +122,7 @@ export interface IStorage {
   addDatasetEntry(entry: InsertAiDatasetEntry): Promise<AiDatasetEntry>;
   updateDatasetEntry(id: number, userId: string, entry: Partial<InsertAiDatasetEntry>): Promise<AiDatasetEntry | undefined>;
   deleteDatasetEntry(id: number, userId: string): Promise<void>;
+  deleteDatasetEntriesByQuestions(questions: string[], userId: string): Promise<number>;
 
   // Instagram Profiles
   getInstagramProfiles(userId: string): Promise<InstagramProfile[]>;
@@ -612,25 +613,34 @@ export class DatabaseStorage implements IStorage {
   }
 
   async cleanupExpiredPendingWebhooks(): Promise<number> {
-    const allSettings = await db.select().from(settings);
-    const now = Date.now();
     const PENDING_WEBHOOK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
-    let cleanedCount = 0;
+async cleanupExpiredPendingWebhooks(): Promise<number> {
+    const PENDING_WEBHOOK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
+    const cutoffDate = new Date(Date.now() - PENDING_WEBHOOK_EXPIRY_MS);
+    const cutoffISO = cutoffDate.toISOString();
 
-    for (const setting of allSettings) {
-      if (setting.key.startsWith("pending_webhook_")) {
-        // Value is an ISO timestamp
-        const pendingTime = new Date(setting.value).getTime();
-        const elapsedMs = now - pendingTime;
+    const result = await db
+      .delete(settings)
+      .where(
+        and(
+          like(settings.key, "pending_webhook_%"),
+          sql`(
+          CASE
+            -- Verifica se parece uma data ISO (YYYY-MM-DD...)
+            WHEN ${settings.value} ~ '^\\d{4}-\\d{2}-\\d{2}T' THEN
+              ${settings.value} < ${cutoffISO}
+            -- Se NÃO for data (lixo), deleta também (segurança)
+            ELSE
+              TRUE
+          END
+        )`
+        )
+      )
+      .returning({ key: settings.key });
 
-        if (isNaN(pendingTime) || elapsedMs > PENDING_WEBHOOK_EXPIRY_MS) {
-          await db.delete(settings).where(eq(settings.key, setting.key));
-          cleanedCount++;
-        }
-      }
-    }
-
-    return cleanedCount;
+    return result.length;
+  }
+    return result.length;
   }
 
   async clearAllMessages(): Promise<{ aiResponses: number; messages: number }> {
@@ -944,6 +954,20 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(aiDataset.id, id), eq(aiDataset.userId, userId)));
   }
 
+  async deleteDatasetEntriesByQuestions(questions: string[], userId: string): Promise<number> {
+    if (questions.length === 0) return 0;
+
+    const result = await db
+      .delete(aiDataset)
+      .where(and(
+        eq(aiDataset.userId, userId),
+        inArray(aiDataset.question, questions)
+      ))
+      .returning({ id: aiDataset.id });
+
+    return result.length;
+  }
+
   // Instagram Profiles
   async getInstagramProfiles(userId: string): Promise<InstagramProfile[]> {
     return db
@@ -1021,8 +1045,11 @@ export class DatabaseStorage implements IStorage {
         .orderBy(manualQA.createdAt)
         .limit(toDelete);
 
-      for (const item of oldest) {
-        await db.delete(manualQA).where(eq(manualQA.id, item.id));
+const idsToDelete = oldest.map((item) => item.id);
+
+      if (idsToDelete.length > 0) {
+        await db.delete(manualQA).where(inArray(manualQA.id, idsToDelete));
+      }
       }
     }
 
@@ -1065,8 +1092,13 @@ export class DatabaseStorage implements IStorage {
         .orderBy(mediaLibrary.syncedAt)
         .limit(toDelete);
 
-      for (const item of oldest) {
-        await db.delete(mediaLibrary).where(eq(mediaLibrary.id, item.id));
+      if (oldest.length > 0) {
+        await db.delete(mediaLibrary).where(
+          inArray(
+            mediaLibrary.id,
+            oldest.map((item) => item.id)
+          )
+        );
       }
     }
     return created;
@@ -1128,8 +1160,13 @@ export class DatabaseStorage implements IStorage {
         .orderBy(interactionDialect.interactedAt)
         .limit(toDelete);
 
-      for (const item of oldest) {
-        await db.delete(interactionDialect).where(eq(interactionDialect.id, item.id));
+      if (oldest.length > 0) {
+        await db.delete(interactionDialect).where(
+          inArray(
+            interactionDialect.id,
+            oldest.map((item) => item.id)
+          )
+        );
       }
     }
 
