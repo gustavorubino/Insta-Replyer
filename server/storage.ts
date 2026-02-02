@@ -1045,9 +1045,8 @@ async cleanupExpiredPendingWebhooks(): Promise<number> {
         .orderBy(manualQA.createdAt)
         .limit(toDelete);
 
-// Versão corrigida e limpa para addManualQA
-      const idsToDelete = oldest.map((item) => item.id);
-      
+const idsToDelete = oldest.map((item) => item.id);
+
       if (idsToDelete.length > 0) {
         await db.delete(manualQA).where(inArray(manualQA.id, idsToDelete));
       }
