@@ -2164,8 +2164,7 @@ export async function registerRoutes(
 
                 // Batch fetch existing messages
                 const existingMessages = await storage.getMessagesByInstagramIds(idsToCheck, userId);
-
-                // ⚡ OPTIMIZATION: Use Map for O(1) object access instead of just ID checking
+// ⚡ OPTIMIZATION: Use Map for O(1) object access instead of just ID checking
                 const messageMap = new Map<string, schema.InstagramMessage>();
                 for (const msg of existingMessages) {
                   messageMap.set(msg.instagramId, msg);
@@ -2199,7 +2198,7 @@ export async function registerRoutes(
                         status: "pending",
                       });
 
-                      // Update local map with new message
+// Update local map with new message
                       parentMessage = newMessage;
                       messageMap.set(parentMessage.instagramId, parentMessage);
 
@@ -2244,7 +2243,7 @@ export async function registerRoutes(
 
                         // A. Store the reply as a Message entity (for context/history)
                         //    Check if reply already exists to avoid duplicates
-                        const replyExists = messageMap.has(reply.id);
+const replyExists = messageMap.has(reply.id);
 
                         if (!replyExists) {
                           console.log(`[SYNC] Storing reply from ${replyUsername}: "${reply.text}"`);
@@ -2264,20 +2263,19 @@ export async function registerRoutes(
                             parentCommentText: comment.text,
                             parentCommentUsername: comment.username || comment.from?.username || "instagram_user"
                           });
-                          // Add to map to prevent duplicates if duplicate ID in same batch
-                          messageMap.set(newReply.instagramId, newReply);
+// Add to map to prevent duplicates if duplicate ID in same batch
+                      messageMap.set(newReply.instagramId, newReply);
                         }
 
                         // B. If it's MY reply, update the parent status (ticket closing logic)
                         if (isMyReply) {
                           console.log(`[SYNC] Found OWNER reply: "${reply.text}"`);
-
-                          // ⚡ OPTIMIZATION: Use parentMessage from memory instead of DB query
+// ⚡ OPTIMIZATION: Use parentMessage from memory instead of DB query
                           if (parentMessage && parentMessage.status !== "replied") {
                             await storage.updateMessage(parentMessage.id, userId, {
                               status: "replied"
                             });
-                            // Update in-memory status to avoid redundant DB calls for subsequent replies
+// Update in-memory status to avoid redundant DB calls for subsequent replies
                             parentMessage.status = "replied";
                           }
                         }
