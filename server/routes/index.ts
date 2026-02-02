@@ -13,7 +13,7 @@ import { downloadAndStoreMedia } from "../utils/media-storage";
 import { decrypt, isEncrypted, encrypt } from "../encryption";
 import { refreshInstagramToken } from "../utils/token-refresh";
 import { db } from "../db";
-import { sql, eq } from "drizzle-orm";
+import { sql, eq, inArray } from "drizzle-orm";
 import { extractFromUrl, extractFromPdf, extractFromText } from "../knowledge-extractor";
 import { ObjectStorageService, registerObjectStorageRoutes } from "../replit_integrations/object_storage";
 import { getOrCreateTranscription } from "../transcription";
@@ -804,12 +804,11 @@ export async function registerRoutes(
       const messageIds = userMessages.map(m => m.id);
       let deletedResponses = 0;
       if (messageIds.length > 0) {
-        for (const msgId of messageIds) {
-          const deleted = await db.delete(aiResponses)
-            .where(eq(aiResponses.messageId, msgId))
-            .returning();
-          deletedResponses += deleted.length;
-        }
+        // Optimized: Batch delete using IN clause instead of loop (N+1 fix)
+        const deleted = await db.delete(aiResponses)
+          .where(inArray(aiResponses.messageId, messageIds))
+          .returning();
+        deletedResponses = deleted.length;
       }
       console.log(`[PURGE] ${deletedResponses} respostas de IA removidas`);
 
