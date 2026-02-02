@@ -3448,7 +3448,10 @@ export async function registerRoutes(
             };
 
             if (result.username) {
+                console.log(`[Profile Fetch] ✅ Username encontrado: @${result.username}`);
                 return result;
+            } else {
+                console.log(`[Profile Fetch] ⚠️ Dados encontrados mas SEM username.`);
             }
           } else {
             console.log(`[Profile Fetch] ${endpoint.name} failed:`, data?.error?.message || "Unknown error");
@@ -3825,6 +3828,21 @@ export async function registerRoutes(
                 if (matchByUsername) {
                     console.log(`[DM-WEBHOOK] ✅ Match cross-account por username! ID ${senderId} = @${userInfo.username} = User ${matchByUsername.id}`);
                     knownInstagramUser = matchByUsername;
+                    
+                    // AUTO-CORREÇÃO: Salvar esse novo ID no usuário para facilitar matches futuros
+                    // O senderId (109...) é o ID que este receptor vê para este usuário.
+                    // Podemos salvar isso em um campo auxiliar ou atualizar se for seguro.
+                    try {
+                        // Se o usuário não tiver instagramRecipientId definido ou for diferente
+                        if (!matchByUsername.instagramRecipientId || matchByUsername.instagramRecipientId !== senderId) {
+                             console.log(`[DM-WEBHOOK] 💾 Salvando novo ID de escopo (${senderId}) para o usuário ${matchByUsername.instagramUsername}`);
+                             await authStorage.updateUser(matchByUsername.id, {
+                                 instagramRecipientId: senderId
+                             });
+                        }
+                    } catch (saveErr) {
+                        console.error("[DM-WEBHOOK] Erro ao salvar ID cross-account:", saveErr);
+                    }
                 }
             }
          } catch (err) {
