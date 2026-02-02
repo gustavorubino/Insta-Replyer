@@ -22,24 +22,24 @@ export interface ResolvedIdentity {
  * 5. If API fails, use robust fallbacks (UI Avatars).
  */
 export async function resolveInstagramSender(
-  senderId: string, 
-  recipientAccessToken: string, 
+  senderId: string,
+  recipientAccessToken: string,
   recipientInstagramId?: string
 ): Promise<ResolvedIdentity> {
-  
+
   console.log(`[Identity] Resolving sender ${senderId}...`);
-  
+
   let apiData: any = { name: null, username: null, avatar: null };
   let dbMatch: User | undefined;
 
   // 0. First, try to find sender in our database by senderId (ASID match)
   try {
     const allUsers = await authStorage.getAllUsers();
-    dbMatch = allUsers.find(u => 
-      u.instagramAccountId === senderId || 
+    dbMatch = allUsers.find(u =>
+      u.instagramAccountId === senderId ||
       u.instagramRecipientId === senderId
     );
-    
+
     if (dbMatch) {
       console.log(`[Identity] ✅ Early DB Match by ID: User ${dbMatch.id} (@${dbMatch.instagramUsername || 'no-username'})`);
       // If we have a match with complete data, we can skip API call
@@ -72,11 +72,11 @@ export async function resolveInstagramSender(
     try {
       const allUsers = await authStorage.getAllUsers();
       // Case-insensitive match
-      dbMatch = allUsers.find(u => 
-        u.instagramUsername && 
+      dbMatch = allUsers.find(u =>
+        u.instagramUsername &&
         u.instagramUsername.toLowerCase() === apiData.username.toLowerCase()
       );
-      
+
       if (dbMatch) {
         console.log(`[Identity] ✅ DB Match found: User ${dbMatch.id} (@${dbMatch.instagramUsername})`);
       }
@@ -87,7 +87,7 @@ export async function resolveInstagramSender(
 
   // 3. Construct Final Identity
   const finalUsername = dbMatch?.instagramUsername || apiData.username || senderId;
-  
+
   // Name Priority: DB Name > API Name > Username > "Instagram User"
   let finalName = "Instagram User";
   if (dbMatch?.firstName || dbMatch?.lastName) {
@@ -100,7 +100,7 @@ export async function resolveInstagramSender(
 
   // Avatar Priority: DB Avatar > API Avatar > Fallback Generator
   let finalAvatar = dbMatch?.instagramProfilePic || dbMatch?.profileImageUrl || apiData.avatar;
-  
+
   if (!finalAvatar) {
     // Generate robust fallback
     finalAvatar = generateFallbackAvatar(senderId, finalUsername);
@@ -125,6 +125,10 @@ async function fetchFromApi(userId: string, token: string, userIgId?: string) {
       url: `https://graph.instagram.com/v21.0/${userId}?fields=id,username,name,profile_picture_url&access_token=${encodeURIComponent(token)}`
     },
     {
+      name: "IG Graph (Reduced)",
+      url: `https://graph.instagram.com/v21.0/${userId}?fields=id,username,name&access_token=${encodeURIComponent(token)}`
+    },
+    {
       name: "FB Graph (Profile)",
       url: `https://graph.facebook.com/v21.0/${userId}?fields=id,name,username,profile_pic&access_token=${encodeURIComponent(token)}`
     }
@@ -136,10 +140,10 @@ async function fetchFromApi(userId: string, token: string, userIgId?: string) {
       console.log(`[Identity API] Trying ${ep.name}: ${ep.url.substring(0, 100)}...`);
       const res = await fetch(ep.url);
       const data = await res.json();
-      
+
       console.log(`[Identity API] ${ep.name} Response Status: ${res.status}`);
       console.log(`[Identity API] ${ep.name} Response Data:`, JSON.stringify(data, null, 2));
-      
+
       if (res.ok && !data.error && (data.username || data.name)) {
         console.log(`[Identity API] ✅ ${ep.name} succeeded!`);
         return {
@@ -151,8 +155,8 @@ async function fetchFromApi(userId: string, token: string, userIgId?: string) {
       } else if (data.error) {
         console.log(`[Identity API] ❌ ${ep.name} error: ${data.error.message || JSON.stringify(data.error)}`);
       }
-    } catch (e) { 
-      console.error(`[Identity API] ${ep.name} exception:`, e); 
+    } catch (e) {
+      console.error(`[Identity API] ${ep.name} exception:`, e);
     }
   }
 
