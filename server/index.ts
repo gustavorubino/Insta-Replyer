@@ -133,6 +133,11 @@ app.use((req, res, next) => {
     throw err;
   });
 
+  // HEALTHCHECK (Must be before Vite/Static)
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ ok: true, uptime: process.uptime() });
+  });
+
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
@@ -145,10 +150,10 @@ app.use((req, res, next) => {
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
+
+  // Hardened Server Startup
+  const server = httpServer.listen(
     {
       port,
       host: "0.0.0.0",
@@ -164,4 +169,62 @@ app.use((req, res, next) => {
       startTokenRefreshJob();
     },
   );
+
+  let shuttingDown = false;
+
+  async function shutdown(signal: string, err?: unknown) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
+    log(`Received ${signal}. Starting graceful shutdown...`);
+    if (err) console.error("Shutdown reason:", err);
+
+    const forceTimeout = setTimeout(() => {
+      console.error("Shutdown timeout. Forcing exit.");
+      process.exit(1);
+    }, 10_000);
+
+    try {
+      // 1) parar de aceitar conexões novas e esperar fechar
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      log("HTTP server closed.");
+
+      // 2) fechar pool do banco
+      try {
+        const { pool } = await import("./db");
+        await pool.end();
+        log("Database pool closed.");
+      } catch (dbErr) {
+        console.error("Error closing DB pool:", dbErr);
+      }
+
+      clearTimeout(forceTimeout);
+      log("Goodbye!");
+      process.exit(0);
+    } catch (e) {
+      clearTimeout(forceTimeout);
+      console.error("Error during shutdown:", e);
+      process.exit(1);
+    }
+  }
+
+  // EADDRINUSE Handler + outros erros
+  server.on("error", (err: any) => {
+    if (err?.code === "EADDRINUSE") {
+      log(`❌ Port ${port} is already in use.`);
+      log(`Try finding the process: ps aux | grep "tsx"`);
+      log(`Then kill it: kill <PID>`);
+      process.exit(1);
+    }
+    shutdown("server_error", err);
+  });
+
+  // Sinais do container
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+
+  // Recomendado (evita crash silencioso)
+  process.on("unhandledRejection", (reason) => shutdown("unhandledRejection", reason));
+  process.on("uncaughtException", (error) => shutdown("uncaughtException", error));
+
 })();
