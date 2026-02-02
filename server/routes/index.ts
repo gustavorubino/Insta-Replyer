@@ -2165,17 +2165,22 @@ export async function registerRoutes(
 
                 // Batch fetch existing messages
                 const existingMessages = await storage.getMessagesByInstagramIds(idsToCheck, userId);
-                const existingIdsSet = new Set(existingMessages.map(m => m.instagramId));
+
+                // ⚡ OPTIMIZATION: Use Map for O(1) object access instead of just ID checking
+                const messageMap = new Map<string, schema.InstagramMessage>();
+                for (const msg of existingMessages) {
+                  messageMap.set(msg.instagramId, msg);
+                }
 
                 for (const comment of comments) {
                   try {
-                    const messageExists = existingIdsSet.has(comment.id);
+                    let parentMessage = messageMap.get(comment.id);
 
                     const postCaption = post.caption || null;
                     const postThumbnailUrl = post.thumbnail_url || post.media_url || null;
 
                     // 1. Process the main comment (Top Level)
-                    if (!messageExists) {
+                    if (!parentMessage) {
                       const username = comment.username || comment.from?.username || "instagram_user";
                       const displayName = comment.from?.name || comment.username || "Usuário do Instagram";
 
@@ -2194,6 +2199,10 @@ export async function registerRoutes(
                         postThumbnailUrl,
                         status: "pending",
                       });
+
+                      // Update local map with new message
+                      parentMessage = newMessage;
+                      messageMap.set(parentMessage.instagramId, parentMessage);
 
                       // AI Response Logic for new messages
                       try {
@@ -2236,11 +2245,11 @@ export async function registerRoutes(
 
                         // A. Store the reply as a Message entity (for context/history)
                         //    Check if reply already exists to avoid duplicates
-                        const replyExists = existingIdsSet.has(reply.id);
+                        const replyExists = messageMap.has(reply.id);
 
                         if (!replyExists) {
                           console.log(`[SYNC] Storing reply from ${replyUsername}: "${reply.text}"`);
-                          await storage.createMessage({
+                          const newReply = await storage.createMessage({
                             userId,
                             instagramId: reply.id,
                             type: "comment", // It's still a comment
@@ -2256,16 +2265,21 @@ export async function registerRoutes(
                             parentCommentText: comment.text,
                             parentCommentUsername: comment.username || comment.from?.username || "instagram_user"
                           });
+                          // Add to map to prevent duplicates if duplicate ID in same batch
+                          messageMap.set(newReply.instagramId, newReply);
                         }
 
                         // B. If it's MY reply, update the parent status (ticket closing logic)
                         if (isMyReply) {
                           console.log(`[SYNC] Found OWNER reply: "${reply.text}"`);
-                          const parentMessage = await storage.getMessageByInstagramId(comment.id, userId);
+
+                          // ⚡ OPTIMIZATION: Use parentMessage from memory instead of DB query
                           if (parentMessage && parentMessage.status !== "replied") {
                             await storage.updateMessage(parentMessage.id, userId, {
                               status: "replied"
                             });
+                            // Update in-memory status to avoid redundant DB calls for subsequent replies
+                            parentMessage.status = "replied";
                           }
                         }
                       }
