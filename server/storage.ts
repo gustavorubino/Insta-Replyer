@@ -614,8 +614,6 @@ export class DatabaseStorage implements IStorage {
 
   async cleanupExpiredPendingWebhooks(): Promise<number> {
     const PENDING_WEBHOOK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
-async cleanupExpiredPendingWebhooks(): Promise<number> {
-    const PENDING_WEBHOOK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
     const cutoffDate = new Date(Date.now() - PENDING_WEBHOOK_EXPIRY_MS);
     const cutoffISO = cutoffDate.toISOString();
 
@@ -638,8 +636,6 @@ async cleanupExpiredPendingWebhooks(): Promise<number> {
       )
       .returning({ key: settings.key });
 
-    return result.length;
-  }
     return result.length;
   }
 
@@ -1045,13 +1041,13 @@ async cleanupExpiredPendingWebhooks(): Promise<number> {
         .orderBy(manualQA.createdAt)
         .limit(toDelete);
 
-const idsToDelete = oldest.map((item) => item.id);
+      const idsToDelete = oldest.map((item) => item.id);
 
       if (idsToDelete.length > 0) {
         await db.delete(manualQA).where(inArray(manualQA.id, idsToDelete));
       }
-      }
     }
+
 
     const [created] = await db.insert(manualQA).values(entry).returning();
     return created;
