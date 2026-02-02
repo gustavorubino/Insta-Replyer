@@ -40,7 +40,7 @@ import {
   type InsertUserGuideline,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql, ne, or, isNull, inArray } from "drizzle-orm";
+import { eq, desc, and, sql, ne, or, isNull, inArray, like } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -579,23 +579,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async cleanupExpiredOAuthStates(): Promise<number> {
-    const allSettings = await db.select().from(settings);
     const now = Date.now();
-    let cleanedCount = 0;
 
-    for (const setting of allSettings) {
-      if (setting.key.startsWith("oauth_state_")) {
-        const [, expiresAtStr] = setting.value.split(":");
-        const expiresAt = parseInt(expiresAtStr);
+    // Optimize: Delete in one query using Postgres split_part and casting
+    // Format: "userId:timestamp"
+    // We check if:
+    // 1. Key starts with "oauth_state_"
+    // 2. AND (
+    //      Value format is invalid (no timestamp part or not a number)
+    //      OR
+    //      Timestamp <= now
+    //    )
 
-        if (isNaN(expiresAt) || now >= expiresAt) {
-          await db.delete(settings).where(eq(settings.key, setting.key));
-          cleanedCount++;
-        }
-      }
-    }
+    const result = await db
+      .delete(settings)
+      .where(
+        and(
+          like(settings.key, "oauth_state_%"),
+          sql`(
+          CASE
+            WHEN split_part(${settings.value}, ':', 2) ~ '^[0-9]+$' THEN
+              CAST(split_part(${settings.value}, ':', 2) AS BIGINT) <= ${now}
+            ELSE
+              TRUE
+          END
+        )`
+        )
+      )
+      .returning({ key: settings.key });
 
-    return cleanedCount;
+    return result.length;
   }
 
   async cleanupExpiredPendingWebhooks(): Promise<number> {
