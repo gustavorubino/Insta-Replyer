@@ -4153,29 +4153,21 @@ export async function registerRoutes(
       const allUsers = await authStorage.getAllUsers?.() || [];
       const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccessToken);
 
-      const results: any[] = [];
+      // ⚡ OPTIMIZATION: Use single query instead of loop
+      const userIds = usersWithInstagram.map((u: any) => u.id);
+      const updatedUsers = await authStorage.syncInstagramIds(userIds);
 
-      for (const user of usersWithInstagram) {
-        if (user.instagramRecipientId && user.instagramAccountId !== user.instagramRecipientId) {
-          try {
-            await authStorage.updateUser(user.id, {
-              instagramAccountId: user.instagramRecipientId
-            });
-            results.push({
-              userId: user.id,
-              status: "synced",
-              oldAccountId: user.instagramAccountId,
-              newAccountId: user.instagramRecipientId
-            });
-          } catch (e) {
-            results.push({
-              userId: user.id,
-              status: "error",
-              error: String(e)
-            });
-          }
-        }
-      }
+      const results = updatedUsers.map((updatedUser) => {
+        const originalUser = usersWithInstagram.find(
+          (u: any) => u.id === updatedUser.id,
+        );
+        return {
+          userId: updatedUser.id,
+          status: "synced",
+          oldAccountId: originalUser?.instagramAccountId,
+          newAccountId: updatedUser.instagramAccountId,
+        };
+      });
 
       res.json({
         success: true,
