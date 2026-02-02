@@ -13,7 +13,7 @@ import { downloadAndStoreMedia } from "../utils/media-storage";
 import { decrypt, isEncrypted, encrypt } from "../encryption";
 import { refreshInstagramToken } from "../utils/token-refresh";
 import { db } from "../db";
-import { sql, eq } from "drizzle-orm";
+import { sql, eq, inArray } from "drizzle-orm";
 import { extractFromUrl, extractFromPdf, extractFromText } from "../knowledge-extractor";
 import { ObjectStorageService, registerObjectStorageRoutes } from "../replit_integrations/object_storage";
 import { getOrCreateTranscription } from "../transcription";
@@ -804,12 +804,11 @@ export async function registerRoutes(
       const messageIds = userMessages.map(m => m.id);
       let deletedResponses = 0;
       if (messageIds.length > 0) {
-        for (const msgId of messageIds) {
-          const deleted = await db.delete(aiResponses)
-            .where(eq(aiResponses.messageId, msgId))
-            .returning();
-          deletedResponses += deleted.length;
-        }
+        // Optimized: Batch delete using IN clause instead of loop (N+1 fix)
+        const deleted = await db.delete(aiResponses)
+          .where(inArray(aiResponses.messageId, messageIds))
+          .returning();
+        deletedResponses = deleted.length;
       }
       console.log(`[PURGE] ${deletedResponses} respostas de IA removidas`);
 
@@ -2165,19 +2164,21 @@ export async function registerRoutes(
 
                 // Batch fetch existing messages
                 const existingMessages = await storage.getMessagesByInstagramIds(idsToCheck, userId);
-                // ⚡ OPTIMIZATION: Use Map for O(1) object lookup instead of Set for ID check
-                const existingMessagesMap = new Map(existingMessages.map(m => [m.instagramId, m]));
+// ⚡ OPTIMIZATION: Use Map for O(1) object access instead of just ID checking
+                const messageMap = new Map<string, schema.InstagramMessage>();
+                for (const msg of existingMessages) {
+                  messageMap.set(msg.instagramId, msg);
+                }
 
                 for (const comment of comments) {
                   try {
-                    const existingMessage = existingMessagesMap.get(comment.id);
-                    const messageExists = !!existingMessage;
+                    let parentMessage = messageMap.get(comment.id);
 
                     const postCaption = post.caption || null;
                     const postThumbnailUrl = post.thumbnail_url || post.media_url || null;
 
                     // 1. Process the main comment (Top Level)
-                    if (!messageExists) {
+                    if (!parentMessage) {
                       const username = comment.username || comment.from?.username || "instagram_user";
                       const displayName = comment.from?.name || comment.username || "Usuário do Instagram";
 
@@ -2197,8 +2198,9 @@ export async function registerRoutes(
                         status: "pending",
                       });
 
-                      // Add to map for subsequent lookups in this loop (e.g. replies)
-                      existingMessagesMap.set(comment.id, newMessage);
+// Update local map with new message
+                      parentMessage = newMessage;
+                      messageMap.set(parentMessage.instagramId, parentMessage);
 
                       // AI Response Logic for new messages
                       try {
@@ -2241,7 +2243,7 @@ export async function registerRoutes(
 
                         // A. Store the reply as a Message entity (for context/history)
                         //    Check if reply already exists to avoid duplicates
-                        const replyExists = existingMessagesMap.has(reply.id);
+const replyExists = messageMap.has(reply.id);
 
                         if (!replyExists) {
                           console.log(`[SYNC] Storing reply from ${replyUsername}: "${reply.text}"`);
@@ -2261,19 +2263,19 @@ export async function registerRoutes(
                             parentCommentText: comment.text,
                             parentCommentUsername: comment.username || comment.from?.username || "instagram_user"
                           });
-                          existingMessagesMap.set(reply.id, newReply);
+// Add to map to prevent duplicates if duplicate ID in same batch
+                      messageMap.set(newReply.instagramId, newReply);
                         }
 
                         // B. If it's MY reply, update the parent status (ticket closing logic)
                         if (isMyReply) {
                           console.log(`[SYNC] Found OWNER reply: "${reply.text}"`);
-                          // ⚡ OPTIMIZATION: Use in-memory map lookup instead of DB query
-                          const parentMessage = existingMessagesMap.get(comment.id);
+// ⚡ OPTIMIZATION: Use parentMessage from memory instead of DB query
                           if (parentMessage && parentMessage.status !== "replied") {
                             await storage.updateMessage(parentMessage.id, userId, {
                               status: "replied"
                             });
-                            // Update in-memory state to prevent redundant updates for other replies
+// Update in-memory status to avoid redundant DB calls for subsequent replies
                             parentMessage.status = "replied";
                           }
                         }
@@ -3819,10 +3821,17 @@ export async function registerRoutes(
           mediaType = 'gif';
         } else if (rawType === 'story_mention') {
           mediaType = 'story_mention';
-          // FIX: Story mentions often have the image in 'url' (temporary) or 'preview_url'
-          if (!payloadUrl && attachment.payload?.preview_url) {
-            payloadUrl = attachment.payload.preview_url;
-            console.log("Using preview_url for story_mention");
+          // ROBUST EXTRACT: media_url > url > thumbnail_url > preview_url
+          const p = attachment.payload || {};
+          // Note: payloadUrl is already initialized with p.url if it exists,
+          // but we want to strictly follow the precedence logic.
+          const extractedUrl = p.media_url || p.url || p.thumbnail_url || p.preview_url || null;
+
+          if (extractedUrl) {
+            payloadUrl = extractedUrl;
+            console.log(`[Story Mention] Extracted URL from priority list: ${payloadUrl.substring(0, 50)}...`);
+          } else {
+            console.log("[Story Mention] No image URL found in payload.");
           }
         } else if (rawType === 'sticker') {
           mediaType = 'sticker';
@@ -4162,29 +4171,21 @@ export async function registerRoutes(
       const allUsers = await authStorage.getAllUsers?.() || [];
       const usersWithInstagram = allUsers.filter((u: any) => u.instagramAccessToken);
 
-      const results: any[] = [];
+      // ⚡ OPTIMIZATION: Use single query instead of loop
+      const userIds = usersWithInstagram.map((u: any) => u.id);
+      const updatedUsers = await authStorage.syncInstagramIds(userIds);
 
-      for (const user of usersWithInstagram) {
-        if (user.instagramRecipientId && user.instagramAccountId !== user.instagramRecipientId) {
-          try {
-            await authStorage.updateUser(user.id, {
-              instagramAccountId: user.instagramRecipientId
-            });
-            results.push({
-              userId: user.id,
-              status: "synced",
-              oldAccountId: user.instagramAccountId,
-              newAccountId: user.instagramRecipientId
-            });
-          } catch (e) {
-            results.push({
-              userId: user.id,
-              status: "error",
-              error: String(e)
-            });
-          }
-        }
-      }
+      const results = updatedUsers.map((updatedUser) => {
+        const originalUser = usersWithInstagram.find(
+          (u: any) => u.id === updatedUser.id,
+        );
+        return {
+          userId: updatedUser.id,
+          status: "synced",
+          oldAccountId: originalUser?.instagramAccountId,
+          newAccountId: updatedUser.instagramAccountId,
+        };
+      });
 
       res.json({
         success: true,
@@ -4867,15 +4868,7 @@ export async function registerRoutes(
         "Qual sua opinião sobre isso?"
       ];
 
-      const dataset = await storage.getDataset(userId);
-      let deletedCount = 0;
-
-      for (const entry of dataset) {
-        if (genericQuestions.includes(entry.question)) {
-          await storage.deleteDatasetEntry(entry.id, userId);
-          deletedCount++;
-        }
-      }
+      const deletedCount = await storage.deleteDatasetEntriesByQuestions(genericQuestions, userId);
 
       console.log(`[Dataset Cleanup] ✅ Removidos ${deletedCount} registros genéricos para userId: ${userId}`);
 
