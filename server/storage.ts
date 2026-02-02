@@ -613,18 +613,32 @@ export class DatabaseStorage implements IStorage {
 
   async cleanupExpiredPendingWebhooks(): Promise<number> {
     const PENDING_WEBHOOK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
-    const cutoff = new Date(Date.now() - PENDING_WEBHOOK_EXPIRY_MS).toISOString();
+async cleanupExpiredPendingWebhooks(): Promise<number> {
+    const PENDING_WEBHOOK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
+    const cutoffDate = new Date(Date.now() - PENDING_WEBHOOK_EXPIRY_MS);
+    const cutoffISO = cutoffDate.toISOString();
 
     const result = await db
       .delete(settings)
       .where(
         and(
           like(settings.key, "pending_webhook_%"),
-          sql`${settings.value} < ${cutoff}`
+          sql`(
+          CASE
+            -- Verifica se parece uma data ISO (YYYY-MM-DD...)
+            WHEN ${settings.value} ~ '^\\d{4}-\\d{2}-\\d{2}T' THEN
+              ${settings.value} < ${cutoffISO}
+            -- Se NÃO for data (lixo), deleta também (segurança)
+            ELSE
+              TRUE
+          END
+        )`
         )
       )
       .returning({ key: settings.key });
 
+    return result.length;
+  }
     return result.length;
   }
 
