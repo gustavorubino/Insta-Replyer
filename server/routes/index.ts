@@ -3426,7 +3426,9 @@ export async function registerRoutes(
 
   async function processWebhookMessage(messageData: any, entryId?: string) {
     try {
-      console.log("Processing webhook DM:", JSON.stringify(messageData));
+      console.log(`[DM-WEBHOOK] START PROCESSING`);
+      console.log(`[DM-WEBHOOK] Payload Sender (Who sent it): ${messageData.sender?.id}`);
+      console.log(`[DM-WEBHOOK] Payload Recipient (Who received it): ${messageData.recipient?.id}`);
 
       let senderFollowersCount: number | undefined;
       const senderId = messageData.sender?.id;
@@ -3722,237 +3724,50 @@ export async function registerRoutes(
       let senderUsername = senderId || "unknown";
       let senderAvatar: string | undefined = undefined;
 
-      // OPTIMIZATION: Check if senderId matches any known user's Instagram account
-      // This handles cross-account lookups where API calls fail due to permissions
-      // Exclude the current instagramUser (recipient) to avoid self-matching
-      let knownInstagramUser = allUsers.find((u: any) =>
-        u.id !== instagramUser.id && // Don't match the recipient
-        (u.instagramAccountId === senderId || u.instagramRecipientId === senderId)
+      // =================================================================================
+      // SENDER IDENTITY RESOLUTION (CORRECTED)
+      // =================================================================================
+
+      console.log(`[DM-WEBHOOK] Resolving Sender Identity for: ${senderId}`);
+      console.log(`[DM-WEBHOOK] Using Recipient Token (User ${instagramUser.id}) for resolution`);
+
+      // Use the robust utility function which checks DB first, then APIs, then Fallback
+      // We pass the RECIPIENT'S token because we are looking up the sender from the recipient's perspective
+      const userInstagramId = instagramUser.instagramAccountId || undefined;
+
+      const identity = await resolveInstagramSender(
+        senderId,
+        instagramUser.instagramAccessToken || "",
+        userInstagramId
       );
 
-      // 🔧 MELHORIA: Tentar match também por Username via API se o ID não bater (IDs diferentes entre escopos)
-      if (!knownInstagramUser && instagramUser.instagramAccessToken) {
-        try {
-          // Se ainda não sabemos quem é, vamos tentar pegar o username na API
-          const encToken = instagramUser.instagramAccessToken;
-          const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
-          const userInstagramId = instagramUser.instagramAccountId || undefined;
+      senderName = identity.name;
+      senderUsername = identity.username;
+      senderAvatar = identity.avatar;
+      senderFollowersCount = identity.followersCount;
 
-          // Usamos a função auxiliar existente para pegar info do remetente
-          const userInfo = await fetchInstagramUserInfo(senderId, accessToken, userInstagramId);
+      console.log(`[DM-WEBHOOK] 👤 Final Resolved Identity:`);
+      console.log(`    - Name: ${senderName}`);
+      console.log(`    - Username: ${senderUsername}`);
+      console.log(`    - Avatar: ${senderAvatar ? 'Found' : 'Missing'}`);
+      console.log(`    - Is Known User: ${identity.isKnownUser}`);
 
-          if (userInfo && userInfo.username && userInfo.username !== senderId) {
-            // Agora buscamos no banco alguém com esse username
-            const matchByUsername = allUsers.find((u: any) =>
-              u.id !== instagramUser.id &&
-              u.instagramUsername &&
-              u.instagramUsername.toLowerCase() === userInfo.username.toLowerCase()
-            );
+      // If the sender is actually another registered user (Cross-Account Match)
+      if (identity.isKnownUser && identity.userId) {
+        const matchedUser = allUsers.find((u: any) => u.id === identity.userId);
+        if (matchedUser) {
+          console.log(`[DM-WEBHOOK] 🔗 Sender identified as Registered User ${matchedUser.id}`);
 
-            if (matchByUsername) {
-              console.log(`[DM-WEBHOOK] ✅ Match cross-account por username! ID ${senderId} = @${userInfo.username} = User ${matchByUsername.id}`);
-              knownInstagramUser = matchByUsername;
-
-              // Opcional: Salvar esse ID alternativo no futuro se tivermos onde guardar
+          // Persist the ID mapping for future optimization
+          try {
+            if (!matchedUser.instagramRecipientId || matchedUser.instagramRecipientId !== senderId) {
+              console.log(`[DM-WEBHOOK] 💾 Persisting new scope ID (${senderId}) for user ${matchedUser.email}`);
+              await authStorage.updateUser(matchedUser.id, {
+                instagramRecipientId: senderId
+              });
             }
-          }
-        } catch (err) {
-          console.log("[DM-WEBHOOK] Falha ao tentar match por username:", err);
-        }
-      }
-
-      // 🔧 MELHORIA: Tentar match também por Username via API se o ID não bater (IDs diferentes entre escopos)
-      if (!knownInstagramUser && instagramUser.instagramAccessToken) {
-        try {
-          // Se ainda não sabemos quem é, vamos tentar pegar o username na API
-          const encToken = instagramUser.instagramAccessToken;
-          const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
-          const userInstagramId = instagramUser.instagramAccountId || undefined;
-
-          // Usamos a função auxiliar existente para pegar info do remetente
-          const userInfo = await fetchInstagramUserInfo(senderId, accessToken, userInstagramId);
-
-          if (userInfo && userInfo.username && userInfo.username !== senderId) {
-            // Agora buscamos no banco alguém com esse username
-            const matchByUsername = allUsers.find((u: any) =>
-              u.id !== instagramUser.id &&
-              u.instagramUsername &&
-              u.instagramUsername.toLowerCase() === userInfo.username.toLowerCase()
-            );
-
-            if (matchByUsername) {
-              console.log(`[DM-WEBHOOK] ✅ Match cross-account por username! ID ${senderId} = @${userInfo.username} = User ${matchByUsername.id}`);
-              knownInstagramUser = matchByUsername;
-
-              // AUTO-CORREÇÃO: Salvar esse novo ID no usuário para facilitar matches futuros
-              // O senderId (109...) é o ID que este receptor vê para este usuário.
-              // Podemos salvar isso em um campo auxiliar ou atualizar se for seguro.
-              try {
-                // Se o usuário não tiver instagramRecipientId definido ou for diferente
-                if (!matchByUsername.instagramRecipientId || matchByUsername.instagramRecipientId !== senderId) {
-                  console.log(`[DM-WEBHOOK] 💾 Salvando novo ID de escopo (${senderId}) para o usuário ${matchByUsername.instagramUsername}`);
-                  await authStorage.updateUser(matchByUsername.id, {
-                    instagramRecipientId: senderId
-                  });
-                }
-              } catch (saveErr) {
-                console.error("[DM-WEBHOOK] Erro ao salvar ID cross-account:", saveErr);
-              }
-            }
-          }
-        } catch (err) {
-          console.log("[DM-WEBHOOK] Falha ao tentar match por username:", err);
-        }
-      }
-
-      // Use cached data only if we have usable username info
-      if (knownInstagramUser && knownInstagramUser.instagramUsername) {
-        console.log(`Sender ${senderId} matched known user: ${knownInstagramUser.email}`);
-        senderName = knownInstagramUser.firstName || knownInstagramUser.instagramUsername || senderId;
-        senderUsername = knownInstagramUser.instagramUsername;
-        // Only use cached avatar if available; otherwise will try API fetch below
-        if (knownInstagramUser.instagramProfilePic || knownInstagramUser.profileImageUrl) {
-          senderAvatar = knownInstagramUser.instagramProfilePic || knownInstagramUser.profileImageUrl || undefined;
-        }
-        console.log(`Using cached profile data: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}`);
-
-        // If we don't have a cached avatar, try to fetch it using the SENDER's own token (not recipient's)
-        // This is more reliable for cross-account lookups since each user can access their own profile
-        if (!senderAvatar) {
-          // First, try using the sender's own token if available (most reliable)
-          if (knownInstagramUser.instagramAccessToken) {
-            try {
-              // CRITICAL: Decrypt the token before using in API calls
-              const encSenderToken = knownInstagramUser.instagramAccessToken;
-              const senderToken = isEncrypted(encSenderToken) ? decrypt(encSenderToken) : encSenderToken;
-              console.log(`Using sender's own token (decrypted: ${isEncrypted(encSenderToken)}) to fetch profile picture...`);
-
-              // Use Facebook Graph API for business accounts
-              const fbProfileUrl = `https://graph.facebook.com/v21.0/${senderId}?fields=profile_picture_url&access_token=${senderToken}`;
-              const profileRes = await fetch(fbProfileUrl);
-              const profileData = await profileRes.json();
-              if (profileData.profile_picture_url) {
-                senderAvatar = profileData.profile_picture_url;
-                console.log(`Got profile picture using sender's own token (Facebook API)`);
-
-                // Update the cache for future use
-                try {
-                  await authStorage.updateUser(knownInstagramUser.id, {
-                    instagramProfilePic: profileData.profile_picture_url
-                  });
-                  console.log(`Updated instagramProfilePic cache for user ${knownInstagramUser.id}`);
-                } catch (cacheErr) {
-                  console.log(`Could not update profile pic cache:`, cacheErr);
-                }
-              } else {
-                // Try Instagram API as fallback
-                const igProfileUrl = `https://graph.instagram.com/me?fields=profile_picture_url&access_token=${senderToken}`;
-                const igRes = await fetch(igProfileUrl);
-                const igData = await igRes.json();
-                if (igData.profile_picture_url) {
-                  senderAvatar = igData.profile_picture_url;
-                  console.log(`Got profile picture using sender's own token (Instagram API)`);
-
-                  try {
-                    await authStorage.updateUser(knownInstagramUser.id, {
-                      instagramProfilePic: igData.profile_picture_url
-                    });
-                    console.log(`Updated instagramProfilePic cache for user ${knownInstagramUser.id}`);
-                  } catch (cacheErr) {
-                    console.log(`Could not update profile pic cache:`, cacheErr);
-                  }
-                }
-              }
-            } catch (e) {
-              console.log(`Could not fetch avatar using sender's token:`, e);
-            }
-          }
-
-          // Fallback: try with recipient's token (less likely to work for cross-account)
-          if (!senderAvatar && instagramUser.instagramAccessToken) {
-            try {
-              const encDmToken = instagramUser.instagramAccessToken;
-              const accessToken = isEncrypted(encDmToken) ? decrypt(encDmToken) : encDmToken;
-              const profileUrl = `https://graph.instagram.com/${senderId}?fields=profile_pic&access_token=${accessToken}`;
-              const profileRes = await fetch(profileUrl);
-              const profileData = await profileRes.json();
-              if (profileData.profile_pic) {
-                senderAvatar = profileData.profile_pic;
-                console.log(`Fetched profile picture using recipient's token (fallback)`);
-
-                // Update the cache for future use
-                try {
-                  await authStorage.updateUser(knownInstagramUser.id, {
-                    instagramProfilePic: profileData.profile_pic
-                  });
-                  console.log(`Updated instagramProfilePic cache for user ${knownInstagramUser.id}`);
-                } catch (cacheErr) {
-                  console.log(`Could not update profile pic cache:`, cacheErr);
-                }
-              }
-            } catch (e) {
-              console.log(`Could not fetch avatar using recipient's token:`, e);
-            }
-          }
-        }
-      } else if (senderId && instagramUser.instagramAccessToken) {
-        const encDmToken2 = instagramUser.instagramAccessToken;
-        const accessToken = isEncrypted(encDmToken2) ? decrypt(encDmToken2) : encDmToken2;
-
-        // Verify token is not still encrypted (should have been decrypted)
-        const tokenParts = accessToken.split(":");
-        if (tokenParts.length === 3 && tokenParts[0].length === 24) {
-          console.error(`ERROR: Token appears to still be encrypted (length=${accessToken.length}). Decryption may have failed.`);
-        }
-
-        // Use the user's Instagram Account ID (from OAuth) for API calls, NOT the webhook recipientId
-        // The instagramAccountId is the authenticated account that can access the conversations API
-        const userInstagramId = instagramUser.instagramAccountId || undefined;
-
-        console.log(`Will use instagramAccountId ${userInstagramId} for API calls (webhook recipientId was ${recipientId})`);
-
-        // First, try direct IGSID lookup for profile_pic (correct field name)
-        try {
-          console.log(`Fetching profile picture for IGSID ${senderId}...`);
-          const profileUrl = `https://graph.instagram.com/${senderId}?fields=profile_pic&access_token=${accessToken}`;
-          const profileRes = await fetch(profileUrl);
-          const profileData = await profileRes.json();
-          console.log(`Direct IGSID profile response:`, JSON.stringify(profileData));
-
-          if (profileData.profile_pic) {
-            senderAvatar = profileData.profile_pic;
-            console.log(`Got profile picture from direct IGSID lookup!`);
-          }
-        } catch (e) {
-          console.log(`Direct IGSID lookup failed:`, e);
-        }
-
-        // RESOLUTION STRATEGY: Use robust identity resolver
-        // This handles API calls, DB matching, and fallbacks in one place
-        const identity = await resolveInstagramSender(senderId, instagramUser.instagramAccessToken, userInstagramId);
-
-        senderName = identity.name;
-        senderUsername = identity.username;
-        senderAvatar = identity.avatar;
-        senderFollowersCount = identity.followersCount;
-
-        console.log(`[Identity] Final Resolved: ${senderName} (@${senderUsername})`);
-
-        // If matched with a known user (DB match), update cross-account ID mapping
-        if (identity.isKnownUser && identity.userId) {
-          const matchedUser = allUsers.find((u: any) => u.id === identity.userId);
-          if (matchedUser) {
-            // Persist the mapping so next time we find it instantly via ID match
-            try {
-              if (!matchedUser.instagramRecipientId || matchedUser.instagramRecipientId !== senderId) {
-                console.log(`[Identity] 💾 Persisting new scope ID (${senderId}) for user ${matchedUser.email}`);
-                await authStorage.updateUser(matchedUser.id, {
-                  instagramRecipientId: senderId
-                });
-              }
-            } catch (err) {
-              console.error("[Identity] Failed to persist ID mapping:", err);
-            }
+          } catch (err) {
+            console.error("[DM-WEBHOOK] Failed to persist ID mapping:", err);
           }
         }
       }
@@ -4034,20 +3849,10 @@ export async function registerRoutes(
       }
 
       // Fallback: Generate placeholder avatar if none found
-      // Improved Fallback: Use a more robust placeholder and cleaner name
+      // Fallback: Generate placeholder avatar if none found is now handled within resolveInstagramSender, 
+      // but we keep this as a final safety net for the local variables before creating the message
       if (!senderAvatar) {
-        if (senderUsername && senderUsername !== "instagram_user") {
-          const colors = ['9b59b6', '3498db', '1abc9c', 'e74c3c', 'f39c12', '2ecc71', 'e91e63', '00bcd4'];
-          const colorIndex = senderId.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) % colors.length;
-          const bgColor = colors[colorIndex];
-          // Use senderUsername which might be just senderId, so check length
-          const displayName = senderUsername.length > 15 ? "User" : senderUsername;
-          senderAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=${bgColor}&color=fff&size=128&bold=true`;
-          console.log(`[DM-WEBHOOK] Usando avatar placeholder para @${senderUsername}`);
-        } else {
-          // Ultimate fallback if we dont even have a username
-          senderAvatar = "https://ui-avatars.com/api/?name=IG&background=ccc&color=fff";
-        }
+        senderAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(senderUsername || senderId)}&background=random&color=fff&size=128&bold=true`;
       }
 
       // Re-check for existing message now that we have the UserId (SaaS Isolation Secure Check)
