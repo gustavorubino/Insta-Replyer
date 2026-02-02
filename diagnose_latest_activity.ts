@@ -10,7 +10,7 @@ async function diagnose() {
   console.log("\n1. Usuários e Instagram IDs:");
   const allUsers = await db.select().from(users);
   allUsers.forEach(u => {
-    console.log(`- User ID: ${u.id}, Username: ${u.username}, IG ID: ${u.instagramId}, Last Sync: ${u.lastInstagramSync}`);
+    console.log(`- User ID: ${u.id}, Username: ${u.instagramUsername}, IG ID: ${u.instagramAccountId}, RecipientID: ${u.instagramRecipientId}`);
   });
 
   // 2. Verificar Settings relacionados a pending_webhook
