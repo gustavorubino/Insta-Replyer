@@ -4858,15 +4858,7 @@ export async function registerRoutes(
         "Qual sua opinião sobre isso?"
       ];
 
-      const dataset = await storage.getDataset(userId);
-      let deletedCount = 0;
-
-      for (const entry of dataset) {
-        if (genericQuestions.includes(entry.question)) {
-          await storage.deleteDatasetEntry(entry.id, userId);
-          deletedCount++;
-        }
-      }
+      const deletedCount = await storage.deleteDatasetEntriesByQuestions(genericQuestions, userId);
 
       console.log(`[Dataset Cleanup] ✅ Removidos ${deletedCount} registros genéricos para userId: ${userId}`);
 
