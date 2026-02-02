@@ -40,7 +40,7 @@ import {
   type InsertUserGuideline,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql, ne, or, isNull } from "drizzle-orm";
+import { eq, desc, and, sql, ne, or, isNull, inArray } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -51,6 +51,7 @@ export interface IStorage {
   getRecentMessages(limit?: number, userId?: string, isAdmin?: boolean, excludeSenderIds?: string[], excludeSenderUsernames?: string[]): Promise<MessageWithResponse[]>;
   getMessage(id: number, userId: string): Promise<MessageWithResponse | undefined>;
   getMessageByInstagramId(instagramId: string, userId: string): Promise<InstagramMessage | undefined>;
+  getMessagesByInstagramIds(instagramIds: string[], userId: string): Promise<InstagramMessage[]>;
   getMessagesByUsername(username: string, userId: string): Promise<InstagramMessage[]>;
   getConversationHistory(senderId: string, userId: string, limit?: number): Promise<MessageWithResponse[]>;
   createMessage(message: InsertInstagramMessage): Promise<InstagramMessage>;
@@ -348,6 +349,21 @@ export class DatabaseStorage implements IStorage {
       .from(instagramMessages)
       .where(and(eq(instagramMessages.instagramId, instagramId), eq(instagramMessages.userId, userId))); // ✅ Filter by userId
     return message || undefined;
+  }
+
+  // ⚡ PERFORMANCE: Batch fetch messages
+  async getMessagesByInstagramIds(instagramIds: string[], userId: string): Promise<InstagramMessage[]> {
+    if (!instagramIds.length) return [];
+
+    const messages = await db
+      .select()
+      .from(instagramMessages)
+      .where(and(
+        inArray(instagramMessages.instagramId, instagramIds),
+        eq(instagramMessages.userId, userId)
+      ));
+
+    return messages;
   }
 
   // 🛡️ SECURITY FIX: Added userId mandatory check

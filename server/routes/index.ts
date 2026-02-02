@@ -2154,15 +2154,28 @@ export async function registerRoutes(
             try {
               // Helper function to process comments from API response
               const processComments = async (comments: any[]) => {
+                // ⚡ OPTIMIZATION: Collect all IDs to check existence in one batch query
+                const allCommentIds = comments.map(c => c.id);
+                // Also collect reply IDs from nested structure
+                const allReplyIds = comments.flatMap(c =>
+                  (c.replies && c.replies.data) ? c.replies.data.map((r: any) => r.id) : []
+                );
+                // Combine and deduplicate
+                const idsToCheck = Array.from(new Set([...allCommentIds, ...allReplyIds]));
+
+                // Batch fetch existing messages
+                const existingMessages = await storage.getMessagesByInstagramIds(idsToCheck, userId);
+                const existingIdsSet = new Set(existingMessages.map(m => m.instagramId));
+
                 for (const comment of comments) {
                   try {
-                    const existingMessage = await storage.getMessageByInstagramId(comment.id, userId);
+                    const messageExists = existingIdsSet.has(comment.id);
 
                     const postCaption = post.caption || null;
                     const postThumbnailUrl = post.thumbnail_url || post.media_url || null;
 
                     // 1. Process the main comment (Top Level)
-                    if (!existingMessage) {
+                    if (!messageExists) {
                       const username = comment.username || comment.from?.username || "instagram_user";
                       const displayName = comment.from?.name || comment.username || "Usuário do Instagram";
 
@@ -2223,9 +2236,9 @@ export async function registerRoutes(
 
                         // A. Store the reply as a Message entity (for context/history)
                         //    Check if reply already exists to avoid duplicates
-                        const existingReply = await storage.getMessageByInstagramId(reply.id, userId);
+                        const replyExists = existingIdsSet.has(reply.id);
 
-                        if (!existingReply) {
+                        if (!replyExists) {
                           console.log(`[SYNC] Storing reply from ${replyUsername}: "${reply.text}"`);
                           await storage.createMessage({
                             userId,
