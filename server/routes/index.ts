@@ -2679,6 +2679,21 @@ export async function registerRoutes(
     console.log("╔════════════════════════════════════════════════════════════════════╗");
     console.log("║  🚨 POST /api/webhooks/instagram RECEBIDO 🚨                       ║");
     console.log("╚════════════════════════════════════════════════════════════════════╝");
+    
+    // DEBUG MODE LOGGING - INCOMING WEBHOOK
+    fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        location:'server/routes/index.ts:POST_webhook',
+        message:'Webhook recebido (raw)',
+        data:{
+            headers: req.headers,
+            body: req.body,
+            rawBody: (req as any).rawBody ? (req as any).rawBody.toString('utf8') : null
+        },
+        timestamp:Date.now(),
+        sessionId:'debug-session',
+        hypothesisId: '1'
+    })}).catch(()=>{});
+
     console.log("[WEBHOOK-RAW] Timestamp:", new Date().toISOString());
     console.log("[WEBHOOK-RAW] Headers:", JSON.stringify(req.headers, null, 2));
     console.log("[WEBHOOK-RAW] Body:", JSON.stringify(req.body, null, 2));
@@ -2717,6 +2732,21 @@ export async function registerRoutes(
       // CRITICAL SECURITY: Enforce signature verification
       // This prevents forgeability of Instagram events
       if (!verification.valid) {
+        
+        // DEBUG MODE LOGGING - SIGNATURE FAILURE
+        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+            location:'server/routes/index.ts:signature_verify',
+            message:'Falha na validação da assinatura',
+            data:{
+                signature: signature,
+                calculated: verification.debug,
+                valid: verification.valid
+            },
+            timestamp:Date.now(),
+            sessionId:'debug-session',
+            hypothesisId: '2'
+        })}).catch(()=>{});
+
         console.warn(`[SECURITY] ❌ Webhook signature verification FAILED: ${verification.debug}`);
         return res.status(401).send("Invalid signature");
       }
@@ -2738,6 +2768,21 @@ export async function registerRoutes(
 
       // Process each entry
       for (const entryItem of entry || []) {
+        
+        // DEBUG MODE LOGGING - ENTRY PROCESSING
+        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+            location:'server/routes/index.ts:entry_loop',
+            message:'Processando entrada do webhook',
+            data:{
+                entryId: entryItem.id,
+                changesCount: entryItem.changes?.length,
+                messagingCount: entryItem.messaging?.length
+            },
+            timestamp:Date.now(),
+            sessionId:'debug-session',
+            hypothesisId: '3'
+        })}).catch(()=>{});
+
         const changes = entryItem.changes || [];
         const messaging = entryItem.messaging || [];
 
@@ -2759,10 +2804,24 @@ export async function registerRoutes(
           }
         }
 
-        // Process direct messages (Messenger Platform format)
-        // IMPORTANT: Pass entryItem.id to identify which account received the webhook
-        for (const messageEvent of messaging) {
-          console.log("=== MESSAGING EVENT RECEIVED ===");
+      // Process direct messages (Messenger Platform format)
+      // IMPORTANT: Pass entryItem.id to identify which account received the webhook
+      for (const messageEvent of messaging) {
+        
+        // DEBUG MODE LOGGING - MESSAGING EVENT
+        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+            location:'server/routes/index.ts:messaging_loop',
+            message:'Processando evento de mensagem',
+            data:{
+                messageEvent: messageEvent,
+                entryId: entryItem.id
+            },
+            timestamp:Date.now(),
+            sessionId:'debug-session',
+            hypothesisId: '3'
+        })}).catch(()=>{});
+
+        console.log("=== MESSAGING EVENT RECEIVED ===");
           console.log("Messaging event:", JSON.stringify(messageEvent).substring(0, 500));
           console.log(`Entry ID (account that received webhook): ${entryItem.id}`);
 
@@ -3018,6 +3077,20 @@ export async function registerRoutes(
 
       // Strategy 2: Try direct IGSID lookup (if fromUserId is available)
       if (!senderAvatar && fromUserId && instagramUser.instagramAccessToken) {
+        
+        // DEBUG MODE LOGGING - PROFILE FETCH START
+        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+            location:'server/routes/index.ts:profile_fetch',
+            message:'Iniciando busca de perfil (IGSID)',
+            data:{
+                fromUserId: fromUserId,
+                username: username
+            },
+            timestamp:Date.now(),
+            sessionId:'debug-session',
+            hypothesisId: '6'
+        })}).catch(()=>{});
+
         try {
           console.log(`[Profile Fetch] Tentando busca direta por IGSID ${fromUserId}...`);
           const encToken = instagramUser.instagramAccessToken;
@@ -3032,6 +3105,19 @@ export async function registerRoutes(
             senderAvatar = directData.profile_pic || directData.profile_picture_url;
             console.log(`[Profile Fetch] SUCCESS via IGSID direto para ${fromUserId}`);
           } else if (directData?.error) {
+            
+            // DEBUG MODE LOGGING - IGSID ERROR
+            fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+                location:'server/routes/index.ts:profile_fetch_error',
+                message:'Erro na busca por IGSID direto',
+                data:{
+                    error: directData.error
+                },
+                timestamp:Date.now(),
+                sessionId:'debug-session',
+                hypothesisId: '6'
+            })}).catch(()=>{});
+
             console.log(`[Profile Fetch] IGSID direto falhou: ${directData.error.message}`);
 
             // Fallback: Try Facebook Graph API
@@ -3451,8 +3537,23 @@ export async function registerRoutes(
 
       let senderFollowersCount: number | undefined;
       const senderId = messageData.sender?.id;
-      const recipientId = messageData.recipient?.id;
-      const messageId = messageData.message?.mid;
+    const recipientId = messageData.recipient?.id;
+
+    // DEBUG MODE LOGGING - PROCESS DM START
+    fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        location:'server/routes/index.ts:processWebhookMessage',
+        message:'Iniciando processamento de DM',
+        data:{
+            senderId: senderId,
+            recipientId: recipientId,
+            messageId: messageId
+        },
+        timestamp:Date.now(),
+        sessionId:'debug-session',
+        hypothesisId: '4'
+    })}).catch(()=>{});
+
+    const messageId = messageData.message?.mid;
       let text = messageData.message?.text;
       const attachments = messageData.message?.attachments;
       const isEcho = messageData.message?.is_echo === true;
@@ -3558,6 +3659,19 @@ export async function registerRoutes(
       if (!instagramUser) {
         console.log(`[DM-WEBHOOK] ⚠️ Nenhum match direto para recipientId ${recipientId}`);
 
+        // DEBUG MODE LOGGING - NO DIRECT MATCH
+        fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+            location:'server/routes/index.ts:no_direct_match',
+            message:'Nenhum usuário encontrado para o recipientId',
+            data:{
+                recipientId: recipientId,
+                senderId: senderId
+            },
+            timestamp:Date.now(),
+            sessionId:'debug-session',
+            hypothesisId: '4'
+        })}).catch(()=>{});
+
         // 🔧 AUTO-ASSOCIATION FIX: Tentar encontrar usuário por token válido e username
         // Isso resolve o problema onde OAuth retorna um ID diferente do webhook
         console.log(`[DM-WEBHOOK] 🔍 Tentando auto-associação inteligente...`);
@@ -3651,6 +3765,19 @@ export async function registerRoutes(
 
         // Se ainda não encontrou, bloquear e registrar
         if (!instagramUser) {
+          
+          // DEBUG MODE LOGGING - FINAL BLOCK
+          fetch('http://localhost:7242/ingest/28fbbae3-ada8-4b01-b8f6-6f5b0b63015b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+              location:'server/routes/index.ts:final_block',
+              message:'Webhook bloqueado - nenhum usuário associado',
+              data:{
+                  recipientId: recipientId
+              },
+              timestamp:Date.now(),
+              sessionId:'debug-session',
+              hypothesisId: '4'
+          })}).catch(()=>{});
+
           console.log(`[DM-WEBHOOK] ❌ SECURITY: Webhook bloqueado para recipientId ${recipientId}`);
 
           // Log unmapped webhook for debugging (admin only)
