@@ -1,8 +1,8 @@
 # SESSION_STATE.md — Estado da Sessão (Atualizado pelo agente)
 
 ## Data/Hora (America/Sao_Paulo)
-- Sessão: 2026-02-01 T22:35
-- ✅ BOOT executado em 01/02/2026
+- Sessão: 2026-02-02 T10:30
+- ✅ BOOT executado em 02/02/2026
 
 ## Resumo do projeto (curto)
 - SaaS multi-tenant para automação de respostas no Instagram (DMs/Comentários) usando IA.
@@ -24,14 +24,15 @@
 
 ## Status Git
 - Branch: `main`
-- Status: **SUJO** (Modified: `server/routes/index.ts`)
-  - Mudança pendente: Desabilita deleção do marker `pending_webhook` para evitar race condition.
-- Último commit: `6f6e4bc` (Published your App)
+- Status: **SUJO** (Modified: `server/routes/index.ts`, New: `server/utils/instagram-identity.ts`)
+  - Refatoração pendente: Extração da lógica de identidade para `resolveInstagramSender`.
+  - Scripts de debug a limpar: `check_syntax.*`, `debug_braces.*`, `patch_server_final_v2.ts`.
+- Último commit: `962b8b9` (Published your App)
 
 ## Estado Atual do Problema
-- **BUG Instagram Account ID:** Em fase de validação final da correção de Auto-Associação.
-  - A mudança não commitada em `server/routes/index.ts` parece ser crítica para essa correção (evita race condition).
+- **Refatoração de Identidade:** O código em `server/routes/index.ts` foi alterado para usar `resolveInstagramSender`, mas ainda não foi validado/commitado.
+- **Limpeza:** Vários arquivos temporários na raiz.
 
 ## Próximo objetivo combinado
-- **DECIDIR SOBRE MUDANÇA PENDENTE:** Validar se o código comentado em `server/routes/index.ts` deve ser commitado.
-- **VALIDAÇÃO FINAL:** Executar teste de reconexão e envio de mensagem para confirmar mapeamento automático.
+- **VALIDAR E COMMITAR:** Testar a nova lógica de identidade e commitar as mudanças em `server/routes/index.ts` e `server/utils/instagram-identity.ts`.
+- **LIMPEZA:** Remover scripts de debug desnecessários.

@@ -22,6 +22,7 @@ import brainRouter from "./brain";
 import { generateEmbedding } from "../utils/openai_embeddings";
 import { runArchitectAgent, runCopilotAgent } from "../modes";
 import { getUserContext } from "../utils/auth-context";
+import { resolveInstagramSender } from "../utils/instagram-identity";
 
 // Store last 50 webhooks received for debugging (in-memory)
 interface WebhookProcessingResult {
@@ -3401,78 +3402,18 @@ export async function registerRoutes(
 
   // Helper function to fetch Instagram user info via Graph API
   // Helper to get user info from Instagram API (Improved for Cross-Account)
-  async function fetchInstagramUserInfo(senderId: string, accessToken: string, recipientId?: string): Promise<{ name: string; username: string; avatar?: string; followersCount?: number }> {
-    try {
-      console.log(`Fetching user info for sender ${senderId}, token length: ${accessToken.length}`);
-
-      const endpoints = [
-        // Direct Instagram Graph API
-        {
-          name: "Instagram Graph API (basic)",
-          url: `https://graph.instagram.com/v21.0/${senderId}?fields=id,username,name,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
-        },
-        // Facebook Graph API (better for business accounts)
-        {
-          name: "Facebook Graph API (user profile)",
-          url: `https://graph.facebook.com/v21.0/${senderId}?fields=id,name,username,profile_pic&access_token=${encodeURIComponent(accessToken)}`
-        },
-        // Business Discovery API (BEST for cross-account public info)
-        ...(recipientId ? [{
-          name: "Business Discovery API",
-          url: `https://graph.instagram.com/v21.0/${recipientId}?fields=business_discovery.username(${senderId}){profile_picture_url,name,username,followers_count}&access_token=${encodeURIComponent(accessToken)}`
-        }] : [])
-      ];
-
-      for (const endpoint of endpoints) {
-        try {
-          // Special handling for Business Discovery - logic is different
-          if (endpoint.name === "Business Discovery API") {
-              // Can't use Discovery by ID directly, need to know username first.
-              // Skipping for now unless we refactor to try guessing username.
-              continue; 
-          }
-
-          console.log(`[Profile Fetch] Trying ${endpoint.name}...`);
-          const response = await fetch(endpoint.url);
-          const data = await response.json();
-
-          if (response.ok && !data.error) {
-            console.log(`[Profile Fetch] ${endpoint.name} SUCCESS:`, JSON.stringify(data).substring(0, 200));
-            
-            // Normalize response
-            const result = {
-              name: data.name || data.username,
-              username: data.username,
-              avatar: data.profile_pic || data.profile_picture_url || undefined,
-              followersCount: undefined
-            };
-
-            if (result.username) {
-                console.log(`[Profile Fetch] ✅ Username encontrado: @${result.username}`);
-                return result;
-            } else {
-                console.log(`[Profile Fetch] ⚠️ Dados encontrados mas SEM username.`);
-            }
-          } else {
-            console.log(`[Profile Fetch] ${endpoint.name} failed:`, data?.error?.message || "Unknown error");
-          }
-        } catch (err) {
-          console.log(`[Profile Fetch] ${endpoint.name} error:`, err);
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching Instagram user info:", error);
-    }
-
-    // Fallback
+  // Helper to get user info from Instagram API (Improved for Cross-Account)
+  // DEPRECATED: Use resolveInstagramSender instead
+  async function fetchInstagramUserInfo(senderId: string, accessToken: string, recipientId?: string) {
+    const result = await resolveInstagramSender(senderId, accessToken, recipientId);
     return {
-      name: `Usuário IG`,
-      username: senderId,
+        name: result.name,
+        username: result.username,
+        avatar: result.avatar,
+        followersCount: result.followersCount
     };
   }
 
-  // Helper function to process incoming DMs from webhooks
-  // entryId: The ID of the Instagram account that received this webhook (entry.id)
   async function processWebhookMessage(messageData: any, entryId?: string) {
     try {
       console.log("Processing webhook DM:", JSON.stringify(messageData));
@@ -3972,43 +3913,36 @@ export async function registerRoutes(
           console.log(`Direct IGSID lookup failed:`, e);
         }
 
-        // Then get username from conversations API using instagramAccountId
-        const userInfo = await fetchInstagramUserInfo(senderId, accessToken, userInstagramId);
-        senderName = userInfo.name;
-        senderUsername = userInfo.username;
-        // If avatar wasn't found above, try from userInfo
-        if (!senderAvatar && userInfo.avatar) {
-          senderAvatar = userInfo.avatar;
-        }
-        // Use followers count if available
-        senderFollowersCount = userInfo.followersCount;
+        // RESOLUTION STRATEGY: Use robust identity resolver
+        // This handles API calls, DB matching, and fallbacks in one place
+        const identity = await resolveInstagramSender(senderId, instagramUser.instagramAccessToken, userInstagramId);
+        
+        senderName = identity.name;
+        senderUsername = identity.username;
+        senderAvatar = identity.avatar;
+        senderFollowersCount = identity.followersCount;
+        
+        console.log(`[Identity] Final Resolved: ${senderName} (@${senderUsername})`);
 
-        console.log(`Resolved sender info: ${senderName} (@${senderUsername}), avatar: ${senderAvatar ? 'yes' : 'no'}, followers: ${senderFollowersCount || 'N/A'}`);
-
-        // OPTIMIZATION: If we got a valid username from API, try to match with registered users
-        // This helps when the senderId differs from stored IDs but username matches
-        if (senderUsername && senderUsername !== senderId && senderUsername !== "instagram_user") {
-          const matchedByUsername = allUsers.find((u: any) =>
-            u.id !== instagramUser.id &&
-            u.instagramUsername &&
-            u.instagramUsername.toLowerCase() === senderUsername.toLowerCase()
-          );
-
-          if (matchedByUsername) {
-            console.log(`Matched sender by username @${senderUsername} to user ${matchedByUsername.email}`);
-            // Use cached data from the matched user if better
-            if (matchedByUsername.firstName) {
-              senderName = matchedByUsername.firstName;
+        // If matched with a known user (DB match), update cross-account ID mapping
+        if (identity.isKnownUser && identity.userId) {
+            const matchedUser = allUsers.find((u: any) => u.id === identity.userId);
+            if (matchedUser) {
+                // Persist the mapping so next time we find it instantly via ID match
+                try {
+                    if (!matchedUser.instagramRecipientId || matchedUser.instagramRecipientId !== senderId) {
+                        console.log(`[Identity] 💾 Persisting new scope ID (${senderId}) for user ${matchedUser.email}`);
+                        await authStorage.updateUser(matchedUser.id, {
+                            instagramRecipientId: senderId
+                        });
+                    }
+                } catch (err) {
+                    console.error("[Identity] Failed to persist ID mapping:", err);
+                }
             }
-            // Use cached avatar if we don't have one
-            if (!senderAvatar && (matchedByUsername.instagramProfilePic || matchedByUsername.profileImageUrl)) {
-              senderAvatar = matchedByUsername.instagramProfilePic || matchedByUsername.profileImageUrl || undefined;
-              console.log(`Using cached avatar from matched user`);
-            }
-          }
         }
       }
-
+    
       // Process attachments (photos, videos, audio, gifs, etc.)
       let mediaUrl: string | null = null;
       let mediaType: string | null = null;
