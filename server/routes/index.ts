@@ -2276,6 +2276,7 @@ const replyExists = messageMap.has(reply.id);
                               status: "replied"
                             });
 // Update in-memory status to avoid redundant DB calls for subsequent replies
+                        parentMessage.status = "replied";
                             parentMessage.status = "replied";
                           }
                         }
