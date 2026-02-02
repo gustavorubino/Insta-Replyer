@@ -1045,9 +1045,12 @@ async cleanupExpiredPendingWebhooks(): Promise<number> {
         .orderBy(manualQA.createdAt)
         .limit(toDelete);
 
+// Versão corrigida e limpa para addManualQA
       const idsToDelete = oldest.map((item) => item.id);
+      
       if (idsToDelete.length > 0) {
         await db.delete(manualQA).where(inArray(manualQA.id, idsToDelete));
+      }
       }
     }
 
@@ -1090,8 +1093,13 @@ async cleanupExpiredPendingWebhooks(): Promise<number> {
         .orderBy(mediaLibrary.syncedAt)
         .limit(toDelete);
 
-      for (const item of oldest) {
-        await db.delete(mediaLibrary).where(eq(mediaLibrary.id, item.id));
+      if (oldest.length > 0) {
+        await db.delete(mediaLibrary).where(
+          inArray(
+            mediaLibrary.id,
+            oldest.map((item) => item.id)
+          )
+        );
       }
     }
     return created;
@@ -1153,8 +1161,13 @@ async cleanupExpiredPendingWebhooks(): Promise<number> {
         .orderBy(interactionDialect.interactedAt)
         .limit(toDelete);
 
-      for (const item of oldest) {
-        await db.delete(interactionDialect).where(eq(interactionDialect.id, item.id));
+      if (oldest.length > 0) {
+        await db.delete(interactionDialect).where(
+          inArray(
+            interactionDialect.id,
+            oldest.map((item) => item.id)
+          )
+        );
       }
     }
 
