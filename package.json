@@ -11,7 +11,8 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "verify": "tsx script/integrity-check.ts",
-    "debug:webhook": "tsx debug-webhook-flow-final.ts"
+    "debug:webhook": "tsx debug-webhook-flow-final.ts",
+    "cdp:test": "bash scripts/browser/start-cdp.sh && node scripts/browser/open-url.cjs https://example.com"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.12.0",
@@ -86,6 +87,7 @@
     "passport-local": "^1.0.0",
     "pdf-parse": "^2.4.5",
     "pg": "^8.16.3",
+    "playwright-core": "^1.58.1",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",

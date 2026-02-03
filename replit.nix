@@ -7,5 +7,6 @@
     pkgs.openssh
     pkgs.bashInteractive
     pkgs.nano
+    pkgs.chromium
   ];
 }

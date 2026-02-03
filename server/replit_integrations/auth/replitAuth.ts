@@ -21,13 +21,19 @@ const getOidcConfig = memoize(
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   const pgStore = connectPg(session);
+
+  // Use same DB URL selection as server/db.ts: PROD_DB_URL in production, fallback in dev
+  const isProduction = process.env.NODE_ENV === "production";
+  const dbUrl = isProduction
+    ? process.env.PROD_DB_URL
+    : (process.env.PROD_DB_URL || process.env.DATABASE_URL);
+
   const sessionStore = new pgStore({
-    conString: process.env.DATABASE_URL,
+    conString: dbUrl,
     createTableIfMissing: false,
     ttl: sessionTtl,
     tableName: "sessions",
   });
-  const isProduction = process.env.NODE_ENV === "production";
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
@@ -54,7 +60,7 @@ function updateUserSession(
 async function upsertUser(claims: any): Promise<string> {
   // Check if user already exists by OIDC sub
   const existingUserBySub = await authStorage.getUser(claims["sub"]);
-  
+
   if (existingUserBySub) {
     // User already exists with this OIDC sub, just update profile
     await authStorage.upsertUser({
@@ -67,12 +73,12 @@ async function upsertUser(claims: any): Promise<string> {
     });
     return claims["sub"];
   }
-  
+
   // Check if user exists by email (email/password account)
-  const existingUserByEmail = claims["email"] 
+  const existingUserByEmail = claims["email"]
     ? await authStorage.getUserByEmail(claims["email"])
     : null;
-  
+
   if (existingUserByEmail) {
     // User has existing email/password account - update their profile but keep their ID
     await authStorage.updateUserById(existingUserByEmail.id, {
@@ -83,7 +89,7 @@ async function upsertUser(claims: any): Promise<string> {
     // Return the existing user's ID for session
     return existingUserByEmail.id;
   }
-  
+
   // New user - create with OIDC sub as ID, isAdmin: false by default
   await authStorage.upsertUser({
     id: claims["sub"],

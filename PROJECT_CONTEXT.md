@@ -53,8 +53,8 @@ O sistema deve agir como um atendimento humano, rápido e preciso, para engajar 
 
 ## Riscos e Regras de Ouro
 1. **Principais Riscos:**
-    - **Risco de bloqueio da conta do Instagram (Rate Limits).**
-    - **Risco de "alucinação" da IA (responder algo ofensivo ou errado).**
-    - **Privacidade das DMs (LGPD).**
+    - **Rate limits / bloqueio do Instagram** (Bloqueio de conta por excesso de requisições).
+    - **Alucinação da IA (resposta ofensiva/errada)**.
+    - **Privacidade de DMs (LGPD)**.
 2. **Nunca expor dados de um cliente para outro** (Isolamento rígido por `userId`).
 3. **Nunca comitar senhas ou chaves reais** (Segredos apenas no Replit Secrets).

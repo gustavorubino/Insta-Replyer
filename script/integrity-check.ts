@@ -2,15 +2,38 @@
 import { build } from "esbuild";
 import { readFile } from "fs/promises";
 import { resolve } from "path";
-import { db } from "../server/db";
-import { sql } from "drizzle-orm";
 
 console.log("🛡️  Iniciando Verificação de Integridade e Segurança...");
+
+// Check environment variables based on NODE_ENV
+function checkEnvironmentVariables(): boolean {
+    const isProduction = process.env.NODE_ENV === "production";
+    console.log(`ENV... Verificando variáveis (${isProduction ? "PRODUCTION" : "DEVELOPMENT"})...`);
+
+    if (isProduction) {
+        if (!process.env.PROD_DB_URL) {
+            console.error("❌ ERRO: PROD_DB_URL é OBRIGATÓRIO em produção.");
+            return false;
+        }
+        console.log("✅ PROD_DB_URL: Configurado.");
+    } else {
+        const hasDbUrl = process.env.PROD_DB_URL || process.env.DATABASE_URL;
+        if (!hasDbUrl) {
+            console.error("❌ ERRO: DATABASE_URL ou PROD_DB_URL deve estar configurado.");
+            return false;
+        }
+        console.log("✅ Database URL: Configurado (dev mode).");
+    }
+    return true;
+}
 
 async function checkDatabase() {
     console.log("POSTGRES... Verificando conexão...");
     try {
-        const result = await db.execute(sql`SELECT 1`);
+        // Dynamic import to avoid loading DB before ENV check
+        const { db } = await import("../server/db");
+        const { sql } = await import("drizzle-orm");
+        await db.execute(sql`SELECT 1`);
         console.log("✅ Banco de Dados: Conectado e Respondendo.");
         return true;
     } catch (error) {
@@ -66,6 +89,13 @@ async function checkBuild() {
 }
 
 async function run() {
+    // Check ENV first - exit early if failed (before trying to connect to DB)
+    const envOk = checkEnvironmentVariables();
+    if (!envOk) {
+        console.error("\n💀 FALHA NA VERIFICAÇÃO DE AMBIENTE. NÃO PROSSEGUIR.");
+        process.exit(1);
+    }
+
     const dbOk = await checkDatabase();
     const buildOk = await checkBuild();
 
