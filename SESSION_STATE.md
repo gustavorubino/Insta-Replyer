@@ -1,7 +1,7 @@
 # SESSION_STATE.md — Estado da Sessão (Atualizado pelo agente)
 
 ## Data/Hora (America/Sao_Paulo)
-- Sessão: 2026-02-02 T10:30
+- Sessão: 2026-02-03 T11:18
 - ✅ BOOT executado em 02/02/2026
 
 ## Resumo do projeto (curto)
@@ -24,15 +24,14 @@
 
 ## Status Git
 - Branch: `main`
-- Status: **SUJO** (Modified: `server/routes/index.ts`, New: `server/utils/instagram-identity.ts`)
-  - Refatoração pendente: Extração da lógica de identidade para `resolveInstagramSender`.
-  - Scripts de debug a limpar: `check_syntax.*`, `debug_braces.*`, `patch_server_final_v2.ts`.
-- Último commit: `962b8b9` (Published your App)
+- Status: **Modificado** (Zero Trust implementado no Webhook)
+- Últimas ações: Correção de sintaxe em `server/routes/index.ts`, remoção de lógica insegura de auto-associação.
 
 ## Estado Atual do Problema
-- **Refatoração de Identidade:** O código em `server/routes/index.ts` foi alterado para usar `resolveInstagramSender`, mas ainda não foi validado/commitado.
-- **Limpeza:** Vários arquivos temporários na raiz.
+- **Segurança (Zero Trust):** Implementada. Webhooks sem match exato de ID agora são bloqueados e logados, sem tentativa de "adivinhar" o usuário.
+- **Integridade:** `npm run check` passando com sucesso.
+- **Pendência:** Arquivos não rastreados (`script/diagnose_leak.ts`, etc) e alterações no `SESSION_STATE.md` para commitar.
 
 ## Próximo objetivo combinado
-- **VALIDAR E COMMITAR:** Testar a nova lógica de identidade e commitar as mudanças em `server/routes/index.ts` e `server/utils/instagram-identity.ts`.
-- **LIMPEZA:** Remover scripts de debug desnecessários.
+- **Aguardando novas instruções.**
+
