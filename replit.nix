@@ -1,5 +1,7 @@
 { pkgs }: {
   deps = [
+    pkgs.gh
+    pkgs.lsof
     pkgs.psmisc
     pkgs.wget
     pkgs.openssh
