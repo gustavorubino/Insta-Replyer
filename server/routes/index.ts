@@ -2814,6 +2814,39 @@ export async function registerRoutes(
           } else if (change.field === "mentions") {
             console.log(">>> Processing MENTION webhook");
             await processWebhookComment(change.value, entryItem.id);
+          } else if (change.field === "messages") {
+            // Instagram Graph API DM format (different from Messenger Platform)
+            console.log("╔════════════════════════════════════════════════════════════════════╗");
+            console.log("║  📨 WEBHOOK field='messages' DETECTADO - FORMATO GRAPH API DM     ║");
+            console.log("╚════════════════════════════════════════════════════════════════════╝");
+            console.log("[DM-GRAPH] Entry ID:", entryItem.id);
+            console.log("[DM-GRAPH] Change value keys:", Object.keys(change.value || {}));
+            console.log("[DM-GRAPH] Change value (parcial):", JSON.stringify(change.value).substring(0, 800));
+
+            // Try to process as DM - adapt Graph API format to Messenger format
+            const graphValue = change.value;
+            if (graphValue) {
+              // Graph API format typically has: sender, recipient, timestamp, message
+              const adaptedMessage = {
+                sender: graphValue.sender || { id: graphValue.from?.id },
+                recipient: { id: entryItem.id },
+                message: {
+                  mid: graphValue.id || graphValue.message_id || `graph_${Date.now()}`,
+                  text: graphValue.text || graphValue.message?.text,
+                  attachments: graphValue.attachments || graphValue.message?.attachments
+                },
+                timestamp: graphValue.timestamp || Date.now()
+              };
+
+              console.log("[DM-GRAPH] Adapted message for processing:", JSON.stringify(adaptedMessage).substring(0, 500));
+
+              if (adaptedMessage.sender?.id || graphValue.from?.id) {
+                console.log(">>> Processing DM from Graph API format");
+                await processWebhookMessage(adaptedMessage, entryItem.id);
+              } else {
+                console.log("[DM-GRAPH] ⚠️ Could not extract sender ID from Graph API payload");
+              }
+            }
           } else {
             console.log(`>>> Unknown field type: ${change.field}`);
           }
