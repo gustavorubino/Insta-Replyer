@@ -373,6 +373,62 @@ export async function registerRoutes(
     }
   }, 60 * 60 * 1000); // Every hour
 
+  // ============ DEV-ONLY ENDPOINT: Set Instagram credentials for local testing ============
+  // This endpoint ONLY works when LOCAL_AUTH_BYPASS=true (never in production)
+  if (process.env.LOCAL_AUTH_BYPASS === "true") {
+    app.post("/api/dev/instagram/set", isAuthenticated, async (req: any, res) => {
+      try {
+        const { instagramAccessToken, instagramAccountId, instagramRecipientId } = req.body;
+
+        // Validate required fields
+        if (!instagramAccessToken || !instagramAccountId || !instagramRecipientId) {
+          return res.status(400).json({
+            error: "All fields are required",
+            usage: {
+              instagramAccessToken: "Your Instagram Graph API access token",
+              instagramAccountId: "Your Instagram Business Account ID",
+              instagramRecipientId: "Your IGSID for DM webhooks"
+            }
+          });
+        }
+
+        // Get current user ID (should be local-dev-user)
+        const userId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
+
+        // Mask token for logging (first 6 + last 4 chars)
+        const maskedToken = instagramAccessToken.length > 10
+          ? `${instagramAccessToken.slice(0, 6)}...${instagramAccessToken.slice(-4)}`
+          : "***";
+
+        console.log(`[DEV] Setting Instagram credentials for user ${userId}:`);
+        console.log(`  instagramAccountId: ${instagramAccountId}`);
+        console.log(`  instagramRecipientId: ${instagramRecipientId}`);
+        console.log(`  instagramAccessToken: ${maskedToken}`);
+
+        // Update user with new credentials (token will be encrypted by storage layer)
+        await authStorage.updateUser(userId, {
+          instagramAccessToken,
+          instagramAccountId,
+          instagramRecipientId
+        });
+
+        res.json({
+          success: true,
+          message: "Instagram credentials updated for local development",
+          userId,
+          instagramAccountId,
+          instagramRecipientId,
+          tokenSet: true
+        });
+      } catch (error: any) {
+        console.error("[DEV] Error setting Instagram credentials:", error);
+        res.status(500).json({ error: error.message || "Failed to set credentials" });
+      }
+    });
+
+    console.log("[DEV] Registered endpoint: POST /api/dev/instagram/set");
+  }
+
   // Terms of Service page
   app.get("/terms", (req, res) => {
     res.send(`

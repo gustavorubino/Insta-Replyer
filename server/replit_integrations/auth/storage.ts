@@ -70,7 +70,14 @@ export interface IAuthStorage {
 
 class AuthStorage implements IAuthStorage {
   async getUser(id: string): Promise<User | undefined> {
+    // For local bypass, first try to get from DB, then fallback to mock
     if (process.env.LOCAL_AUTH_BYPASS === "true" && id === "local-dev-user") {
+      // Try to get from DB first (in case we've persisted credentials)
+      const [dbUser] = await db.select().from(users).where(eq(users.id, id));
+      if (dbUser) {
+        return decryptUserFields(dbUser);
+      }
+      // Return mock if not in DB yet
       return {
         id: "local-dev-user",
         email: "local@dev.internal",
@@ -128,6 +135,24 @@ class AuthStorage implements IAuthStorage {
   }
 
   async updateUser(id: string, updates: Partial<UpsertUser>): Promise<User | undefined> {
+    // For local bypass, ensure user exists in DB before updating
+    if (process.env.LOCAL_AUTH_BYPASS === "true" && id === "local-dev-user") {
+      const [existing] = await db.select().from(users).where(eq(users.id, id));
+      if (!existing) {
+        // Create the local dev user in DB first
+        const encryptedData = encryptSensitiveFields({
+          id: "local-dev-user",
+          email: "local@dev.internal",
+          firstName: "Dev",
+          lastName: "Local",
+          isAdmin: true,
+          ...updates
+        });
+        const [newUser] = await db.insert(users).values(encryptedData).returning();
+        console.log("[DEV] Created local-dev-user in database");
+        return decryptUserFields(newUser);
+      }
+    }
     return this.updateUserById(id, updates);
   }
 
