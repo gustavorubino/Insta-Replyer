@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "postgresql-16"]
+modules = ["nodejs-20", "web"]
 run = "bash scripts/browser/start-cdp.sh && npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
@@ -44,7 +44,7 @@ args = "bash scripts/browser/start-cdp.sh && npm run dev"
 waitForPort = 5000
 
 [agent]
-integrations = ["javascript_openai:1.0.0", "javascript_database:1.0.0", "javascript_websocket:1.0.0", "javascript_openai_ai_integrations:2.0.0", "javascript_log_in_with_replit:2.0.0", "javascript_object_storage:2.0.0"]
+integrations = ["javascript_openai:1.0.0", "javascript_websocket:1.0.0", "javascript_openai_ai_integrations:2.0.0", "javascript_log_in_with_replit:2.0.0", "javascript_object_storage:2.0.0"]
 
 [userenv]
 
