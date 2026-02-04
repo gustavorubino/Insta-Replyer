@@ -10,7 +10,7 @@ const ENCRYPTED_FIELDS = ['instagramAccessToken', 'facebookAppSecret'] as const;
 // Helper to decrypt sensitive user fields
 function decryptUserFields(user: User): User {
   const decrypted = { ...user };
-  
+
   if (decrypted.instagramAccessToken && isEncrypted(decrypted.instagramAccessToken)) {
     try {
       const originalLength = decrypted.instagramAccessToken.length;
@@ -22,7 +22,7 @@ function decryptUserFields(user: User): User {
       decrypted.instagramAccessToken = null;
     }
   }
-  
+
   if (decrypted.facebookAppSecret && isEncrypted(decrypted.facebookAppSecret)) {
     try {
       decrypted.facebookAppSecret = decrypt(decrypted.facebookAppSecret);
@@ -31,22 +31,22 @@ function decryptUserFields(user: User): User {
       decrypted.facebookAppSecret = null;
     }
   }
-  
+
   return decrypted;
 }
 
 // Helper to encrypt sensitive fields before saving
 function encryptSensitiveFields(updates: Partial<UpsertUser>): Partial<UpsertUser> {
   const encrypted = { ...updates };
-  
+
   if (encrypted.instagramAccessToken && !isEncrypted(encrypted.instagramAccessToken)) {
     encrypted.instagramAccessToken = encrypt(encrypted.instagramAccessToken);
   }
-  
+
   if (encrypted.facebookAppSecret && !isEncrypted(encrypted.facebookAppSecret)) {
     encrypted.facebookAppSecret = encrypt(encrypted.facebookAppSecret);
   }
-  
+
   return encrypted;
 }
 
@@ -70,6 +70,25 @@ export interface IAuthStorage {
 
 class AuthStorage implements IAuthStorage {
   async getUser(id: string): Promise<User | undefined> {
+    if (process.env.LOCAL_AUTH_BYPASS === "true" && id === "local-dev-user") {
+      return {
+        id: "local-dev-user",
+        email: "local@dev.internal",
+        firstName: "Dev",
+        lastName: "Local",
+        profileImageUrl: null,
+        isAdmin: true,
+        instagramRecipientId: null,
+        instagramAccountId: null,
+        instagramAccessToken: null,
+        facebookAppId: null,
+        facebookAppSecret: null,
+        aiContext: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        password: null,
+      } as User;
+    }
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user ? decryptUserFields(user) : undefined;
   }
@@ -135,7 +154,7 @@ class AuthStorage implements IAuthStorage {
   async verifyPassword(email: string, password: string): Promise<User | null> {
     const user = await this.getUserByEmail(email);
     if (!user || !user.password) return null;
-    
+
     const isValid = await bcrypt.compare(password, user.password);
     return isValid ? user : null;
   }

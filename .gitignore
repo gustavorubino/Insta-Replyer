@@ -6,3 +6,6 @@ vite.config.ts.*
 *.tar.gz
 # Local scripts
 scripts/*.local.*
+.env
+.env.*
+!.env.example

@@ -1,50 +1,29 @@
-# SESSION_STATE.md — Estado da Sessão (Atualizado pelo agente)
+# SESSION_STATE — Status do Trabalho (atualize sempre)
 
-## Data/Hora (America/Sao_Paulo)
-- Sessão: 03/02/2026 T16:55
-- ✅ BOOT e Preflight executados.
-- ✅ Execução Controlada (Rodar Dev + Validar) realizada.
+## Agora estamos trabalhando em
+- Fase 2 (Execução e Servidor)
 
-## Resumo do projeto (curto)
-- SaaS de automação de respostas no Instagram (DMs/Comentários) com IA.
-- Utiliza OpenAI e Google Gemini para respostas; Instagram Graph API (custom wrapper) para comunicação.
-- Stack: Node.js (Express), React, Drizzle/Postgres.
+## Objetivo atual
+- Subir o servidor local e validar o banco.
 
-## Resultado da Execução (Passo a Passo)
-- **Instalação/Check/Verify:** ✅ Sucesso (Ambiente íntegro).
-- **Banco de Dados:** ✅ Conectado e Sincronizado.
-- **Servidor Dev:** ✅ Rodando na porta 5000 (Acessível via Browser).
-- **Webhook POST Simulado:** ✅ **SUCESSO**
-  - Status Code: **200 OK**
-  - Assinatura: Validada corretamente (`INSTAGRAM_APP_SECRET` com 32 chars).
-  - Fluxo Completo:
-    1. Webhook recebido e parseado.
-    2. Usuário correto identificado (51200739 / guguinha.rubino@gmail.com).
-    3. OpenAI chamada com sucesso (gpt-4o, ~2.4s).
-    4. Mensagem processada e respondida.
-  - **Alerta:** API do Instagram retornou erro 500 para resolução de identidade do remetente fake (esperado, pois ID `123456789` não existe).
+## Último diagnóstico (Fase 2 - Validação Final)
+- **OpenAI**: ✅ Sucesso (Validade confirmada em teste anterior).
+- **Banco de Dados**: ✅ Conectado.
+- **Servidor (Bypass)**: ✅ Sucesso. O servidor iniciou na porta **5001** com a mensagem "[AUTH-BYPASS] LOCAL_AUTH_BYPASS is active".
+- **API `/api/auth/user`**: ✅ Sucesso. Retornando objeto `local-dev-user` com `isAdmin: true`.
+- **Frontend**: ✅ Sucesso. O servidor está entregando o HTML base com o runtime do Vite (confirmado via `Invoke-WebRequest`).
 
-## Stack detectado
-- Backend: Node.js (v20), Express v4.
-- Frontend: React v18, Vite, TailwindCSS.
-- Banco: PostgreSQL (interface via Drizzle ORM).
-- Linguagem: TypeScript.
-- Bibliotecas IA: OpenAI (Sim), Google Gemini (Sim), Anthropic (Não).
-- Bibliotecas Instagram: Implementação customizada em `server/utils/instagram-*.ts`.
+## Problemas Resolvidos
+- **Conflito de Porta**: Porta 5000 estava ocupada; servidor movido para 5001.
+- **Processos Fantasmas**: Processo Node antigo (4940) finalizado para liberar recursos.
+- **Compatibilidade Windows**: `reusePort` desativado.
 
-## Comandos confirmados (existem e funcionam)
-- Instalar: `npm install`
-- Rodar Dev: `npm run dev` (Inicia servidor + frontend)
-- Build: `npm run build`
-- Banco: `npm run db:push` (Schema update) / `npm run db:studio` (GUI)
-- Verificar: `npm run check` (TypeScript), `npm run verify` (Integrity check)
-- Debug: `npm run debug:webhook`
+## Próximos passos
+1. Navegar pelo painel frontend em `http://localhost:5001` para verificar renderização dos componentes.
+2. Configurar Instagram App ID e Secret reais quando disponíveis para testar fluxo de Webhook.
+3. Iniciar testes de geração de resposta AI em modo real via painel.
 
-## Riscos e Alertas do Dia
-- **Rate Limits:** Monitorar headers da API do Instagram.
-- **Segurança:** Garantir isolamento por `userId` em todas as queries.
-- **Teste Webhook:** O script atual não testa o fluxo real. Necessário usar `simulate_webhook.js` ou corrigir `debug:webhook`.
-
-## Próximo objetivo combinado
-- Fluxo Webhook→IA validado com sucesso. Próximo passo: testar com mensagem real do Instagram ou revisar qualidade das respostas da IA.
-
+## Log rápido (Execução Final)
+- Executado `npm run dev` (via script tsx manual com env-file).
+- Validado login automático (bypass) retornando usuário mockado.
+- Confirmado que o Express está servindo os arquivos do frontend.

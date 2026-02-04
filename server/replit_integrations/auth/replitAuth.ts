@@ -10,6 +10,10 @@ import { authStorage } from "./storage";
 
 const getOidcConfig = memoize(
   async () => {
+    if (process.env.LOCAL_AUTH_BYPASS === "true") {
+      console.log("[AUTH-BYPASS] Skipping OIDC config discovery");
+      return null as any;
+    }
     return await client.discovery(
       new URL(process.env.ISSUER_URL ?? "https://replit.com/oidc"),
       process.env.REPL_ID!
@@ -108,6 +112,37 @@ export async function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
+  passport.serializeUser((user: Express.User, cb) => cb(null, user));
+  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
+
+  // Handle local bypass
+  if (process.env.LOCAL_AUTH_BYPASS === "true") {
+    console.log("[AUTH-BYPASS] LOCAL_AUTH_BYPASS is active. Injected mock user.");
+    app.use(async (req, res, next) => {
+      if (!req.isAuthenticated()) {
+        const mockUser = {
+          id: "local-dev-user",
+          email: "local@dev.internal",
+          firstName: "Dev",
+          lastName: "Local",
+          isAdmin: true,
+          // Mock tokens/claims to bypass isAuthenticated checks
+          expires_at: Math.floor(Date.now() / 1000) + 3600 * 24, // 1 day
+          claims: { sub: "local-dev-user" }
+        };
+
+        // Inject into passport session if not present
+        req.login(mockUser, (err) => {
+          if (err) console.error("[AUTH-BYPASS] Login error:", err);
+          next();
+        });
+      } else {
+        next();
+      }
+    });
+    return; // Don't setup OIDC
+  }
+
   const config = await getOidcConfig();
 
   const verify: VerifyFunction = async (
@@ -143,8 +178,6 @@ export async function setupAuth(app: Express) {
     }
   };
 
-  passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
   app.get("/api/login", (req, res, next) => {
     ensureStrategy(req.hostname);
