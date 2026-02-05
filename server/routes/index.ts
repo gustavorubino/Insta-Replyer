@@ -146,7 +146,7 @@ async function autoAssociatePageId(pageId: string, allUsers: any[]): Promise<any
       // this user's token can access this Page - they are the owner!
       // Update BOTH facebookPageId AND instagramAccountId to correct values
       if (igBusinessId) {
-        const updates: any = { 
+        const updates: any = {
           facebookPageId: pageId,
           instagramAccountId: igBusinessId  // Also update IG Business Account ID
         };
@@ -3798,7 +3798,7 @@ export async function registerRoutes(
       console.log(`Looking for user with Instagram account: ${recipientId}`);
       console.log(`Total users found: ${allUsers.length}`);
 
-      // DM WEBHOOKS: entry.id is typically a Facebook Page ID, not Instagram Business ID
+      // DM WEBHOOKS: entry.id IS the Instagram Business Account ID (same as comments)
       // Priority: facebookPageId > instagramAccountId > instagramRecipientId > auto-associate
 
       // 1. Try facebookPageId first (DM webhooks use Page ID)
@@ -3843,12 +3843,12 @@ export async function registerRoutes(
         }
       }
 
-      // 4. Auto-association: Try to discover facebookPageId via Graph API
+      // 4. Auto-association: Try to match IG Business Account ID via Graph API
       if (!instagramUser && recipientId) {
-        console.log(`[DM-WEBHOOK] No direct match, attempting auto-association for pageId=${recipientId}`);
-        instagramUser = await autoAssociatePageId(recipientId, allUsers);
+        console.log(`[DM-WEBHOOK] No direct match, attempting auto-association for igBusinessId=${recipientId}`);
+        instagramUser = await autoAssociateIgBusinessId(recipientId, allUsers);
         if (instagramUser) {
-          console.log(`[DM-WEBHOOK] Auto-associated user ${instagramUser.id} for pageId=${recipientId}`);
+          console.log(`[DM-WEBHOOK] Auto-associated user ${instagramUser.id} for igBusinessId=${recipientId}`);
         }
       }
 
