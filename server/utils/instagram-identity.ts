@@ -2,6 +2,10 @@
 import { authStorage } from "../replit_integrations/auth/storage";
 import { User } from "../../shared/schema";
 
+// Debug logging controlled by env var (default: off)
+const IDENTITY_DEBUG = process.env.IDENTITY_DEBUG === "1";
+const debugLog = (...args: any[]) => IDENTITY_DEBUG && console.log("[Identity API]", ...args);
+
 export interface ResolvedIdentity {
   name: string;
   username: string;
@@ -137,15 +141,15 @@ async function fetchFromApi(userId: string, token: string, userIgId?: string) {
   // Try standard endpoints first
   for (const ep of endpoints) {
     try {
-      console.log(`[Identity API] Trying ${ep.name}: ${ep.url.substring(0, 100)}...`);
+      debugLog(`ep=${ep.name} attempting...`);
       const res = await fetch(ep.url);
       const data = await res.json();
 
-      console.log(`[Identity API] ${ep.name} Response Status: ${res.status}`);
-      console.log(`[Identity API] ${ep.name} Response Data:`, JSON.stringify(data, null, 2));
+      // SAFE DEBUG LOG: HTTP status only, no tokens or payload
+      debugLog(`ep=${ep.name} status=${res.status}`);
 
       if (res.ok && !data.error && (data.username || data.name)) {
-        console.log(`[Identity API] ✅ ${ep.name} succeeded!`);
+        debugLog(`ep=${ep.name} SUCCESS username=${data.username || 'none'}`);
         return {
           username: data.username,
           name: data.name,
@@ -153,10 +157,16 @@ async function fetchFromApi(userId: string, token: string, userIgId?: string) {
           followersCount: undefined
         };
       } else if (data.error) {
-        console.log(`[Identity API] ❌ ${ep.name} error: ${data.error.message || JSON.stringify(data.error)}`);
+        // SAFE DEBUG LOG: error codes only, no message content
+        debugLog(
+          `ep=${ep.name} ERROR code=${data.error.code || 'N/A'}`,
+          `type=${data.error.type || 'N/A'}`,
+          `subcode=${data.error.error_subcode || 'N/A'}`,
+          `trace=${data.error.fbtrace_id || 'N/A'}`
+        );
       }
     } catch (e) {
-      console.error(`[Identity API] ${ep.name} exception:`, e);
+      debugLog(`ep=${ep.name} EXCEPTION:`, e instanceof Error ? e.message : 'unknown');
     }
   }
 
