@@ -1,29 +1,66 @@
-# SESSION_STATE — Status do Trabalho (atualize sempre)
+# SESSION_STATE — Status do Trabalho
 
-## Agora estamos trabalhando em
-- Fase 2 (Execução e Servidor)
+## Branch Atual
+- **Branch**: `fix/webhook-pageid-autoassoc`
+- **Commits**:
+  1. `feat(schema): add facebookPageId field`
+  2. `feat(webhook): add facebookPageId matching and auto-association` 
+  3. `feat(admin): update UI and API for facebookPageId`
+  4. `fix(webhook): add auto-association for comment webhooks`
 
-## Objetivo atual
-- Subir o servidor local e validar o banco.
+## O que foi feito
+- Adicionado campo `facebookPageId` ao schema users
+- **DMs (object="page")**: match por facebookPageId, fallback instagramAccountId, auto-associação via Graph API
+- **Comentários (object="instagram")**: match por instagramAccountId, auto-associação via verificação de acesso ao token
+- Admin UI atualizada para editar `facebookPageId` (label: "Facebook Page ID (DMs)")
+- Ambas auto-associações com cache (success 10min, fail 60s)
 
-## Último diagnóstico (Fase 2 - Validação Final)
-- **OpenAI**: ✅ Sucesso (Validade confirmada em teste anterior).
-- **Banco de Dados**: ✅ Conectado.
-- **Servidor (Bypass)**: ✅ Sucesso. O servidor iniciou na porta **5001** com a mensagem "[AUTH-BYPASS] LOCAL_AUTH_BYPASS is active".
-- **API `/api/auth/user`**: ✅ Sucesso. Retornando objeto `local-dev-user` com `isAdmin: true`.
-- **Frontend**: ✅ Sucesso. O servidor está entregando o HTML base com o runtime do Vite (confirmado via `Invoke-WebRequest`).
+## Deploy e Teste
 
-## Problemas Resolvidos
-- **Conflito de Porta**: Porta 5000 estava ocupada; servidor movido para 5001.
-- **Processos Fantasmas**: Processo Node antigo (4940) finalizado para liberar recursos.
-- **Compatibilidade Windows**: `reusePort` desativado.
+### 1. Push da branch
+```bash
+git push origin fix/webhook-pageid-autoassoc
+```
 
-## Próximos passos
-1. Navegar pelo painel frontend em `http://localhost:5001` para verificar renderização dos componentes.
-2. Configurar Instagram App ID e Secret reais quando disponíveis para testar fluxo de Webhook.
-3. Iniciar testes de geração de resposta AI em modo real via painel.
+### 2. No Replit (Produção)
+```bash
+# Fetch e checkout
+git fetch origin
+git checkout fix/webhook-pageid-autoassoc
 
-## Log rápido (Execução Final)
-- Executado `npm run dev` (via script tsx manual com env-file).
-- Validado login automático (bypass) retornando usuário mockado.
-- Confirmado que o Express está servindo os arquivos do frontend.
+# Migração (IMPORTANTE: usa PROD_DB_URL automaticamente)
+npm run db:push
+
+# Restart do deploy
+```
+
+### 3. Testar DMs
+1. Definir `IDENTITY_DEBUG=1` nas env vars do Replit
+2. Enviar DM de telefone para a conta conectada
+3. Verificar logs:
+   - ✅ `[AUTO-ASSOC] SUCCESS associated pageId=... to user=...`
+   - ✅ Mensagem aparece no painel
+
+### 4. Testar Comentários
+1. Fazer comentário em post da conta conectada
+2. Verificar logs:
+   - ✅ `[COMMENT-WEBHOOK] ✅ Auto-associação bem sucedida!`
+   - ✅ Comentário aparece no painel
+
+## Diagnóstico de Problemas
+
+### Se DMs não funcionarem
+- Verificar se `facebookPageId` foi salvo (Admin > Usuários > coluna "Facebook Page ID")
+- Verificar logs para erro da Graph API
+
+### Se comentários não funcionarem
+- Verificar se `instagramAccountId` foi atualizado
+- Verificar logs `[AUTO-ASSOC]` para erros de token
+
+## Formato dos Logs (com IDENTITY_DEBUG=1)
+```
+[AUTO-ASSOC] pageId=123 user=test@example.com status=200
+[AUTO-ASSOC] SUCCESS associated pageId=123 to user=test@example.com
+[AUTO-ASSOC] igBusinessId=456 user=test@example.com status=200
+[AUTO-ASSOC] SUCCESS: Updated instagramAccountId=456 for user=test@example.com
+```
