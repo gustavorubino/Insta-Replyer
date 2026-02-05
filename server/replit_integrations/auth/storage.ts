@@ -90,6 +90,7 @@ class AuthStorage implements IAuthStorage {
         instagramAccessToken: null,
         facebookAppId: null,
         facebookAppSecret: null,
+        facebookPageId: null,
         aiContext: null,
         createdAt: new Date(),
         updatedAt: new Date(),
