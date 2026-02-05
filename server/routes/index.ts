@@ -2270,17 +2270,62 @@ export async function registerRoutes(
 
       console.log(`OAuth IDs - Token user_id: ${tokenUserId}, API id: ${instagramAccountId}, username: ${instagramUsername}`);
 
-      // 🔧 FIX: Verificar se o usuário já tem um instagramAccountId configurado por webhook
-      // Se sim, PRESERVAR esse ID em vez de sobrescrever com o ID do OAuth
+      // 🔧 FIX: Fetch correct Instagram Business Account ID from Facebook Pages
+      // The /me endpoint returns an app-scoped user ID, but webhooks use instagram_business_account.id
+      // We need to query /me/accounts to get the correct ID that matches webhook entry.id
       const existingUser = await authStorage.getUser(userId);
       let finalInstagramAccountId = instagramAccountId;
       let finalInstagramRecipientId = instagramAccountId;
+      let facebookPageId: string | null = null;
 
-      // Always use the latest Instagram Account ID from the OAuth response
-      // This ensures consistency between OAuth and webhook IDs.
-      console.log(`[OAUTH] 📝 Forçando ID do OAuth: ${instagramAccountId} para AccountId e RecipientId.`);
-      finalInstagramAccountId = instagramAccountId;
-      finalInstagramRecipientId = instagramAccountId;
+      // Query Facebook Pages to find instagram_business_account ID
+      try {
+        const pagesUrl = `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,instagram_business_account&access_token=${encodeURIComponent(longLivedToken)}`;
+        console.log("[OAUTH] 🔍 Fetching Facebook Pages to get instagram_business_account ID...");
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        const pagesRes = await fetch(pagesUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        const pagesData = await pagesRes.json() as any;
+
+        if (pagesData.error) {
+          console.log("[OAUTH] ⚠️ Pages API error:", pagesData.error.message);
+        } else if (pagesData.data && pagesData.data.length > 0) {
+          console.log(`[OAUTH] 📋 Found ${pagesData.data.length} Facebook Page(s)`);
+
+          for (const page of pagesData.data) {
+            if (page.instagram_business_account?.id) {
+              facebookPageId = page.id;
+              const igBusinessId = page.instagram_business_account.id;
+
+              console.log(`[OAUTH] ✅ Found IG Business Account: ${igBusinessId} via Page: ${facebookPageId} (${page.name})`);
+
+              // Use the correct instagram_business_account ID for webhook matching
+              finalInstagramAccountId = igBusinessId;
+              finalInstagramRecipientId = igBusinessId;
+              break; // Use first matched page with IG Business account
+            }
+          }
+
+          if (!facebookPageId) {
+            console.log("[OAUTH] ⚠️ No Facebook Page with instagram_business_account found. Using fallback ID from /me.");
+          }
+        } else {
+          console.log("[OAUTH] ⚠️ No Facebook Pages returned. Using fallback ID from /me.");
+        }
+      } catch (e: any) {
+        if (e.name === 'AbortError') {
+          console.log("[OAUTH] ⚠️ Facebook Pages API timeout (5s). Using fallback ID from /me.");
+        } else {
+          console.log("[OAUTH] ⚠️ Could not fetch Facebook Pages:", e.message);
+        }
+      }
+
+      console.log(`[OAUTH] 📝 Final IDs - IG Business Account: ${finalInstagramAccountId}, FB Page: ${facebookPageId || 'none'}`);
+      console.log(`[OAUTH] 📝 Original /me ID was: ${instagramAccountId} (may differ from business account ID)`);
 
       // Store Instagram data
       // AUTO-CONFIGURE: Set instagramRecipientId equal to instagramAccountId
@@ -2301,6 +2346,8 @@ export async function registerRoutes(
         // This works for most Instagram Business accounts where the IDs are the same
         // If different, auto-association will update on first webhook
         instagramRecipientId: finalInstagramRecipientId,
+        // Facebook Page ID for DM webhook matching (object="page")
+        facebookPageId: facebookPageId,
       };
 
       console.log(`Storing Instagram profile pic: ${profilePictureUrl ? "found" : "not available"}`);
