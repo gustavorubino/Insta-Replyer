@@ -31,6 +31,7 @@ export const users = pgTable("users", {
   instagramProfilePic: varchar("instagram_profile_pic"),
   instagramAccessToken: varchar("instagram_access_token"),
   instagramRecipientId: varchar("instagram_recipient_id"),
+  facebookPageId: varchar("facebook_page_id"),
   // Token management for auto-renewal
   tokenExpiresAt: timestamp("token_expires_at"),
   tokenRefreshedAt: timestamp("token_refreshed_at"),

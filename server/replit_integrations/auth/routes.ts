@@ -299,7 +299,7 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
-  // Admin: Update user's Instagram mapping
+  // Admin: Update user's Instagram mapping (facebookPageId or instagramRecipientId)
   app.patch("/api/admin/users/:userId/instagram", isAuthenticated, async (req: any, res) => {
     try {
       const currentUserId = req.user.actualUserId || req.user.claims?.sub || req.user.id;
@@ -310,22 +310,29 @@ export function registerAuthRoutes(app: Express): void {
       }
 
       const { userId } = req.params;
-      const { instagramRecipientId } = req.body;
+      const { facebookPageId, instagramRecipientId } = req.body;
 
       const targetUser = await authStorage.getUser(userId);
       if (!targetUser) {
         return res.status(404).json({ message: "Usuário não encontrado" });
       }
 
-      const updatedUser = await authStorage.updateUser(userId, {
-        instagramRecipientId: instagramRecipientId || null
-      });
+      // Build update object with only provided fields
+      const updates: any = {};
+      if (facebookPageId !== undefined) {
+        updates.facebookPageId = facebookPageId || null;
+      }
+      if (instagramRecipientId !== undefined) {
+        updates.instagramRecipientId = instagramRecipientId || null;
+      }
+
+      const updatedUser = await authStorage.updateUser(userId, updates);
 
       if (!updatedUser) {
         return res.status(500).json({ message: "Erro ao atualizar usuário" });
       }
 
-      res.json({ success: true, message: "ID de Webhook atualizado com sucesso" });
+      res.json({ success: true, message: "Mapeamento atualizado com sucesso" });
     } catch (error) {
       console.error("Error updating Instagram mapping:", error);
       res.status(500).json({ message: "Erro ao atualizar mapeamento" });

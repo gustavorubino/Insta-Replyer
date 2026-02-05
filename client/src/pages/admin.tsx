@@ -77,6 +77,7 @@ interface UserData {
   instagramAccountId?: string;
   instagramUsername?: string;
   instagramRecipientId?: string;
+  facebookPageId?: string;
   showTokenWarning?: boolean;
 }
 
@@ -104,13 +105,13 @@ export default function Admin() {
   const queryClient = useQueryClient();
   const { user, isLoading: isAuthLoading } = useAuth();
   const [, navigate] = useLocation();
-  
+
   const [editRecipientDialog, setEditRecipientDialog] = useState<{
     open: boolean;
     user: UserData | null;
   }>({ open: false, user: null });
   const [newRecipientId, setNewRecipientId] = useState("");
-  
+
   const { data: users, isLoading: isLoadingUsers, isError: isErrorUsers, refetch: refetchUsers } = useQuery<UserData[]>({
     queryKey: ["/api/auth/users"],
     enabled: !!user?.isAdmin,
@@ -240,16 +241,16 @@ export default function Admin() {
   });
 
   const updateRecipientMutation = useMutation({
-    mutationFn: async ({ userId, instagramRecipientId }: { userId: string; instagramRecipientId: string }) => {
+    mutationFn: async ({ userId, facebookPageId }: { userId: string; facebookPageId: string }) => {
       return apiRequest("PATCH", `/api/admin/users/${userId}/instagram`, {
-        instagramRecipientId
+        facebookPageId
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/users"] });
       toast({
         title: "Sucesso",
-        description: "ID de Webhook atualizado com sucesso",
+        description: "Facebook Page ID atualizado com sucesso",
       });
       setEditRecipientDialog({ open: false, user: null });
       setNewRecipientId("");
@@ -311,7 +312,7 @@ export default function Admin() {
   });
 
   const openEditRecipientDialog = (userData: UserData) => {
-    setNewRecipientId(userData.instagramRecipientId || "");
+    setNewRecipientId(userData.facebookPageId || "");
     setEditRecipientDialog({ open: true, user: userData });
   };
 
@@ -359,7 +360,7 @@ export default function Admin() {
             Não foi possível carregar as informações de administração.
           </p>
         </div>
-        <Button 
+        <Button
           onClick={() => {
             refetchUsers();
             refetchStats();
@@ -715,7 +716,7 @@ export default function Admin() {
                     <TableRow>
                       <TableHead>Usuário</TableHead>
                       <TableHead>Conta Instagram</TableHead>
-                      <TableHead>ID Webhook</TableHead>
+                      <TableHead>Facebook Page ID (DMs)</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Mensagens</TableHead>
                       <TableHead>Última Atividade</TableHead>
@@ -748,15 +749,15 @@ export default function Admin() {
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-mono" data-testid={`text-ig-recipient-${userData.id}`}>
-                                {userData.instagramRecipientId || (
+                                {userData.facebookPageId || (
                                   <Badge variant="outline" className="text-amber-600 dark:text-amber-500">
                                     Não configurado
                                   </Badge>
                                 )}
                               </span>
-                              <Button 
-                                size="icon" 
-                                variant="ghost" 
+                              <Button
+                                size="icon"
+                                variant="ghost"
                                 onClick={() => openEditRecipientDialog(userData)}
                                 data-testid={`button-edit-recipient-${userData.id}`}
                               >
@@ -1017,8 +1018,8 @@ export default function Admin() {
         </TabsContent>
       </Tabs>
 
-      <AlertDialog 
-        open={editRecipientDialog.open} 
+      <AlertDialog
+        open={editRecipientDialog.open}
         onOpenChange={(open) => {
           if (!open) {
             setEditRecipientDialog({ open: false, user: null });
@@ -1028,10 +1029,10 @@ export default function Admin() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Editar ID de Webhook do Instagram</AlertDialogTitle>
+            <AlertDialogTitle>Editar Facebook Page ID (DMs)</AlertDialogTitle>
             <AlertDialogDescription>
-              O ID de Webhook é recebido automaticamente quando o Instagram envia a primeira mensagem.
-              Você pode configurá-lo manualmente se necessário, usando o ID que aparece nos logs do webhook.
+              O Facebook Page ID é usado para identificar webhooks de DMs.
+              Você pode configurá-lo manualmente usando o ID que aparece no alerta de webhook não mapeado.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4">
@@ -1056,7 +1057,7 @@ export default function Admin() {
                 if (editRecipientDialog.user) {
                   updateRecipientMutation.mutate({
                     userId: editRecipientDialog.user.id,
-                    instagramRecipientId: newRecipientId,
+                    facebookPageId: newRecipientId,
                   });
                 }
               }}

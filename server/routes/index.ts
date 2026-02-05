@@ -65,6 +65,104 @@ let currentWebhookTimestamp: string | undefined;
 const DM_TRACE = process.env.DM_TRACE === "true";
 const dmTrace = (...args: any[]) => DM_TRACE && console.log("[DM-TRACE]", ...args);
 
+// IDENTITY_DEBUG: Safe debug logging for auto-association (controlled by env var)
+const IDENTITY_DEBUG = process.env.IDENTITY_DEBUG === "1";
+const identityLog = (...args: any[]) => IDENTITY_DEBUG && console.log("[AUTO-ASSOC]", ...args);
+
+// In-memory cache for auto-association rate limiting
+interface AssocCacheEntry { userId: string; expiry: number; }
+const successCache: Map<string, AssocCacheEntry> = new Map(); // pageId -> userId (10 min TTL)
+const failCache: Map<string, number> = new Map(); // pageId -> expiry timestamp (60s cooldown)
+
+// Clean expired cache entries periodically
+function cleanAssocCache() {
+  const now = Date.now();
+  for (const [key, entry] of successCache) {
+    if (entry.expiry < now) successCache.delete(key);
+  }
+  for (const [key, expiry] of failCache) {
+    if (expiry < now) failCache.delete(key);
+  }
+}
+setInterval(cleanAssocCache, 60000); // Clean every minute
+
+// Auto-associate Facebook Page ID to user by calling Graph API
+async function autoAssociatePageId(pageId: string, allUsers: any[]): Promise<any | null> {
+  const now = Date.now();
+
+  // Check success cache first
+  const cached = successCache.get(pageId);
+  if (cached && cached.expiry > now) {
+    identityLog(`pageId=${pageId} found in cache -> userId=${cached.userId}`);
+    return allUsers.find(u => u.id === cached.userId) || null;
+  }
+
+  // Check fail cache (cooldown)
+  const failExpiry = failCache.get(pageId);
+  if (failExpiry && failExpiry > now) {
+    identityLog(`pageId=${pageId} in cooldown, skipping API call`);
+    return null;
+  }
+
+  for (const user of allUsers) {
+    if (!user.instagramAccessToken || !user.instagramAccountId) continue;
+    if (user.facebookPageId === pageId) {
+      // Already associated, cache and return
+      successCache.set(pageId, { userId: user.id, expiry: now + 600000 }); // 10 min
+      return user;
+    }
+
+    try {
+      const token = isEncrypted(user.instagramAccessToken)
+        ? decrypt(user.instagramAccessToken)
+        : user.instagramAccessToken;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+
+      const res = await fetch(
+        `https://graph.facebook.com/v21.0/${pageId}?fields=instagram_business_account&access_token=${encodeURIComponent(token)}`,
+        { signal: controller.signal }
+      );
+      clearTimeout(timeout);
+
+      identityLog(`pageId=${pageId} user=${user.email} status=${res.status}`);
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        identityLog(
+          `pageId=${pageId} ERROR code=${errorData.error?.code || 'N/A'}`,
+          `type=${errorData.error?.type || 'N/A'}`,
+          `subcode=${errorData.error?.error_subcode || 'N/A'}`
+        );
+        continue;
+      }
+
+      const data = await res.json();
+      const igBusinessId = data.instagram_business_account?.id;
+
+      if (igBusinessId === user.instagramAccountId) {
+        // Match found! Save the pageId
+        await authStorage.updateUser(user.id, { facebookPageId: pageId });
+        identityLog(`SUCCESS associated pageId=${pageId} to user=${user.email}`);
+
+        // Cache success
+        successCache.set(pageId, { userId: user.id, expiry: now + 600000 }); // 10 min
+
+        return { ...user, facebookPageId: pageId };
+      }
+    } catch (e) {
+      identityLog(`pageId=${pageId} user=${user.email} EXCEPTION:`, e instanceof Error ? e.message : 'unknown');
+    }
+  }
+
+  // No match found, add to fail cache
+  failCache.set(pageId, now + 60000); // 60s cooldown
+  identityLog(`pageId=${pageId} no match, added to fail cache for 60s`);
+
+  return null;
+}
+
 // Helper function to get the base URL for OAuth callbacks
 // Handles multiple proxy headers (comma-separated values) common in Replit deployments
 function getBaseUrl(req: Request): string {
@@ -2147,9 +2245,9 @@ export async function registerRoutes(
         const subscribeRes = await fetch(subscribeUrl, { method: "POST" });
         const subscribeData = await subscribeRes.json() as any;
         console.log(`[OAUTH] 🔌 Subscription result:`, JSON.stringify(subscribeData));
-        
+
         if (!subscribeData.success) {
-           console.error("[OAUTH] ⚠️ Subscription returned false/failure!", subscribeData);
+          console.error("[OAUTH] ⚠️ Subscription returned false/failure!", subscribeData);
         }
       } catch (e) {
         console.error(`[OAUTH] ❌ Failed to subscribe to webhooks:`, e);
@@ -3558,15 +3656,29 @@ export async function registerRoutes(
       // Find the user who owns this Instagram account by matching instagramAccountId with recipient
       const allUsers = await authStorage.getAllUsers?.() || [];
 
-
       console.log(`Looking for user with Instagram account: ${recipientId}`);
       console.log(`Total users found: ${allUsers.length}`);
-      console.log(`Users with Instagram accounts: ${allUsers.filter((u: any) => u.instagramAccountId).map((u: any) => ({ id: u.id, instagramAccountId: u.instagramAccountId }))}`);
 
-      // Try to match by instagramAccountId first
+      // DM WEBHOOKS: entry.id is typically a Facebook Page ID, not Instagram Business ID
+      // Priority: facebookPageId > instagramAccountId > instagramRecipientId > auto-associate
+
+      // 1. Try facebookPageId first (DM webhooks use Page ID)
       let instagramUser = allUsers.find((u: any) =>
-        u.instagramAccountId && u.instagramAccountId === recipientId
+        u.facebookPageId && u.facebookPageId === recipientId
       );
+      if (instagramUser) {
+        console.log(`[DM-WEBHOOK] Matched user ${instagramUser.id} by facebookPageId`);
+      }
+
+      // 2. Fallback: instagramAccountId (legacy + comments)
+      if (!instagramUser) {
+        instagramUser = allUsers.find((u: any) =>
+          u.instagramAccountId && u.instagramAccountId === recipientId
+        );
+        if (instagramUser) {
+          console.log(`[DM-WEBHOOK] Matched user ${instagramUser.id} by instagramAccountId`);
+        }
+      }
 
       // If matched by instagramAccountId and recipientId is not stored yet, store it
       if (instagramUser && !instagramUser.instagramRecipientId) {
@@ -3582,33 +3694,24 @@ export async function registerRoutes(
         }
       }
 
-      // If not found by instagramAccountId, try by instagramRecipientId
+      // 3. Fallback: instagramRecipientId
       if (!instagramUser) {
         instagramUser = allUsers.find((u: any) =>
           u.instagramRecipientId && u.instagramRecipientId === recipientId
         );
         if (instagramUser) {
-          console.log(`Matched user ${instagramUser.id} by instagramRecipientId`);
-
-          // SYNC FIX: Also update instagramAccountId to match recipientId
-          // This ensures comments (which use instagramAccountId) will also work
-          if (instagramUser.instagramAccountId !== recipientId) {
-            try {
-              await authStorage.updateUser(instagramUser.id, {
-                instagramAccountId: recipientId
-              });
-              console.log(`✅ SYNC: Updated instagramAccountId to ${recipientId} for user ${instagramUser.id}`);
-              instagramUser.instagramAccountId = recipientId;
-            } catch (err) {
-              console.error("Failed to sync instagramAccountId:", err);
-            }
-          }
+          console.log(`[DM-WEBHOOK] Matched user ${instagramUser.id} by instagramRecipientId`);
         }
       }
 
-      // 🛡️ SECURITY PATCH: SMART AUTO-ASSOCIATION DISABLED
-      // Reason: This logic was causing data leaks by guessing which user owned the webhook.
-      // We REQUIRE explicit ID matching for security.
+      // 4. Auto-association: Try to discover facebookPageId via Graph API
+      if (!instagramUser && recipientId) {
+        console.log(`[DM-WEBHOOK] No direct match, attempting auto-association for pageId=${recipientId}`);
+        instagramUser = await autoAssociatePageId(recipientId, allUsers);
+        if (instagramUser) {
+          console.log(`[DM-WEBHOOK] Auto-associated user ${instagramUser.id} for pageId=${recipientId}`);
+        }
+      }
 
       // 🛡️ SECURITY AUDIT LOG (CAIXA PRETA)
       const auditLog = `[${new Date().toISOString()}] MID:${messageId || 'no-mid'} SENDER:${senderId} RECIPIENT:${recipientId} -> MATCH:${instagramUser ? instagramUser.id : 'NENHUM (BLOQUEADO)'}\n`;
