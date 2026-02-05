@@ -138,18 +138,25 @@ async function autoAssociatePageId(pageId: string, allUsers: any[]): Promise<any
         continue;
       }
 
+
       const data = await res.json();
       const igBusinessId = data.instagram_business_account?.id;
 
-      if (igBusinessId === user.instagramAccountId) {
-        // Match found! Save the pageId
-        await authStorage.updateUser(user.id, { facebookPageId: pageId });
-        identityLog(`SUCCESS associated pageId=${pageId} to user=${user.email}`);
+      // If we got data and the page has an instagram_business_account,
+      // this user's token can access this Page - they are the owner!
+      // Update BOTH facebookPageId AND instagramAccountId to correct values
+      if (igBusinessId) {
+        const updates: any = { 
+          facebookPageId: pageId,
+          instagramAccountId: igBusinessId  // Also update IG Business Account ID
+        };
+        await authStorage.updateUser(user.id, updates);
+        identityLog(`SUCCESS: Associated pageId=${pageId}, igBusinessId=${igBusinessId} to user=${user.email}`);
 
         // Cache success
         successCache.set(pageId, { userId: user.id, expiry: now + 600000 }); // 10 min
 
-        return { ...user, facebookPageId: pageId };
+        return { ...user, facebookPageId: pageId, instagramAccountId: igBusinessId };
       }
     } catch (e) {
       identityLog(`pageId=${pageId} user=${user.email} EXCEPTION:`, e instanceof Error ? e.message : 'unknown');
