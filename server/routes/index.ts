@@ -2138,6 +2138,23 @@ export async function registerRoutes(
 
       console.log(`[OAUTH] ✅ SAVE COMPLETED for user ${userId}`);
 
+      // SUBSCRIBE TO WEBHOOKS (CRITICAL FIX)
+      // This ensures the page/account actually sends the events we want
+      try {
+        console.log(`[OAUTH] 🔌 Subscribing to webhooks for account ${finalInstagramAccountId}...`);
+        const subscribeFields = "messages,messaging_postbacks,messaging_optins,message_reads";
+        const subscribeUrl = `https://graph.facebook.com/v21.0/${finalInstagramAccountId}/subscribed_apps?subscribed_fields=${subscribeFields}&access_token=${longLivedToken}`;
+        const subscribeRes = await fetch(subscribeUrl, { method: "POST" });
+        const subscribeData = await subscribeRes.json() as any;
+        console.log(`[OAUTH] 🔌 Subscription result:`, JSON.stringify(subscribeData));
+        
+        if (!subscribeData.success) {
+           console.error("[OAUTH] ⚠️ Subscription returned false/failure!", subscribeData);
+        }
+      } catch (e) {
+        console.error(`[OAUTH] ❌ Failed to subscribe to webhooks:`, e);
+      }
+
       // Clear any previous unmapped webhook errors upon successful connection
       await storage.setSetting("lastUnmappedWebhookRecipientId", "");
       await storage.setSetting("lastUnmappedWebhookTimestamp", "");
