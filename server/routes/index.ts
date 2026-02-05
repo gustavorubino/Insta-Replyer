@@ -163,6 +163,86 @@ async function autoAssociatePageId(pageId: string, allUsers: any[]): Promise<any
   return null;
 }
 
+// Auto-associate Instagram Business Account ID for comment webhooks
+// When object="instagram", entry.id is the IG Business Account ID (linked to Facebook Page)
+// OAuth saves Creator ID from /me, which may differ from this ID
+async function autoAssociateIgBusinessId(igBusinessId: string, allUsers: any[]): Promise<any | null> {
+  const now = Date.now();
+  const cacheKey = `ig:${igBusinessId}`;
+
+  // Check success cache first
+  const cached = successCache.get(cacheKey);
+  if (cached && cached.expiry > now) {
+    identityLog(`igBusinessId=${igBusinessId} found in cache -> userId=${cached.userId}`);
+    return allUsers.find(u => u.id === cached.userId) || null;
+  }
+
+  // Check fail cache (cooldown)
+  const failExpiry = failCache.get(cacheKey);
+  if (failExpiry && failExpiry > now) {
+    identityLog(`igBusinessId=${igBusinessId} in cooldown, skipping API call`);
+    return null;
+  }
+
+  for (const user of allUsers) {
+    if (!user.instagramAccessToken) continue;
+    // Already matches - cache and return
+    if (user.instagramAccountId === igBusinessId) {
+      successCache.set(cacheKey, { userId: user.id, expiry: now + 600000 }); // 10 min
+      return user;
+    }
+
+    try {
+      const token = isEncrypted(user.instagramAccessToken)
+        ? decrypt(user.instagramAccessToken)
+        : user.instagramAccessToken;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+
+      // Try to fetch this specific IG Business Account ID using the user's token
+      // If the token has access to this account, it will return data
+      const res = await fetch(
+        `https://graph.facebook.com/v21.0/${igBusinessId}?fields=id,username&access_token=${encodeURIComponent(token)}`,
+        { signal: controller.signal }
+      );
+      clearTimeout(timeout);
+
+      identityLog(`igBusinessId=${igBusinessId} user=${user.email} status=${res.status}`);
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        identityLog(
+          `igBusinessId=${igBusinessId} ERROR code=${errorData.error?.code || 'N/A'}`,
+          `type=${errorData.error?.type || 'N/A'}`
+        );
+        continue;
+      }
+
+      const data = await res.json();
+      // If we get here, this user's token has access to this IG Business Account
+      if (data.id === igBusinessId) {
+        // Update the user's instagramAccountId to the correct IG Business Account ID
+        await authStorage.updateUser(user.id, { instagramAccountId: igBusinessId });
+        identityLog(`SUCCESS: Updated instagramAccountId=${igBusinessId} for user=${user.email}`);
+
+        // Cache success
+        successCache.set(cacheKey, { userId: user.id, expiry: now + 600000 }); // 10 min
+
+        return { ...user, instagramAccountId: igBusinessId };
+      }
+    } catch (e) {
+      identityLog(`igBusinessId=${igBusinessId} user=${user.email} EXCEPTION:`, e instanceof Error ? e.message : 'unknown');
+    }
+  }
+
+  // No match found, add to fail cache
+  failCache.set(cacheKey, now + 60000); // 60s cooldown
+  identityLog(`igBusinessId=${igBusinessId} no match, added to fail cache for 60s`);
+
+  return null;
+}
+
 // Helper function to get the base URL for OAuth callbacks
 // Handles multiple proxy headers (comma-separated values) common in Replit deployments
 function getBaseUrl(req: Request): string {
@@ -3163,9 +3243,14 @@ export async function registerRoutes(
         }
       }
 
-      // 🛡️ SECURITY PATCH: FALLBACKS DISABLED
-      // Reason: Auto-association heuristics were causing data leaks between tenants.
-      // If the webhook pageId doesn't match a known user explicitly, we MUST ignore it.
+      // FALLBACK #2: Auto-associate IG Business Account ID via Graph API
+      if (!instagramUser && pageId) {
+        console.log("[COMMENT-WEBHOOK] ⚠️ Tentando auto-associação via Graph API...");
+        instagramUser = await autoAssociateIgBusinessId(pageId, allUsers);
+        if (instagramUser) {
+          console.log(`[COMMENT-WEBHOOK] ✅ Auto-associação bem sucedida! instagramAccountId atualizado para ${pageId}`);
+        }
+      }
 
       if (!instagramUser) {
         console.log(`[COMMENT-WEBHOOK] ❌ SECURITY: Webhook bloqueado para pageId ${pageId} - Sem match exato.`);
