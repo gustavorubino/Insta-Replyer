@@ -61,6 +61,10 @@ function addWebhookProcessingResult(result: WebhookProcessingResult, webhookTime
 // Store current webhook timestamp for processing context
 let currentWebhookTimestamp: string | undefined;
 
+// DM_TRACE: Safe debug logging for DM webhook flow (controlled by env var)
+const DM_TRACE = process.env.DM_TRACE === "true";
+const dmTrace = (...args: any[]) => DM_TRACE && console.log("[DM-TRACE]", ...args);
+
 // Helper function to get the base URL for OAuth callbacks
 // Handles multiple proxy headers (comma-separated values) common in Replit deployments
 function getBaseUrl(req: Request): string {
@@ -2824,6 +2828,12 @@ export async function registerRoutes(
 
       const { object, entry } = req.body;
 
+      // DM-TRACE: Log webhook hit (SAFE - no content/tokens)
+      dmTrace("WEBHOOK_HIT", `timestamp=${new Date().toISOString()}`);
+      for (const e of entry || []) {
+        dmTrace("ENTRY", `entryId=${e.id} hasMessaging=${!!(e.messaging?.length)} hasChanges=${!!(e.changes?.length)}`);
+      }
+
       // Log completo do webhook recebido para debug
       console.log("=== WEBHOOK INSTAGRAM RECEBIDO ===");
       console.log("Object:", object);
@@ -3487,10 +3497,9 @@ export async function registerRoutes(
       const senderId = messageData.sender?.id;
       const recipientId = messageData.recipient?.id;
 
-      // DEBUG MODE LOGGING - PROCESS DM START
-      // (Logs removed)
-
+      // PONTO 1 START: DM-TRACE log (SAFE - IDs only)
       const messageId = messageData.message?.mid;
+      dmTrace("START", `entryId=${entryId || 'N/A'} senderId=${senderId || 'N/A'} recipientId=${recipientId || 'N/A'} mid=${messageId || 'N/A'}`);
       let text = messageData.message?.text;
       const attachments = messageData.message?.attachments;
       const isEcho = messageData.message?.is_echo === true;
@@ -3592,7 +3601,16 @@ export async function registerRoutes(
         console.error("Falha ao gravar audit log:", err);
       }
 
+      // PONTO 2 MATCH: DM-TRACE log (SAFE - IDs and email only)
+      if (instagramUser) {
+        dmTrace("MATCH_RESULT=FOUND", `recipientId=${recipientId} user.id=${instagramUser.id} user.email=${instagramUser.email} user.instagramAccountId=${instagramUser.instagramAccountId} user.instagramRecipientId=${instagramUser.instagramRecipientId || 'N/A'}`);
+      } else {
+        dmTrace("MATCH_RESULT=NO_MATCH", `recipientId=${recipientId}`);
+      }
+
       if (!instagramUser) {
+        // PONTO 4 SKIP: DM-TRACE log for NO_MATCH
+        dmTrace("SKIPPED=true", `reason=NO_MATCH recipientId=${recipientId} mid=${messageId || 'N/A'}`);
         console.log(`[DM-WEBHOOK] ❌ SECURITY: Webhook bloqueado para recipientId ${recipientId} - Sem match exato.`);
 
         // Log unmapped webhook for debugging (admin only)
@@ -3807,6 +3825,8 @@ export async function registerRoutes(
       // Re-check for existing message now that we have the UserId (SaaS Isolation Secure Check)
       const existingMessage = await storage.getMessageByInstagramId(messageId, instagramUser.id);
       if (existingMessage) {
+        // PONTO 4 SKIP: DM-TRACE log for DUPLICATE
+        dmTrace("SKIPPED=true", `reason=DUPLICATE mid=${messageId}`);
         console.log("Message already exists:", messageId);
         return;
       }
@@ -3826,7 +3846,8 @@ export async function registerRoutes(
         mediaType: mediaType,
       });
 
-      // Fetch conversation history for context
+      // PONTO 3 ENQUEUE: DM-TRACE log (SAFE - IDs only)
+      dmTrace("ENQUEUED=true", `messageId=${newMessage.id} userId=${instagramUser.id} mid=${messageId}`);
       const historyMessages = await storage.getConversationHistory(senderId, instagramUser.id, 10);
       const conversationHistory: ConversationHistoryEntry[] = historyMessages
         .filter(m => m.id !== newMessage.id) // Exclude the current message
