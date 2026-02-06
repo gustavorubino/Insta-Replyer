@@ -3318,6 +3318,29 @@ export async function registerRoutes(
         u.instagramAccountId && u.instagramAccountId === pageId
       );
 
+      // AUTO-CONFIGURE: If matched by instagramAccountId and recipientId is not stored yet, store it
+      if (instagramUser && !instagramUser.instagramRecipientId) {
+        try {
+          await authStorage.updateUser(instagramUser.id, {
+            instagramRecipientId: pageId
+          });
+          // Update the in-memory object so subsequent checks use the new value
+          instagramUser.instagramRecipientId = pageId;
+          console.log(`[COMMENT-WEBHOOK] [WEBHOOK-AUTO-CONFIG] ✅ Configured instagramRecipientId=${pageId} for user ${instagramUser.email}`);
+          
+          // Clear the unmapped webhook alert since we successfully configured
+          try {
+            await storage.setSetting("lastUnmappedWebhookRecipientId", "");
+            await storage.setSetting("lastUnmappedWebhookTimestamp", "");
+            console.log(`[COMMENT-WEBHOOK] ✅ Cleared unmapped webhook alert after auto-configuration`);
+          } catch (err) {
+            console.error("[COMMENT-WEBHOOK] Failed to clear unmapped webhook alert:", err);
+          }
+        } catch (err) {
+          console.error("[COMMENT-WEBHOOK] Failed to store instagramRecipientId:", err);
+        }
+      }
+
       // FALLBACK #1: Try matching by instagramRecipientId
       if (!instagramUser) {
         console.log("[COMMENT-WEBHOOK] ⚠️ Não encontrado por instagramAccountId, tentando instagramRecipientId...");
@@ -3874,7 +3897,16 @@ export async function registerRoutes(
           });
           // CRITICAL: Update the in-memory object so subsequent checks use the new value
           instagramUser.instagramRecipientId = recipientId;
-          console.log(`Stored instagramRecipientId=${recipientId} for user ${instagramUser.id}`);
+          console.log(`[DM-WEBHOOK] [WEBHOOK-AUTO-CONFIG] ✅ Configured instagramRecipientId=${recipientId} for user ${instagramUser.email}`);
+          
+          // Clear the unmapped webhook alert since we successfully configured
+          try {
+            await storage.setSetting("lastUnmappedWebhookRecipientId", "");
+            await storage.setSetting("lastUnmappedWebhookTimestamp", "");
+            console.log(`[DM-WEBHOOK] ✅ Cleared unmapped webhook alert after auto-configuration`);
+          } catch (err) {
+            console.error("[DM-WEBHOOK] Failed to clear unmapped webhook alert:", err);
+          }
         } catch (err) {
           console.error("Failed to store instagramRecipientId:", err);
         }

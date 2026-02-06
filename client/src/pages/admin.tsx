@@ -654,8 +654,11 @@ export default function Admin() {
               <p className="text-sm text-amber-600 dark:text-amber-400 mb-2">
                 Um webhook do Instagram chegou com o ID: <code className="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">{webhookStatusData.lastUnmappedWebhookRecipientId}</code>
               </p>
-              <p className="text-sm text-amber-600 dark:text-amber-400">
-                Configure o "ID Webhook" de um usuário abaixo com este valor para receber mensagens.
+              <p className="text-sm text-amber-600 dark:text-amber-400 mb-2">
+                O sistema está configurando automaticamente. Aguarde alguns instantes ou envie uma nova mensagem de teste.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Se o problema persistir, o sistema tentará auto-associar este webhook ID com uma conta conectada quando o próximo evento chegar.
               </p>
               {webhookStatusData.lastUnmappedWebhookTimestamp && (
                 <p className="text-xs text-amber-500 dark:text-amber-500/70 mt-1">
