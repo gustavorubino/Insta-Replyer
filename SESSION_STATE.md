@@ -10,6 +10,7 @@
 
 ## O que foi feito
 - Adicionado campo `facebookPageId` ao schema users
+- **FIX APLICADO (06/02)**: Adicionado código para limpar o alerta "Webhook não mapeado" após auto-associação bem-sucedida em DMs e Comentários
 - **DMs (object="page")**: match por facebookPageId, fallback instagramAccountId, auto-associação via Graph API
 - **Comentários (object="instagram")**: match por instagramAccountId, auto-associação via verificação de acesso ao token
 - Admin UI atualizada para editar `facebookPageId` (label: "Facebook Page ID (DMs)")

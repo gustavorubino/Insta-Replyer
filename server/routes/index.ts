@@ -3342,6 +3342,14 @@ export async function registerRoutes(
         instagramUser = await autoAssociateIgBusinessId(pageId, allUsers);
         if (instagramUser) {
           console.log(`[COMMENT-WEBHOOK] ✅ Auto-associação bem sucedida! instagramAccountId atualizado para ${pageId}`);
+          // Clear the unmapped webhook alert since we successfully matched
+          try {
+            await storage.setSetting("lastUnmappedWebhookRecipientId", "");
+            await storage.setSetting("lastUnmappedWebhookTimestamp", "");
+            console.log(`[COMMENT-WEBHOOK] ✅ Cleared unmapped webhook alert after auto-association`);
+          } catch (err) {
+            console.error("Failed to clear unmapped webhook alert:", err);
+          }
         }
       }
 
@@ -3888,6 +3896,14 @@ export async function registerRoutes(
         instagramUser = await autoAssociateIgBusinessId(recipientId, allUsers);
         if (instagramUser) {
           console.log(`[DM-WEBHOOK] Auto-associated user ${instagramUser.id} for igBusinessId=${recipientId}`);
+          // Clear the unmapped webhook alert since we successfully matched
+          try {
+            await storage.setSetting("lastUnmappedWebhookRecipientId", "");
+            await storage.setSetting("lastUnmappedWebhookTimestamp", "");
+            console.log(`[DM-WEBHOOK] ✅ Cleared unmapped webhook alert after auto-association`);
+          } catch (err) {
+            console.error("Failed to clear unmapped webhook alert:", err);
+          }
         }
       }
 
