@@ -243,15 +243,66 @@ export async function generateAIResponse(
   // Fetch knowledge base context if userId is provided
   let knowledgeContext = "";
   let ragContext = ""; // New RAG context
+  let guidelinesContext = ""; // Guidelines context
+  
+  // NEW: Golden Corrections will be added as few-shot examples in messages array
+  let goldenCorrections: Array<{ question: string; answer: string }> = [];
 
   if (userId) {
+    // Fetch Knowledge Context (Links & Files)
     try {
       knowledgeContext = await storage.getKnowledgeContext(userId);
       if (knowledgeContext) {
         console.log(`[OpenAI] Knowledge context loaded for user ${userId}, length: ${knowledgeContext.length}`);
       }
+    } catch (err) {
+      console.error("[OpenAI] Error loading knowledge context:", err);
+    }
 
-      // RAG Logic
+    // Fetch User Guidelines (Diretrizes)
+    try {
+      const guidelines = await storage.getGuidelines(userId);
+      const activeGuidelines = guidelines.filter(g => g.isActive);
+      if (activeGuidelines.length > 0) {
+        const guidelinesList = activeGuidelines
+          .sort((a, b) => b.priority - a.priority) // Higher priority first
+          .map((g, i) => `${i + 1}. [Prioridade ${g.priority}] ${g.rule}`)
+          .join("\n");
+        
+        guidelinesContext = `
+═══════════════════════════════════════════════════════
+DIRETRIZES (PRIORIDADE MÁXIMA - SEGUIR RIGOROSAMENTE):
+${guidelinesList}
+═══════════════════════════════════════════════════════
+IMPORTANTE: Estas diretrizes têm PRIORIDADE MÁXIMA e devem ser seguidas 
+acima de qualquer outro comportamento. Elas definem regras fundamentais
+do seu comportamento e nunca devem ser ignoradas.
+
+`;
+        console.log(`[OpenAI] Guidelines loaded: ${activeGuidelines.length} active rules`);
+      }
+    } catch (err) {
+      console.error("[OpenAI] Error loading guidelines:", err);
+    }
+
+    // Fetch Golden Corrections (Manual Q&A) for few-shot examples
+    try {
+      // Note: getManualQA returns entries sorted by createdAt DESC (most recent first)
+      const manualQA = await storage.getManualQA(userId);
+      if (manualQA.length > 0) {
+        // Use the 10 most recent golden corrections as few-shot examples
+        goldenCorrections = manualQA.slice(0, 10).map(qa => ({
+          question: qa.question,
+          answer: qa.answer
+        }));
+        console.log(`[OpenAI] Golden Corrections loaded: ${goldenCorrections.length} examples for few-shot learning`);
+      }
+    } catch (err) {
+      console.error("[OpenAI] Error loading golden corrections:", err);
+    }
+
+    // RAG Logic
+    try {
       const dataset = await storage.getDataset(userId);
       if (dataset.length > 0) {
         const queryEmbedding = await generateEmbedding(messageContent);
@@ -281,7 +332,7 @@ Use estes exemplos como referência rigorosa de estilo e tom.
         }
       }
     } catch (err) {
-      console.error("[OpenAI] Error loading context (Knowledge/RAG):", err);
+      console.error("[OpenAI] Error loading RAG context:", err);
     }
   }
 
@@ -378,6 +429,7 @@ ${contextPoints.map((p, i) => `${i + 1}. ${p}`).join("\n")}
 
   const prompt = `${systemPrompt}
 
+${guidelinesContext}
 ${knowledgeContext ? `\n${knowledgeContext}\n` : ""}
 ${ragContext}
 ${learningContext}
@@ -478,11 +530,30 @@ A confiança deve ser um número entre 0 e 1, onde:
       }
     }
 
+    // Build messages array with few-shot examples from Golden Corrections
+    const messages: ChatCompletionMessageParam[] = [
+      { 
+        role: "system", 
+        content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (shouldUseVision ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações e arquivos enviados." : "") 
+      }
+    ];
+
+    // Add Golden Corrections as few-shot examples
+    if (goldenCorrections.length > 0) {
+      console.log(`[OpenAI] Adding ${goldenCorrections.length} Golden Corrections as few-shot examples`);
+      for (const correction of goldenCorrections) {
+        messages.push(
+          { role: "user", content: correction.question },
+          { role: "assistant", content: correction.answer }
+        );
+      }
+    }
+
+    // Add the actual user message
+    messages.push({ role: "user", content: userContent });
+
     const message = await callOpenAI(
-      [
-        { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (shouldUseVision ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações e arquivos enviados." : "") },
-        { role: "user", content: userContent },
-      ],
+      messages,
       undefined, // tools
       { type: "json_object" } // responseFormat
     );
@@ -618,11 +689,59 @@ export async function regenerateResponse(
 
   // Fetch knowledge base context if userId is provided
   let knowledgeContext = "";
+  let guidelinesContext = "";
+  
+  // NEW: Golden Corrections will be added as few-shot examples in messages array
+  let goldenCorrections: Array<{ question: string; answer: string }> = [];
+  
   if (userId) {
+    // Fetch Knowledge Context (Links & Files)
     try {
       knowledgeContext = await storage.getKnowledgeContext(userId);
     } catch (err) {
-      console.error("[OpenAI] Error loading knowledge context for regenerate:", err);
+      console.error("[OpenAI] Regenerate: Error loading knowledge context:", err);
+    }
+    
+    // Fetch User Guidelines (Diretrizes)
+    try {
+      const guidelines = await storage.getGuidelines(userId);
+      const activeGuidelines = guidelines.filter(g => g.isActive);
+      if (activeGuidelines.length > 0) {
+        const guidelinesList = activeGuidelines
+          .sort((a, b) => b.priority - a.priority) // Higher priority first
+          .map((g, i) => `${i + 1}. [Prioridade ${g.priority}] ${g.rule}`)
+          .join("\n");
+        
+        guidelinesContext = `
+═══════════════════════════════════════════════════════
+DIRETRIZES (PRIORIDADE MÁXIMA - SEGUIR RIGOROSAMENTE):
+${guidelinesList}
+═══════════════════════════════════════════════════════
+IMPORTANTE: Estas diretrizes têm PRIORIDADE MÁXIMA e devem ser seguidas 
+acima de qualquer outro comportamento. Elas definem regras fundamentais
+do seu comportamento e nunca devem ser ignoradas.
+
+`;
+        console.log(`[OpenAI] Regenerate: Guidelines loaded: ${activeGuidelines.length} active rules`);
+      }
+    } catch (err) {
+      console.error("[OpenAI] Regenerate: Error loading guidelines:", err);
+    }
+
+    // Fetch Golden Corrections (Manual Q&A) for few-shot examples
+    try {
+      // Note: getManualQA returns entries sorted by createdAt DESC (most recent first)
+      const manualQA = await storage.getManualQA(userId);
+      if (manualQA.length > 0) {
+        // Use the 10 most recent golden corrections as few-shot examples
+        goldenCorrections = manualQA.slice(0, 10).map(qa => ({
+          question: qa.question,
+          answer: qa.answer
+        }));
+        console.log(`[OpenAI] Regenerate: Golden Corrections loaded: ${goldenCorrections.length} examples`);
+      }
+    } catch (err) {
+      console.error("[OpenAI] Regenerate: Error loading golden corrections:", err);
     }
   }
 
@@ -716,6 +835,7 @@ ${contextPointsRegen.map((p, i) => `${i + 1}. ${p}`).join("\n")}
   }
 
   const prompt = `${systemPrompt}
+${guidelinesContext}
 ${knowledgeContext ? `\n${knowledgeContext}\n` : ""}
 ${postContextSection}${conversationHistorySection}
 A resposta anterior foi rejeitada ou o usuário pediu uma nova sugestão.
@@ -758,11 +878,30 @@ Responda em formato JSON com a seguinte estrutura:
       }
     }
 
+    // Build messages array with few-shot examples from Golden Corrections
+    const messagesRegen: ChatCompletionMessageParam[] = [
+      { 
+        role: "system", 
+        content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (useVision && hasPostImageRegen ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") 
+      }
+    ];
+
+    // Add Golden Corrections as few-shot examples
+    if (goldenCorrections.length > 0) {
+      console.log(`[OpenAI] Regenerate: Adding ${goldenCorrections.length} Golden Corrections as few-shot examples`);
+      for (const correction of goldenCorrections) {
+        messagesRegen.push(
+          { role: "user", content: correction.question },
+          { role: "assistant", content: correction.answer }
+        );
+      }
+    }
+
+    // Add the actual user message
+    messagesRegen.push({ role: "user", content: userContentRegen });
+
     const message = await callOpenAI(
-      [
-        { role: "system", content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (useVision && hasPostImageRegen ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") },
-        { role: "user", content: userContentRegen },
-      ],
+      messagesRegen,
       undefined, // tools
       { type: "json_object" } // responseFormat
     );
