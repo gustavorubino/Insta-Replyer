@@ -11,6 +11,9 @@ export function startTokenRefreshJob() {
     try {
       await checkExpiringTokens();
       
+      // AUTO-FIX: Validate and configure missing webhook IDs
+      await autoFixMissingRecipientIds();
+      
       const now = new Date();
       const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
