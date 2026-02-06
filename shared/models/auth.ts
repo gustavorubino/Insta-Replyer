@@ -32,7 +32,6 @@ export const users = pgTable("users", {
   instagramAccessToken: varchar("instagram_access_token"),
   instagramRecipientId: varchar("instagram_recipient_id"),
   facebookPageId: varchar("facebook_page_id"),
-  pageAccessToken: varchar("page_access_token"), // Page token for webhook subscription
   // Token management for auto-renewal
   tokenExpiresAt: timestamp("token_expires_at"),
   tokenRefreshedAt: timestamp("token_refreshed_at"),
