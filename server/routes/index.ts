@@ -337,10 +337,10 @@ function getMessageContentForAI(message: { content: string | null; mediaType?: s
   return getMediaTypeDescription(message.mediaType);
 }
 
-// Instagram Business Login OAuth endpoints
-const FACEBOOK_GRAPH_API = "https://graph.facebook.com/v18.0";
-const INSTAGRAM_AUTH_URL = "https://api.instagram.com/oauth/authorize";
-const INSTAGRAM_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
+// Instagram Business Login OAuth endpoints (using Facebook Graph API for proper Business ID capture)
+const FACEBOOK_GRAPH_API = "https://graph.facebook.com/v21.0";
+const INSTAGRAM_AUTH_URL = "https://www.facebook.com/v21.0/dialog/oauth";
+const INSTAGRAM_TOKEN_URL = "https://graph.facebook.com/v21.0/oauth/access_token";
 
 // Use environment variables for Instagram App credentials
 const INSTAGRAM_APP_ID = process.env.INSTAGRAM_APP_ID || "";
@@ -2042,11 +2042,13 @@ export async function registerRoutes(
       const stateData = `${nonce}.${signature}`;
 
       // Build OAuth URL with required scopes for Instagram Business Login
-      // Using Meta Graph API permissions
+      // Using Facebook Graph API permissions for proper Page token capture
       const scopes = [
-        "instagram_business_basic",
-        "instagram_business_manage_messages",
-        "instagram_business_manage_comments"
+        "pages_show_list",
+        "pages_manage_metadata",
+        "instagram_basic",
+        "instagram_manage_messages",
+        "instagram_manage_comments"
       ].join(",");
 
       const authUrl = `${INSTAGRAM_AUTH_URL}?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=${stateData}`;
