@@ -3077,6 +3077,10 @@ export async function registerRoutes(
       recentWebhooks.pop();
     }
 
+    // 🔒 DEDUPLICATION: Track processed message IDs within this webhook request
+    // Prevents duplicate processing when Meta sends same message in both 'changes' and 'messaging' arrays
+    const processedMessageIds = new Set<string>();
+
     try {
       // Verify webhook signature from Meta
       const signature = req.headers["x-hub-signature-256"] as string | undefined;
@@ -3196,7 +3200,7 @@ export async function registerRoutes(
 
               if (adaptedMessage.sender?.id || graphValue.from?.id) {
                 console.log(">>> Processing DM from Graph API format");
-                await processWebhookMessage(adaptedMessage, entryItem.id);
+                await processWebhookMessage(adaptedMessage, entryItem.id, processedMessageIds);
               } else {
                 console.log("[DM-GRAPH] ⚠️ Could not extract sender ID from Graph API payload");
               }
@@ -3231,7 +3235,7 @@ export async function registerRoutes(
 
           if (messageEvent.message) {
             console.log(">>> Processing DM webhook");
-            await processWebhookMessage(messageEvent, entryItem.id);
+            await processWebhookMessage(messageEvent, entryItem.id, processedMessageIds);
           }
         }
       }
@@ -3811,7 +3815,7 @@ export async function registerRoutes(
     };
   }
 
-  async function processWebhookMessage(messageData: any, entryId?: string) {
+  async function processWebhookMessage(messageData: any, entryId: string | undefined, processedMids: Set<string>) {
     try {
       console.log(`[DM-WEBHOOK] START PROCESSING`);
       console.log(`[DM-WEBHOOK] Payload Sender (Who sent it): ${messageData.sender?.id}`);
@@ -3858,6 +3862,16 @@ export async function registerRoutes(
         console.log("Missing required message data (no text and no attachments)");
         return;
       }
+
+      // 🔒 DEDUPLICATION: Check if already processed in this webhook batch, then mark as processing
+      // This check happens AFTER validation to ensure only valid messages are tracked
+      if (processedMids.has(messageId)) {
+        console.log(`[DM-WEBHOOK] ⏭️ SKIPPING duplicate mid=${messageId} (already processed in this webhook batch)`);
+        dmTrace("SKIPPED=true", `reason=DUPLICATE_IN_BATCH mid=${messageId}`);
+        return;
+      }
+      processedMids.add(messageId);
+      console.log(`[DM-WEBHOOK] 🔖 Marked mid=${messageId} as processing in this batch`);
 
       // ⚠️ MOVED: Message check must happen AFTER identifying the user
       // See below...
