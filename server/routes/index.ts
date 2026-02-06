@@ -3287,6 +3287,18 @@ export async function registerRoutes(
       const text = commentData.text;
       const fromUser = commentData.from;
 
+      // 🔒 GLOBAL DEDUPLICATION: Check if already processed in ANY recent webhook request
+      // This prevents duplicate processing when Meta sends same comment in separate HTTP requests
+      if (commentId && recentlyProcessedMids.has(commentId)) {
+        console.log(`[COMMENT-WEBHOOK] ⏭️ GLOBAL DEDUP: commentId=${commentId} already processed within last ${DEDUP_CACHE_TTL_MS / 1000}s, skipping`);
+        return;
+      }
+      // Mark immediately as being processed to prevent race conditions
+      if (commentId) {
+        recentlyProcessedMids.set(commentId, Date.now());
+        console.log(`[COMMENT-WEBHOOK] 🌐 Marked commentId=${commentId} as processing globally`);
+      }
+
       console.log("[COMMENT-WEBHOOK] Dados extraídos:");
       console.log("  - Comment ID:", commentId);
       console.log("  - Media ID:", mediaId);
