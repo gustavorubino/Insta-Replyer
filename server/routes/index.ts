@@ -76,6 +76,8 @@ const failCache: Map<string, number> = new Map(); // pageId -> expiry timestamp 
 
 // In-memory cache for webhook message deduplication (idempotency)
 // Prevents the same message ID from being processed multiple times within a short window
+// NOTE: For multi-instance deployments, consider using Redis or similar distributed cache
+// The database unique constraint on instagramId provides additional protection
 const processedMessageIds: Map<string, number> = new Map(); // messageId -> expiry timestamp (5 min TTL)
 
 // Clean expired cache entries periodically
