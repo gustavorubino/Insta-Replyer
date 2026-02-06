@@ -74,6 +74,10 @@ interface AssocCacheEntry { userId: string; expiry: number; }
 const successCache: Map<string, AssocCacheEntry> = new Map(); // pageId -> userId (10 min TTL)
 const failCache: Map<string, number> = new Map(); // pageId -> expiry timestamp (60s cooldown)
 
+// In-memory cache for webhook message deduplication (idempotency)
+// Prevents the same message ID from being processed multiple times within a short window
+const processedMessageIds: Map<string, number> = new Map(); // messageId -> expiry timestamp (5 min TTL)
+
 // Clean expired cache entries periodically
 function cleanAssocCache() {
   const now = Date.now();
@@ -82,6 +86,10 @@ function cleanAssocCache() {
   }
   for (const [key, expiry] of failCache) {
     if (expiry < now) failCache.delete(key);
+  }
+  // Clean processed message IDs
+  for (const [key, expiry] of processedMessageIds) {
+    if (expiry < now) processedMessageIds.delete(key);
   }
 }
 setInterval(cleanAssocCache, 60000); // Clean every minute
@@ -3761,6 +3769,28 @@ export async function registerRoutes(
 
       console.log(`[DM-WEBHOOK] entryId=${entryId}, senderId=${senderId}, recipientId=${recipientId}, is_echo=${isEcho}`);
 
+      // Accept messages with text OR attachments
+      if (!messageId || (!text && !attachments?.length)) {
+        console.log("Missing required message data (no text and no attachments)");
+        return;
+      }
+
+      // =====================================================================
+      // IDEMPOTENCY CHECK: Prevent duplicate processing of the same message
+      // =====================================================================
+      // Check if this message ID was already processed recently (within 5 minutes)
+      const now = Date.now();
+      const existingTimestamp = processedMessageIds.get(messageId);
+      if (existingTimestamp && existingTimestamp > now) {
+        console.log(`[DM-WEBHOOK] ⚠️ DUPLICATE DETECTED: Message ${messageId} already processed. Skipping.`);
+        dmTrace("SKIPPED=true", `reason=ALREADY_PROCESSING mid=${messageId}`);
+        return;
+      }
+
+      // Mark this message as being processed (TTL: 5 minutes)
+      processedMessageIds.set(messageId, now + 5 * 60 * 1000);
+      console.log(`[DM-WEBHOOK] ✅ Message ${messageId} marked as processing (cached for 5 min)`);
+
       // CRITICAL: "echo" messages are messages SENT by the business account
       // We want to process them as MANUAL REPLIES for synchronization
       if (isEcho) {
@@ -3781,12 +3811,6 @@ export async function registerRoutes(
         console.log(`[DM-WEBHOOK] Sender matches entry ID - outgoing message from account ${entryId} -> REGISTRANDO COMO MANUAL`);
         isManualReply = true;
         // return; // REMOVED RETURN
-      }
-
-      // Accept messages with text OR attachments
-      if (!messageId || (!text && !attachments?.length)) {
-        console.log("Missing required message data (no text and no attachments)");
-        return;
       }
 
       // ⚠️ MOVED: Message check must happen AFTER identifying the user
