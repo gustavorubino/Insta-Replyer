@@ -2185,17 +2185,25 @@ export async function registerRoutes(
       console.log(`Token expires at: ${tokenExpiresAt.toISOString()} (in ${Math.round(expiresIn / 86400)} days)`);
 
       // Get Instagram user info using Instagram Graph API - fetch multiple fields including profile_pic
-      const igUserUrl = `https://graph.instagram.com/me?fields=id,username,account_type,name,profile_picture_url&access_token=${longLivedToken}`;
+      // CRITICAL: Include 'user_id' field - this returns the Instagram Professional Account ID
+      // that matches the recipient_id in webhook payloads. The 'id' field is app-scoped and different!
+      const igUserUrl = `https://graph.instagram.com/me?fields=id,user_id,username,account_type,name,profile_picture_url&access_token=${longLivedToken}`;
       console.log("Fetching Instagram user info...");
       const igUserResponse = await fetch(igUserUrl);
       const igUserData = await igUserResponse.json() as any;
       console.log("Instagram user data received:", JSON.stringify(igUserData));
 
-      // Use 'id' from the response (Instagram API returns 'id', not 'user_id')
-      const instagramAccountId = String(igUserData.id || instagramUserId);
+      // CRITICAL FIX: Use 'user_id' (Instagram Professional Account ID) for webhook matching
+      // The 'id' field is an app-scoped Facebook user ID that doesn't match webhook recipient_id
+      // 'user_id' returns the actual Instagram Professional Account ID (e.g., 17841401958671989)
+      const igProfessionalId = igUserData.user_id ? String(igUserData.user_id) : null;
+      const igAppScopedId = String(igUserData.id || instagramUserId);
+      const instagramAccountId = igProfessionalId || igAppScopedId;
       let instagramUsername = igUserData.username || "";
 
-      console.log(`[OAUTH] 🔍 Extracted Account ID: ${instagramAccountId}`);
+      console.log(`[OAUTH] 🔍 App-Scoped ID (id): ${igAppScopedId}`);
+      console.log(`[OAUTH] 🔍 Professional Account ID (user_id): ${igProfessionalId || "NOT RETURNED"}`);
+      console.log(`[OAUTH] 🔍 Final Account ID to use: ${instagramAccountId}`);
       console.log(`[OAUTH] 🔍 Extracted Username: ${instagramUsername || "(empty)"}`);
 
       // FALLBACK: If username not returned, try additional API calls
