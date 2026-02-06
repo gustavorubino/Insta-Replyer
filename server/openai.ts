@@ -427,14 +427,16 @@ ${contextPoints.map((p, i) => `${i + 1}. ${p}`).join("\n")}
     }
   }
 
-  const prompt = `${systemPrompt}
+  // Build the full system prompt with all knowledge sources
+  const fullSystemPrompt = `${systemPrompt}
 
 ${guidelinesContext}
 ${knowledgeContext ? `\n${knowledgeContext}\n` : ""}
 ${ragContext}
 ${learningContext}
-${postContextSection}${conversationHistorySection}
-Agora, gere uma resposta para a seguinte mensagem:
+${postContextSection}${conversationHistorySection}`;
+
+  const userPrompt = `Agora, gere uma resposta para a seguinte mensagem:
 
 Tipo: ${messageType === "dm" ? "Mensagem Direta (DM)" : "Comentário"}
 Remetente: ${senderName}
@@ -463,7 +465,7 @@ A confiança deve ser um número entre 0 e 1, onde:
     if (shouldUseVision) {
       // Vision mode: include image in the message
       const contentParts: (TextContent | ImageContent)[] = [
-        { type: "text", text: prompt }
+        { type: "text", text: userPrompt }
       ];
 
       if (hasPostImage && postImageUrl) {
@@ -524,7 +526,7 @@ A confiança deve ser um número entre 0 e 1, onde:
       });
       console.log("[OpenAI] Payload content structure:", JSON.stringify(contentSummary));
     } else {
-      userContent = prompt;
+      userContent = userPrompt;
       if (!useVision && (hasPostImage || hasAttachments)) {
         console.log("[OpenAI] Sending request WITHOUT vision (fallback mode)");
       }
@@ -534,7 +536,7 @@ A confiança deve ser um número entre 0 e 1, onde:
     const messages: ChatCompletionMessageParam[] = [
       { 
         role: "system", 
-        content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (shouldUseVision ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações e arquivos enviados." : "") 
+        content: fullSystemPrompt + (shouldUseVision ? "\nVocê pode analisar imagens anexadas para entender o contexto visual das publicações e arquivos enviados." : "") 
       }
     ];
 
@@ -684,8 +686,19 @@ export async function regenerateResponse(
   commentContext?: CommentContext,
   conversationHistory?: ConversationHistoryEntry[]
 ): Promise<GenerateResponseResult> {
-  const systemPromptSetting = await storage.getSetting("systemPrompt");
-  const systemPrompt = systemPromptSetting?.value || getDefaultSystemPrompt();
+  // 1. Get System Prompt (Per-user or Global fallback)
+  let systemPrompt = "";
+  if (userId) {
+    const user = await storage.getUser(userId);
+    if (user?.aiContext) {
+      systemPrompt = user.aiContext;
+    }
+  }
+
+  if (!systemPrompt) {
+    const systemPromptSetting = await storage.getSetting("systemPrompt");
+    systemPrompt = systemPromptSetting?.value || getDefaultSystemPrompt();
+  }
 
   // Fetch knowledge base context if userId is provided
   let knowledgeContext = "";
@@ -834,11 +847,13 @@ ${contextPointsRegen.map((p, i) => `${i + 1}. ${p}`).join("\n")}
     }
   }
 
-  const prompt = `${systemPrompt}
+  // Build the full system prompt with all knowledge sources
+  const fullSystemPrompt = `${systemPrompt}
 ${guidelinesContext}
 ${knowledgeContext ? `\n${knowledgeContext}\n` : ""}
-${postContextSection}${conversationHistorySection}
-A resposta anterior foi rejeitada ou o usuário pediu uma nova sugestão.
+${postContextSection}${conversationHistorySection}`;
+
+  const userPrompt = `A resposta anterior foi rejeitada ou o usuário pediu uma nova sugestão.
 
 Resposta anterior (que não foi aprovada): "${previousSuggestion}"
 
@@ -861,7 +876,7 @@ Responda em formato JSON com a seguinte estrutura:
     
     if (useVision && hasPostImageRegen && postImageUrlRegen) {
       userContentRegen = [
-        { type: "text", text: prompt },
+        { type: "text", text: userPrompt },
         { 
           type: "image_url", 
           image_url: { 
@@ -872,7 +887,7 @@ Responda em formato JSON com a seguinte estrutura:
       ];
       console.log("[OpenAI] Regenerate: sending request with vision (image attached)");
     } else {
-      userContentRegen = prompt;
+      userContentRegen = userPrompt;
       if (!useVision && hasPostImageRegen) {
         console.log("[OpenAI] Regenerate: sending request WITHOUT vision (fallback mode)");
       }
@@ -882,7 +897,7 @@ Responda em formato JSON com a seguinte estrutura:
     const messagesRegen: ChatCompletionMessageParam[] = [
       { 
         role: "system", 
-        content: "Você é um assistente que responde mensagens do Instagram de forma profissional e amigável. Sempre responda em português brasileiro." + (useVision && hasPostImageRegen ? " Você pode analisar imagens anexadas para entender o contexto visual das publicações." : "") 
+        content: fullSystemPrompt + (useVision && hasPostImageRegen ? "\nVocê pode analisar imagens anexadas para entender o contexto visual das publicações." : "") 
       }
     ];
 
