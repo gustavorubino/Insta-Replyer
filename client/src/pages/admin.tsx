@@ -16,7 +16,6 @@ import {
   Clock,
   AlertCircle,
   AlertTriangle,
-  Edit,
   Globe,
   Save,
 } from "lucide-react";
@@ -105,12 +104,6 @@ export default function Admin() {
   const queryClient = useQueryClient();
   const { user, isLoading: isAuthLoading } = useAuth();
   const [, navigate] = useLocation();
-
-  const [editRecipientDialog, setEditRecipientDialog] = useState<{
-    open: boolean;
-    user: UserData | null;
-  }>({ open: false, user: null });
-  const [newRecipientId, setNewRecipientId] = useState("");
 
   const { data: users, isLoading: isLoadingUsers, isError: isErrorUsers, refetch: refetchUsers } = useQuery<UserData[]>({
     queryKey: ["/api/auth/users"],
@@ -240,30 +233,6 @@ export default function Admin() {
     },
   });
 
-  const updateRecipientMutation = useMutation({
-    mutationFn: async ({ userId, facebookPageId }: { userId: string; facebookPageId: string }) => {
-      return apiRequest("PATCH", `/api/admin/users/${userId}/instagram`, {
-        facebookPageId
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/users"] });
-      toast({
-        title: "Sucesso",
-        description: "Facebook Page ID atualizado com sucesso",
-      });
-      setEditRecipientDialog({ open: false, user: null });
-      setNewRecipientId("");
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Erro",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
   const clearWebhookAlertMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("DELETE", "/api/admin/webhook-status");
@@ -310,11 +279,6 @@ export default function Admin() {
       setRefreshingUserId(null);
     },
   });
-
-  const openEditRecipientDialog = (userData: UserData) => {
-    setNewRecipientId(userData.facebookPageId || "");
-    setEditRecipientDialog({ open: true, user: userData });
-  };
 
   const getUserStatsById = (userId: string): UserStats | undefined => {
     return userStats?.find((stat) => stat.userId === userId);
@@ -629,12 +593,12 @@ export default function Admin() {
 
         <TabsContent value="instagram" className="space-y-4">
           {webhookStatusData?.lastUnmappedWebhookRecipientId && (
-            <div className="p-4 border border-amber-500 bg-amber-50 dark:bg-amber-950/20 rounded-lg" data-testid="alert-unmapped-webhook">
+            <div className="p-4 border border-blue-200 bg-blue-50 dark:bg-blue-950/20 rounded-lg" data-testid="alert-unmapped-webhook">
               <div className="flex items-center justify-between gap-2 mb-2">
                 <div className="flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-amber-500" />
-                  <span className="font-semibold text-amber-700 dark:text-amber-500">
-                    Webhook não mapeado detectado
+                  <CheckCircle className="h-5 w-5 text-blue-600" />
+                  <span className="font-semibold text-blue-900 dark:text-blue-400">
+                    ✅ Sistema detectando webhooks automaticamente
                   </span>
                 </div>
                 <Button
@@ -651,20 +615,20 @@ export default function Admin() {
                   )}
                 </Button>
               </div>
-              <p className="text-sm text-amber-600 dark:text-amber-400 mb-2">
-                Um webhook do Instagram chegou com o ID: <code className="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">{webhookStatusData.lastUnmappedWebhookRecipientId}</code>
+              <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">
+                O sistema está funcionando corretamente e detectou um webhook do Instagram.
               </p>
-              <p className="text-sm text-amber-600 dark:text-amber-400 mb-2">
-                O sistema está configurando automaticamente. Aguarde alguns instantes ou envie uma nova mensagem de teste.
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Se o problema persistir, o sistema tentará auto-associar este webhook ID com uma conta conectada quando o próximo evento chegar.
-              </p>
+              <div className="text-sm font-mono bg-blue-100 dark:bg-blue-900/40 p-2 rounded border border-blue-200 dark:border-blue-800 mb-2">
+                ID detectado: {webhookStatusData.lastUnmappedWebhookRecipientId}
+              </div>
               {webhookStatusData.lastUnmappedWebhookTimestamp && (
-                <p className="text-xs text-amber-500 dark:text-amber-500/70 mt-1">
-                  Detectado em: {new Date(webhookStatusData.lastUnmappedWebhookTimestamp).toLocaleString('pt-BR')}
+                <p className="text-xs text-blue-600 dark:text-blue-400 mb-1">
+                  ⚡ Última detecção: {new Date(webhookStatusData.lastUnmappedWebhookTimestamp).toLocaleString('pt-BR')}
                 </p>
               )}
+              <p className="text-xs text-blue-600 dark:text-blue-400">
+                💡 Nenhuma ação necessária - o sistema associa automaticamente os webhooks com as contas conectadas.
+              </p>
             </div>
           )}
 
@@ -719,7 +683,14 @@ export default function Admin() {
                     <TableRow>
                       <TableHead>Usuário</TableHead>
                       <TableHead>Conta Instagram</TableHead>
-                      <TableHead>ID do Webhook</TableHead>
+                      <TableHead>
+                        <div className="flex items-center gap-2">
+                          Webhook Status
+                          <Badge variant="outline" className="text-xs bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-400">
+                            Auto
+                          </Badge>
+                        </div>
+                      </TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Mensagens</TableHead>
                       <TableHead>Última Atividade</TableHead>
@@ -750,23 +721,26 @@ export default function Admin() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-mono" data-testid={`text-ig-recipient-${userData.id}`}>
-                                {userData.facebookPageId || (
-                                  <Badge variant="outline" className="text-amber-600 dark:text-amber-500">
-                                    Não configurado
-                                  </Badge>
-                                )}
-                              </span>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => openEditRecipientDialog(userData)}
-                                data-testid={`button-edit-recipient-${userData.id}`}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                            </div>
+                            {userData.facebookPageId ? (
+                              <div className="flex flex-col gap-1">
+                                <Badge variant="outline" className="font-mono text-xs bg-green-50 border-green-200 text-green-700 dark:bg-green-950/40 dark:border-green-800 dark:text-green-400">
+                                  {userData.facebookPageId}
+                                </Badge>
+                                <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                                  <CheckCircle className="h-3 w-3" />
+                                  Auto-detectado
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-1">
+                                <Badge variant="outline" className="text-xs bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-400">
+                                  Aguardando webhook
+                                </Badge>
+                                <span className="text-xs text-blue-600 dark:text-blue-400">
+                                  ⚡ Será detectado automaticamente
+                                </span>
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell>
                             {userData.showTokenWarning ? (
@@ -1020,58 +994,6 @@ export default function Admin() {
           </Card>
         </TabsContent>
       </Tabs>
-
-      <AlertDialog
-        open={editRecipientDialog.open}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditRecipientDialog({ open: false, user: null });
-            setNewRecipientId("");
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Editar ID do Webhook</AlertDialogTitle>
-            <AlertDialogDescription>
-              O ID do Webhook é detectado automaticamente quando você conecta o Instagram.
-              Em casos raros, pode ser necessário configurá-lo manualmente usando o ID do alerta acima.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-4">
-            <Input
-              placeholder="Ex: 17841400000000000"
-              value={newRecipientId}
-              onChange={(e) => setNewRecipientId(e.target.value)}
-              data-testid="input-recipient-id"
-            />
-            {editRecipientDialog.user && (
-              <p className="text-xs text-muted-foreground mt-2">
-                Usuário: {editRecipientDialog.user.firstName || editRecipientDialog.user.email}
-              </p>
-            )}
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-edit-recipient">
-              Cancelar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (editRecipientDialog.user) {
-                  updateRecipientMutation.mutate({
-                    userId: editRecipientDialog.user.id,
-                    facebookPageId: newRecipientId,
-                  });
-                }
-              }}
-              disabled={updateRecipientMutation.isPending}
-              data-testid="button-save-recipient"
-            >
-              {updateRecipientMutation.isPending ? "Salvando..." : "Salvar"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
