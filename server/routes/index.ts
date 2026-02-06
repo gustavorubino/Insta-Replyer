@@ -94,11 +94,16 @@ setInterval(cleanAssocCache, 60000); // Clean every minute
 
 // Clean recently processed message IDs older than TTL
 function cleanRecentlyProcessedMids() {
+  const before = recentlyProcessedMids.size;
   const cutoff = Date.now() - DEDUP_CACHE_TTL_MS;
   for (const [mid, timestamp] of recentlyProcessedMids) {
     if (timestamp < cutoff) {
       recentlyProcessedMids.delete(mid);
     }
+  }
+  const after = recentlyProcessedMids.size;
+  if (before !== after) {
+    console.log(`[DEDUP-CACHE] Cleaned ${before - after} expired entries, ${after} remaining`);
   }
 }
 setInterval(cleanRecentlyProcessedMids, DEDUP_CLEANUP_INTERVAL_MS);
@@ -3882,12 +3887,14 @@ export async function registerRoutes(
 
       // 🔒 GLOBAL DEDUPLICATION: Check if already processed in ANY recent webhook request
       // This prevents duplicate processing when Meta sends same message in separate HTTP requests
+      // NOTE: Check-then-set is not atomic, but race window is acceptable - any slipped duplicates
+      // will be caught by the database check (getMessageByInstagramId) later in processing
       if (recentlyProcessedMids.has(messageId)) {
         console.log(`[DM-WEBHOOK] ⏭️ GLOBAL DEDUP: mid=${messageId} already processed within last ${DEDUP_CACHE_TTL_MS / 1000}s, skipping`);
         dmTrace("SKIPPED=true", `reason=GLOBAL_DEDUP mid=${messageId}`);
         return;
       }
-      // Mark immediately as being processed to prevent race conditions
+      // Mark immediately as being processed to prevent most race conditions
       recentlyProcessedMids.set(messageId, Date.now());
       console.log(`[DM-WEBHOOK] 🌐 Marked mid=${messageId} as processing globally`);
 
