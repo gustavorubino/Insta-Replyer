@@ -3789,10 +3789,6 @@ export async function registerRoutes(
         return;
       }
 
-      // Mark this message as being processed (TTL: 5 minutes)
-      processedMessageIds.set(messageId, now + 5 * 60 * 1000);
-      console.log(`[DM-WEBHOOK] ✅ Message ${messageId} marked as processing (cached for 5 min)`);
-
       // CRITICAL: "echo" messages are messages SENT by the business account
       // We want to process them as MANUAL REPLIES for synchronization
       if (isEcho) {
@@ -3927,6 +3923,10 @@ export async function registerRoutes(
         console.error("UNEXPECTED: instagramUser still undefined after all matching attempts");
         return;
       }
+
+      // Mark this message as being processed (TTL: 5 minutes)
+      processedMessageIds.set(messageId, now + 5 * 60 * 1000);
+      console.log(`[DM-WEBHOOK] ✅ Message ${messageId} marked as processing (cached for 5 min)`);
 
       // ===== BUG FIX: FILTER OUT OUTGOING MESSAGES =====
       // Instagram webhooks send BOTH incoming and outgoing messages.
