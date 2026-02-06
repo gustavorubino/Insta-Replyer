@@ -3864,7 +3864,8 @@ export async function registerRoutes(
       dmTrace("START", `entryId=${entryId || 'N/A'} senderId=${senderId || 'N/A'} recipientId=${recipientId || 'N/A'} mid=${messageId || 'N/A'}`);
       
       // 🔒 GLOBAL CROSS-REQUEST DEDUP: Primary defense against Meta's double-delivery
-      // Check IMMEDIATELY after extracting mid, BEFORE any other processing
+      // Check IMMEDIATELY after extracting mid, BEFORE any meaningful processing
+      // (dmTrace above is just debug logging - safe to call even for duplicates)
       if (messageId && recentlyProcessedMids.has(messageId)) {
         console.log(`[DM-WEBHOOK] ⏭️ GLOBAL DEDUP: mid=${messageId} already processed in another request, skipping`);
         dmTrace("SKIPPED=true", `reason=GLOBAL_DEDUP mid=${messageId}`);
