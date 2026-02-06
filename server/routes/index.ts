@@ -74,6 +74,10 @@ interface AssocCacheEntry { userId: string; expiry: number; }
 const successCache: Map<string, AssocCacheEntry> = new Map(); // pageId -> userId (10 min TTL)
 const failCache: Map<string, number> = new Map(); // pageId -> expiry timestamp (60s cooldown)
 
+// Global deduplication cache for webhook messages (prevents duplicate processing across requests)
+// Maps Instagram message ID (mid) -> timestamp when first processed
+const recentlyProcessedMids = new Map<string, number>();
+
 // Clean expired cache entries periodically
 function cleanAssocCache() {
   const now = Date.now();
@@ -85,6 +89,17 @@ function cleanAssocCache() {
   }
 }
 setInterval(cleanAssocCache, 60000); // Clean every minute
+
+// Clean recently processed message IDs older than 120 seconds
+function cleanRecentlyProcessedMids() {
+  const cutoff = Date.now() - 120000; // 120 seconds
+  for (const [mid, timestamp] of recentlyProcessedMids) {
+    if (timestamp < cutoff) {
+      recentlyProcessedMids.delete(mid);
+    }
+  }
+}
+setInterval(cleanRecentlyProcessedMids, 30000); // Clean every 30 seconds
 
 // Auto-associate Facebook Page ID to user by calling Graph API
 async function autoAssociatePageId(pageId: string, allUsers: any[]): Promise<any | null> {
@@ -3862,6 +3877,17 @@ export async function registerRoutes(
         console.log("Missing required message data (no text and no attachments)");
         return;
       }
+
+      // 🔒 GLOBAL DEDUPLICATION: Check if already processed in ANY recent webhook request
+      // This prevents duplicate processing when Meta sends same message in separate HTTP requests
+      if (recentlyProcessedMids.has(messageId)) {
+        console.log(`[DM-WEBHOOK] ⏭️ GLOBAL DEDUP: mid=${messageId} already processed within last 120s, skipping`);
+        dmTrace("SKIPPED=true", `reason=GLOBAL_DEDUP mid=${messageId}`);
+        return;
+      }
+      // Mark immediately as being processed to prevent race conditions
+      recentlyProcessedMids.set(messageId, Date.now());
+      console.log(`[DM-WEBHOOK] 🌐 Marked mid=${messageId} as processing globally`);
 
       // 🔒 DEDUPLICATION: Check if already processed in this webhook batch, then mark as processing
       // This check happens AFTER validation to ensure only valid messages are tracked
