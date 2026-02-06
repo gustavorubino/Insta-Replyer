@@ -194,7 +194,7 @@ async function autoAssociateIgBusinessId(igBusinessId: string, allUsers: any[]):
   for (const user of allUsers) {
     if (!user.instagramAccessToken) continue;
     // Already matches - cache and return
-    if (user.instagramAccountId === igBusinessId) {
+    if (user.instagramAccountId === igBusinessId || user.instagramRecipientId === igBusinessId) {
       successCache.set(cacheKey, { userId: user.id, expiry: now + 600000 }); // 10 min
       return user;
     }
@@ -207,36 +207,38 @@ async function autoAssociateIgBusinessId(igBusinessId: string, allUsers: any[]):
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
 
-      // Try to fetch this specific IG Business Account ID using the user's token
-      // If the token has access to this account, it will return data
-      const res = await fetch(
-        `https://graph.facebook.com/v21.0/${igBusinessId}?fields=id,username&access_token=${encodeURIComponent(token)}`,
+      // STRATEGY 1: Try graph.instagram.com/me (works with Instagram tokens)
+      // This returns the user's Instagram account ID that their token belongs to
+      const meRes = await fetch(
+        `https://graph.instagram.com/me?fields=id,username&access_token=${encodeURIComponent(token)}`,
         { signal: controller.signal }
       );
       clearTimeout(timeout);
 
-      identityLog(`igBusinessId=${igBusinessId} user=${user.email} status=${res.status}`);
+      if (meRes.ok) {
+        const meData = await meRes.json();
+        identityLog(`igBusinessId=${igBusinessId} user=${user.email} /me returned id=${meData.id}`);
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
+        // If the user's token returns THIS igBusinessId, they own this account
+        if (meData.id === igBusinessId) {
+          // Update both instagramAccountId and instagramRecipientId to the correct value
+          await authStorage.updateUser(user.id, {
+            instagramAccountId: igBusinessId,
+            instagramRecipientId: igBusinessId
+          });
+          identityLog(`SUCCESS: Updated instagramAccountId AND instagramRecipientId=${igBusinessId} for user=${user.email}`);
+
+          // Cache success
+          successCache.set(cacheKey, { userId: user.id, expiry: now + 600000 }); // 10 min
+
+          return { ...user, instagramAccountId: igBusinessId, instagramRecipientId: igBusinessId };
+        }
+      } else {
+        const errorData = await meRes.json().catch(() => ({}));
         identityLog(
-          `igBusinessId=${igBusinessId} ERROR code=${errorData.error?.code || 'N/A'}`,
+          `igBusinessId=${igBusinessId} user=${user.email} /me ERROR code=${errorData.error?.code || 'N/A'}`,
           `type=${errorData.error?.type || 'N/A'}`
         );
-        continue;
-      }
-
-      const data = await res.json();
-      // If we get here, this user's token has access to this IG Business Account
-      if (data.id === igBusinessId) {
-        // Update the user's instagramAccountId to the correct IG Business Account ID
-        await authStorage.updateUser(user.id, { instagramAccountId: igBusinessId });
-        identityLog(`SUCCESS: Updated instagramAccountId=${igBusinessId} for user=${user.email}`);
-
-        // Cache success
-        successCache.set(cacheKey, { userId: user.id, expiry: now + 600000 }); // 10 min
-
-        return { ...user, instagramAccountId: igBusinessId };
       }
     } catch (e) {
       identityLog(`igBusinessId=${igBusinessId} user=${user.email} EXCEPTION:`, e instanceof Error ? e.message : 'unknown');
