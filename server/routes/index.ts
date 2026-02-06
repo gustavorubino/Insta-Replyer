@@ -3815,7 +3815,7 @@ export async function registerRoutes(
     };
   }
 
-  async function processWebhookMessage(messageData: any, entryId?: string, processedMids?: Set<string>) {
+  async function processWebhookMessage(messageData: any, entryId: string | undefined, processedMids: Set<string>) {
     try {
       console.log(`[DM-WEBHOOK] START PROCESSING`);
       console.log(`[DM-WEBHOOK] Payload Sender (Who sent it): ${messageData.sender?.id}`);
@@ -3832,13 +3832,6 @@ export async function registerRoutes(
       const attachments = messageData.message?.attachments;
       const isEcho = messageData.message?.is_echo === true;
       let isManualReply = false;
-
-      // 🔒 EARLY DEDUPLICATION: Check if this message ID was already processed in this webhook batch
-      if (messageId && processedMids?.has(messageId)) {
-        console.log(`[DM-WEBHOOK] ⏭️ SKIPPING duplicate mid=${messageId} (already processed in this webhook batch)`);
-        dmTrace("SKIPPED=true", `reason=DUPLICATE_IN_BATCH mid=${messageId}`);
-        return;
-      }
 
       console.log(`[DM-WEBHOOK] entryId=${entryId}, senderId=${senderId}, recipientId=${recipientId}, is_echo=${isEcho}`);
 
@@ -3870,11 +3863,15 @@ export async function registerRoutes(
         return;
       }
 
-      // 🔒 MARK as processing: Add this message ID to the processed set
-      if (processedMids) {
-        processedMids.add(messageId);
-        console.log(`[DM-WEBHOOK] 🔖 Marked mid=${messageId} as processing in this batch`);
+      // 🔒 DEDUPLICATION: Check if already processed in this webhook batch, then mark as processing
+      // This check happens AFTER validation to ensure only valid messages are tracked
+      if (processedMids.has(messageId)) {
+        console.log(`[DM-WEBHOOK] ⏭️ SKIPPING duplicate mid=${messageId} (already processed in this webhook batch)`);
+        dmTrace("SKIPPED=true", `reason=DUPLICATE_IN_BATCH mid=${messageId}`);
+        return;
       }
+      processedMids.add(messageId);
+      console.log(`[DM-WEBHOOK] 🔖 Marked mid=${messageId} as processing in this batch`);
 
       // ⚠️ MOVED: Message check must happen AFTER identifying the user
       // See below...
