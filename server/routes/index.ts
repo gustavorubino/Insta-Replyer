@@ -77,6 +77,8 @@ const failCache: Map<string, number> = new Map(); // pageId -> expiry timestamp 
 // Global deduplication cache for webhook messages (prevents duplicate processing across requests)
 // Maps Instagram message ID (mid) -> timestamp when first processed
 const recentlyProcessedMids = new Map<string, number>();
+const DEDUP_CACHE_TTL_MS = 120000; // 120 seconds - how long to remember processed message IDs
+const DEDUP_CLEANUP_INTERVAL_MS = 30000; // 30 seconds - how often to clean expired entries
 
 // Clean expired cache entries periodically
 function cleanAssocCache() {
@@ -90,16 +92,16 @@ function cleanAssocCache() {
 }
 setInterval(cleanAssocCache, 60000); // Clean every minute
 
-// Clean recently processed message IDs older than 120 seconds
+// Clean recently processed message IDs older than TTL
 function cleanRecentlyProcessedMids() {
-  const cutoff = Date.now() - 120000; // 120 seconds
+  const cutoff = Date.now() - DEDUP_CACHE_TTL_MS;
   for (const [mid, timestamp] of recentlyProcessedMids) {
     if (timestamp < cutoff) {
       recentlyProcessedMids.delete(mid);
     }
   }
 }
-setInterval(cleanRecentlyProcessedMids, 30000); // Clean every 30 seconds
+setInterval(cleanRecentlyProcessedMids, DEDUP_CLEANUP_INTERVAL_MS);
 
 // Auto-associate Facebook Page ID to user by calling Graph API
 async function autoAssociatePageId(pageId: string, allUsers: any[]): Promise<any | null> {
@@ -3881,7 +3883,7 @@ export async function registerRoutes(
       // 🔒 GLOBAL DEDUPLICATION: Check if already processed in ANY recent webhook request
       // This prevents duplicate processing when Meta sends same message in separate HTTP requests
       if (recentlyProcessedMids.has(messageId)) {
-        console.log(`[DM-WEBHOOK] ⏭️ GLOBAL DEDUP: mid=${messageId} already processed within last 120s, skipping`);
+        console.log(`[DM-WEBHOOK] ⏭️ GLOBAL DEDUP: mid=${messageId} already processed within last ${DEDUP_CACHE_TTL_MS / 1000}s, skipping`);
         dmTrace("SKIPPED=true", `reason=GLOBAL_DEDUP mid=${messageId}`);
         return;
       }
