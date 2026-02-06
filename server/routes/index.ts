@@ -74,6 +74,12 @@ interface AssocCacheEntry { userId: string; expiry: number; }
 const successCache: Map<string, AssocCacheEntry> = new Map(); // pageId -> userId (10 min TTL)
 const failCache: Map<string, number> = new Map(); // pageId -> expiry timestamp (60s cooldown)
 
+// Global deduplication cache for webhook messages (prevents duplicate processing across requests)
+// Maps Instagram message ID (mid) -> timestamp when first processed
+const recentlyProcessedMids = new Map<string, number>();
+const DEDUP_CACHE_TTL_MS = 120000; // 120 seconds - how long to remember processed message IDs
+const DEDUP_CLEANUP_INTERVAL_MS = 30000; // 30 seconds - how often to clean expired entries
+
 // Clean expired cache entries periodically
 function cleanAssocCache() {
   const now = Date.now();
@@ -85,6 +91,22 @@ function cleanAssocCache() {
   }
 }
 setInterval(cleanAssocCache, 60000); // Clean every minute
+
+// Clean recently processed message IDs older than TTL
+function cleanRecentlyProcessedMids() {
+  const before = recentlyProcessedMids.size;
+  const cutoff = Date.now() - DEDUP_CACHE_TTL_MS;
+  for (const [mid, timestamp] of recentlyProcessedMids) {
+    if (timestamp < cutoff) {
+      recentlyProcessedMids.delete(mid);
+    }
+  }
+  const after = recentlyProcessedMids.size;
+  if (before !== after) {
+    console.log(`[DEDUP-CACHE] Cleaned ${before - after} expired entries, ${after} remaining`);
+  }
+}
+setInterval(cleanRecentlyProcessedMids, DEDUP_CLEANUP_INTERVAL_MS);
 
 // Auto-associate Facebook Page ID to user by calling Graph API
 async function autoAssociatePageId(pageId: string, allUsers: any[]): Promise<any | null> {
@@ -3862,6 +3884,19 @@ export async function registerRoutes(
         console.log("Missing required message data (no text and no attachments)");
         return;
       }
+
+      // 🔒 GLOBAL DEDUPLICATION: Check if already processed in ANY recent webhook request
+      // This prevents duplicate processing when Meta sends same message in separate HTTP requests
+      // NOTE: Check-then-set is not atomic, but race window is acceptable - any slipped duplicates
+      // will be caught by the database check (getMessageByInstagramId) later in processing
+      if (recentlyProcessedMids.has(messageId)) {
+        console.log(`[DM-WEBHOOK] ⏭️ GLOBAL DEDUP: mid=${messageId} already processed within last ${DEDUP_CACHE_TTL_MS / 1000}s, skipping`);
+        dmTrace("SKIPPED=true", `reason=GLOBAL_DEDUP mid=${messageId}`);
+        return;
+      }
+      // Mark immediately as being processed to prevent most race conditions
+      recentlyProcessedMids.set(messageId, Date.now());
+      console.log(`[DM-WEBHOOK] 🌐 Marked mid=${messageId} as processing globally`);
 
       // 🔒 DEDUPLICATION: Check if already processed in this webhook batch, then mark as processing
       // This check happens AFTER validation to ensure only valid messages are tracked
