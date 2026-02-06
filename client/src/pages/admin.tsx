@@ -716,7 +716,7 @@ export default function Admin() {
                     <TableRow>
                       <TableHead>Usuário</TableHead>
                       <TableHead>Conta Instagram</TableHead>
-                      <TableHead>Facebook Page ID (DMs)</TableHead>
+                      <TableHead>ID do Webhook</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Mensagens</TableHead>
                       <TableHead>Última Atividade</TableHead>
@@ -1029,10 +1029,10 @@ export default function Admin() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Editar Facebook Page ID (DMs)</AlertDialogTitle>
+            <AlertDialogTitle>Editar ID do Webhook</AlertDialogTitle>
             <AlertDialogDescription>
-              O Facebook Page ID é usado para identificar webhooks de DMs.
-              Você pode configurá-lo manualmente usando o ID que aparece no alerta de webhook não mapeado.
+              O ID do Webhook é detectado automaticamente quando você conecta o Instagram.
+              Em casos raros, pode ser necessário configurá-lo manualmente usando o ID do alerta acima.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4">

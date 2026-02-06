@@ -2285,10 +2285,12 @@ export async function registerRoutes(
       let finalInstagramRecipientId = instagramAccountId;
       let facebookPageId: string | null = null;
 
-      // Query Facebook Pages to find instagram_business_account ID
+      let pageAccessToken: string | null = null;
+
+      // Query Facebook Pages to find instagram_business_account ID and Page Access Token
       try {
-        const pagesUrl = `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,instagram_business_account&access_token=${encodeURIComponent(longLivedToken)}`;
-        console.log("[OAUTH] 🔍 Fetching Facebook Pages to get instagram_business_account ID...");
+        const pagesUrl = `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,instagram_business_account,access_token&access_token=${encodeURIComponent(longLivedToken)}`;
+        console.log("[OAUTH] 🔍 Fetching Facebook Pages to get instagram_business_account ID and Page Access Token...");
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -2306,9 +2308,11 @@ export async function registerRoutes(
           for (const page of pagesData.data) {
             if (page.instagram_business_account?.id) {
               facebookPageId = page.id;
+              pageAccessToken = page.access_token || null;
               const igBusinessId = page.instagram_business_account.id;
 
               console.log(`[OAUTH] ✅ Found IG Business Account: ${igBusinessId} via Page: ${facebookPageId} (${page.name})`);
+              console.log(`[OAUTH] 🔑 Page Access Token: ${pageAccessToken ? 'captured (' + pageAccessToken.length + ' chars)' : 'NOT FOUND'}`);
 
               // Use the correct instagram_business_account ID for webhook matching
               finalInstagramAccountId = igBusinessId;
@@ -2355,6 +2359,8 @@ export async function registerRoutes(
         instagramRecipientId: finalInstagramRecipientId,
         // Facebook Page ID for DM webhook matching (object="page")
         facebookPageId: facebookPageId,
+        // Page Access Token for webhook subscription (encrypted for security)
+        pageAccessToken: pageAccessToken ? encrypt(pageAccessToken) : null,
       };
 
       console.log(`Storing Instagram profile pic: ${profilePictureUrl ? "found" : "not available"}`);
@@ -2370,18 +2376,43 @@ export async function registerRoutes(
 
       console.log(`[OAUTH] ✅ SAVE COMPLETED for user ${userId}`);
 
-      // SUBSCRIBE TO WEBHOOKS (CRITICAL FIX)
-      // This ensures the page/account actually sends the events we want
-      try {
-        console.log(`[OAUTH] 🔌 Subscribing to webhooks for account ${finalInstagramAccountId}...`);
-        const subscribeFields = "messages,messaging_postbacks,messaging_optins,message_reads";
-        const subscribeUrl = `https://graph.facebook.com/v21.0/${finalInstagramAccountId}/subscribed_apps?subscribed_fields=${subscribeFields}&access_token=${longLivedToken}`;
-        const subscribeRes = await fetch(subscribeUrl, { method: "POST" });
-        const subscribeData = await subscribeRes.json() as any;
-        console.log(`[OAUTH] 🔌 Subscription result:`, JSON.stringify(subscribeData));
+      // Fallback subscription helper (inline to avoid ES5 function declaration issue)
+      const doFallbackSubscription = async (accountId: string, token: string) => {
+        try {
+          console.log(`[OAUTH] 🔌 Fallback: Subscribing with Instagram token for account ${accountId}...`);
+          const subscribeFields = "comments,mentions";
+          const subscribeUrl = `https://graph.facebook.com/v21.0/${accountId}/subscribed_apps?subscribed_fields=${subscribeFields}&access_token=${encodeURIComponent(token)}`;
+          const subscribeRes = await fetch(subscribeUrl, { method: "POST" });
+          const subscribeData = await subscribeRes.json() as any;
+          console.log(`[OAUTH] 🔌 Fallback subscription result:`, JSON.stringify(subscribeData));
+        } catch (e) {
+          console.error(`[OAUTH] ❌ Fallback subscription failed:`, e);
+        }
+      };
 
-        if (!subscribeData.success) {
-          console.error("[OAUTH] ⚠️ Subscription returned false/failure!", subscribeData);
+      // SUBSCRIBE TO WEBHOOKS (CRITICAL: Must use Page ID + Page Access Token for DM webhooks)
+      // Meta requires POST /{page-id}/subscribed_apps with Page Access Token, not Instagram token
+      try {
+        if (facebookPageId && pageAccessToken) {
+          // CORRECT METHOD: Use Facebook Page ID + Page Access Token for DM webhooks
+          console.log(`[OAUTH] 🔌 Subscribing to webhooks using Page ID: ${facebookPageId}...`);
+          const subscribeFields = "messages,messaging_postbacks,messaging_optins,message_reads";
+          const subscribeUrl = `https://graph.facebook.com/v21.0/${facebookPageId}/subscribed_apps?subscribed_fields=${subscribeFields}&access_token=${encodeURIComponent(pageAccessToken)}`;
+          const subscribeRes = await fetch(subscribeUrl, { method: "POST" });
+          const subscribeData = await subscribeRes.json() as any;
+          console.log(`[OAUTH] 🔌 Subscription result:`, JSON.stringify(subscribeData));
+
+          if (subscribeData.success) {
+            console.log(`[OAUTH] ✅ Webhook subscription successful for Page ${facebookPageId}`);
+          } else {
+            console.error("[OAUTH] ⚠️ Subscription returned false/failure!", subscribeData);
+            // Try fallback with Instagram token for comments
+            await doFallbackSubscription(finalInstagramAccountId, longLivedToken);
+          }
+        } else {
+          // FALLBACK: Try with Instagram token (may work for comments, but likely fails for DMs)
+          console.log(`[OAUTH] ⚠️ No Page Access Token available, trying fallback...`);
+          await doFallbackSubscription(finalInstagramAccountId, longLivedToken);
         }
       } catch (e) {
         console.error(`[OAUTH] ❌ Failed to subscribe to webhooks:`, e);
