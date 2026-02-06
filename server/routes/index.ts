@@ -3862,6 +3862,21 @@ export async function registerRoutes(
       // PONTO 1 START: DM-TRACE log (SAFE - IDs only)
       const messageId = messageData.message?.mid;
       dmTrace("START", `entryId=${entryId || 'N/A'} senderId=${senderId || 'N/A'} recipientId=${recipientId || 'N/A'} mid=${messageId || 'N/A'}`);
+      
+      // 🔒 GLOBAL CROSS-REQUEST DEDUP: Primary defense against Meta's double-delivery
+      // Check IMMEDIATELY after extracting mid, BEFORE any meaningful processing
+      // (dmTrace above is just debug logging - safe to call even for duplicates)
+      if (messageId && recentlyProcessedMids.has(messageId)) {
+        console.log(`[DM-WEBHOOK] ⏭️ GLOBAL DEDUP: mid=${messageId} already processed in another request, skipping`);
+        dmTrace("SKIPPED=true", `reason=GLOBAL_DEDUP mid=${messageId}`);
+        return;
+      }
+      // Mark as processing IMMEDIATELY to win any race condition
+      if (messageId) {
+        recentlyProcessedMids.set(messageId, Date.now());
+        console.log(`[DM-WEBHOOK] 🌐 Marked mid=${messageId} as processing globally`);
+      }
+
       let text = messageData.message?.text;
       const attachments = messageData.message?.attachments;
       const isEcho = messageData.message?.is_echo === true;
@@ -3896,19 +3911,6 @@ export async function registerRoutes(
         console.log("Missing required message data (no text and no attachments)");
         return;
       }
-
-      // 🔒 GLOBAL DEDUPLICATION: Check if already processed in ANY recent webhook request
-      // This prevents duplicate processing when Meta sends same message in separate HTTP requests
-      // NOTE: Check-then-set is not atomic, but race window is acceptable - any slipped duplicates
-      // will be caught by the database check (getMessageByInstagramId) later in processing
-      if (recentlyProcessedMids.has(messageId)) {
-        console.log(`[DM-WEBHOOK] ⏭️ GLOBAL DEDUP: mid=${messageId} already processed within last ${DEDUP_CACHE_TTL_MS / 1000}s, skipping`);
-        dmTrace("SKIPPED=true", `reason=GLOBAL_DEDUP mid=${messageId}`);
-        return;
-      }
-      // Mark immediately as being processed to prevent most race conditions
-      recentlyProcessedMids.set(messageId, Date.now());
-      console.log(`[DM-WEBHOOK] 🌐 Marked mid=${messageId} as processing globally`);
 
       // 🔒 DEDUPLICATION: Check if already processed in this webhook batch, then mark as processing
       // This check happens AFTER validation to ensure only valid messages are tracked
