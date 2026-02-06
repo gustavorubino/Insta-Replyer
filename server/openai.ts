@@ -249,13 +249,18 @@ export async function generateAIResponse(
   let goldenCorrections: Array<{ question: string; answer: string }> = [];
 
   if (userId) {
+    // Fetch Knowledge Context (Links & Files)
     try {
       knowledgeContext = await storage.getKnowledgeContext(userId);
       if (knowledgeContext) {
         console.log(`[OpenAI] Knowledge context loaded for user ${userId}, length: ${knowledgeContext.length}`);
       }
+    } catch (err) {
+      console.error("[OpenAI] Error loading knowledge context:", err);
+    }
 
-      // NEW: Fetch User Guidelines (Diretrizes)
+    // Fetch User Guidelines (Diretrizes)
+    try {
       const guidelines = await storage.getGuidelines(userId);
       const activeGuidelines = guidelines.filter(g => g.isActive);
       if (activeGuidelines.length > 0) {
@@ -276,19 +281,28 @@ do seu comportamento e nunca devem ser ignoradas.
 `;
         console.log(`[OpenAI] Guidelines loaded: ${activeGuidelines.length} active rules`);
       }
+    } catch (err) {
+      console.error("[OpenAI] Error loading guidelines:", err);
+    }
 
-      // NEW: Fetch Golden Corrections (Manual Q&A) for few-shot examples
+    // Fetch Golden Corrections (Manual Q&A) for few-shot examples
+    try {
+      // Note: getManualQA returns entries sorted by createdAt DESC (most recent first)
       const manualQA = await storage.getManualQA(userId);
       if (manualQA.length > 0) {
-        // Use the most recent 10 golden corrections as few-shot examples
+        // Use the 10 most recent golden corrections as few-shot examples
         goldenCorrections = manualQA.slice(0, 10).map(qa => ({
           question: qa.question,
           answer: qa.answer
         }));
         console.log(`[OpenAI] Golden Corrections loaded: ${goldenCorrections.length} examples for few-shot learning`);
       }
+    } catch (err) {
+      console.error("[OpenAI] Error loading golden corrections:", err);
+    }
 
-      // RAG Logic
+    // RAG Logic
+    try {
       const dataset = await storage.getDataset(userId);
       if (dataset.length > 0) {
         const queryEmbedding = await generateEmbedding(messageContent);
@@ -318,7 +332,7 @@ Use estes exemplos como referência rigorosa de estilo e tom.
         }
       }
     } catch (err) {
-      console.error("[OpenAI] Error loading context (Knowledge/RAG/Guidelines):", err);
+      console.error("[OpenAI] Error loading RAG context:", err);
     }
   }
 
@@ -681,10 +695,15 @@ export async function regenerateResponse(
   let goldenCorrections: Array<{ question: string; answer: string }> = [];
   
   if (userId) {
+    // Fetch Knowledge Context (Links & Files)
     try {
       knowledgeContext = await storage.getKnowledgeContext(userId);
-      
-      // NEW: Fetch User Guidelines (Diretrizes)
+    } catch (err) {
+      console.error("[OpenAI] Regenerate: Error loading knowledge context:", err);
+    }
+    
+    // Fetch User Guidelines (Diretrizes)
+    try {
       const guidelines = await storage.getGuidelines(userId);
       const activeGuidelines = guidelines.filter(g => g.isActive);
       if (activeGuidelines.length > 0) {
@@ -705,11 +724,16 @@ do seu comportamento e nunca devem ser ignoradas.
 `;
         console.log(`[OpenAI] Regenerate: Guidelines loaded: ${activeGuidelines.length} active rules`);
       }
+    } catch (err) {
+      console.error("[OpenAI] Regenerate: Error loading guidelines:", err);
+    }
 
-      // NEW: Fetch Golden Corrections (Manual Q&A) for few-shot examples
+    // Fetch Golden Corrections (Manual Q&A) for few-shot examples
+    try {
+      // Note: getManualQA returns entries sorted by createdAt DESC (most recent first)
       const manualQA = await storage.getManualQA(userId);
       if (manualQA.length > 0) {
-        // Use the most recent 10 golden corrections as few-shot examples
+        // Use the 10 most recent golden corrections as few-shot examples
         goldenCorrections = manualQA.slice(0, 10).map(qa => ({
           question: qa.question,
           answer: qa.answer
@@ -717,7 +741,7 @@ do seu comportamento e nunca devem ser ignoradas.
         console.log(`[OpenAI] Regenerate: Golden Corrections loaded: ${goldenCorrections.length} examples`);
       }
     } catch (err) {
-      console.error("[OpenAI] Error loading knowledge context for regenerate:", err);
+      console.error("[OpenAI] Regenerate: Error loading golden corrections:", err);
     }
   }
 
