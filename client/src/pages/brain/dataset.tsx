@@ -38,6 +38,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import {
   Table,
@@ -123,6 +133,8 @@ export default function Dataset() {
   const [activeTab, setActiveTab] = useState("guidelines");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isManualQADialogOpen, setIsManualQADialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [manualQAToDelete, setManualQAToDelete] = useState<number | null>(null);
   const [isMediaDialogOpen, setIsMediaDialogOpen] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<MediaLibraryEntry | null>(null);
   const [editingGuideline, setEditingGuideline] = useState<UserGuideline | null>(null);
@@ -316,6 +328,8 @@ export default function Dataset() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/brain/manual-qa"] });
       queryClient.invalidateQueries({ queryKey: ["/api/brain/knowledge/stats"] });
+      setIsDeleteDialogOpen(false);
+      setManualQAToDelete(null);
       toast({ title: "Correção Removida" });
     },
     onError: () => {
@@ -371,6 +385,17 @@ export default function Dataset() {
     setEditingManualQA(item);
     setManualQAForm({ question: item.question, answer: item.answer });
     setIsManualQADialogOpen(true);
+  };
+
+  const confirmDeleteManualQA = (id: number) => {
+    setManualQAToDelete(id);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (manualQAToDelete !== null) {
+      deleteManualQAMutation.mutate(manualQAToDelete);
+    }
   };
 
   const openMediaAnalysis = (media: MediaLibraryEntry) => {
@@ -656,7 +681,7 @@ export default function Dataset() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => deleteManualQAMutation.mutate(item.id)}
+                              onClick={() => confirmDeleteManualQA(item.id)}
                               className="text-destructive hover:text-destructive"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -1028,6 +1053,27 @@ export default function Dataset() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Correção de Ouro?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. A correção será permanentemente removida da sua base de conhecimento.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Media Analysis Dialog */}
       < Dialog open={isMediaDialogOpen} onOpenChange={setIsMediaDialogOpen} >

@@ -389,7 +389,7 @@ router.patch("/manual-qa/:id", isAuthenticated, async (req, res) => {
         }
 
         const { question, answer } = req.body;
-        const updateData: any = {};
+        const updateData: { question?: string; answer?: string } = {};
 
         if (question !== undefined) updateData.question = question;
         if (answer !== undefined) updateData.answer = answer;
