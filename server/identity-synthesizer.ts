@@ -12,6 +12,13 @@ import { storage } from "./storage";
 
 const openai = new OpenAI();
 
+// Content limits to prevent OpenAI token overflow
+const MAX_CAPTIONS = 30;
+const MAX_CAPTION_LENGTH = 500;
+const MAX_RESPONSES = 50;
+const MAX_RESPONSE_LENGTH = 300;
+const MAX_GOLDEN_RULES = 20;
+
 // ============================================
 // PATTERN EXTRACTION
 // ============================================
@@ -155,19 +162,22 @@ export async function synthesizeIdentity(userId: string): Promise<SynthesisResul
 
     console.log(`[IdentitySynthesizer] Fontes: ${guidelines.length} diretrizes, ${mediaLibrary.length} posts, ${interactions.length} interações, ${manualQA.length} correções`);
 
-    // 2. Extract content from each source
+    // 2. Extract content from each source with safety limits
     const captions = mediaLibrary
         .map(m => m.caption)
-        .filter((c): c is string => !!c && c.length > 20);
+        .filter((c): c is string => !!c && c.length > 20)
+        .slice(0, MAX_CAPTIONS)
+        .map(c => c.length > MAX_CAPTION_LENGTH ? c.substring(0, MAX_CAPTION_LENGTH) + "..." : c);
 
     const publicResponses = interactions
         .filter(i => i.myResponse)
         .map(i => i.myResponse!)
-        .slice(0, 50);
+        .slice(0, MAX_RESPONSES)
+        .map(r => r.length > MAX_RESPONSE_LENGTH ? r.substring(0, MAX_RESPONSE_LENGTH) + "..." : r);
 
     const goldenRules = manualQA
         .map(q => `Q: ${q.question}\nA: ${q.answer}`)
-        .slice(0, 20);
+        .slice(0, MAX_GOLDEN_RULES);
 
     // Format guidelines by priority (5 = highest)
     const activeGuidelines = guidelines
