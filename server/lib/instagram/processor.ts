@@ -234,18 +234,22 @@ async function parseCommentsForInteractions(
             const replyUsername = reply.from?.username?.toLowerCase() || reply.username?.toLowerCase() || '';
             const replyUserId = reply.from?.id;
 
-            console.log(`[SYNC]   - Reply by @${replyUsername} (ID: ${replyUserId || 'N/A'}): "${reply.text.substring(0, 30)}..."`);
+            console.log(`[SYNC]   - Reply by @${replyUsername} (ID: ${replyUserId || 'N/A'}): "${reply.text?.substring(0, 30)}..."`);
 
             const isIdMatch = replyUserId && replyUserId === ownerInstagramId;
             const isUserMatch = replyUsername && replyUsername === ownerUsername.toLowerCase();
+            
+            // NEW: Loose match for owner username (contains check) to handle variations like "gustavo.rubino" vs "gustavorubino"
+            // or if the API returns just "gustavo"
+            const isLooseUserMatch = replyUsername && ownerUsername.toLowerCase().includes(replyUsername);
 
             console.log(`[SYNC]     ID Match: ${isIdMatch} (${replyUserId} === ${ownerInstagramId})`);
             console.log(`[SYNC]     Username Match: ${isUserMatch} (${replyUsername} === ${ownerUsername.toLowerCase()})`);
 
-            if (isIdMatch || isUserMatch) {
+            if (isIdMatch || isUserMatch || isLooseUserMatch) {
                 ownerReplyText = reply.text || '';
                 const replyPreview = ownerReplyText.substring(0, 50);
-                const matchType = isIdMatch ? "ID" : "Username";
+                const matchType = isIdMatch ? "ID" : (isUserMatch ? "Username" : "LooseUsername");
                 console.log(`[SYNC] ✅ Found owner reply (matched by ${matchType}): "${replyPreview}..."`);
                 break;
             }
