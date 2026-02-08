@@ -18,6 +18,7 @@ import { ApprovalModal } from "@/components/approval-modal";
 import { EmptyState } from "@/components/empty-state";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { getInitials, getAvatarGradient } from "@/lib/avatar-utils";
 import type { MessageWithResponse } from "@shared/schema";
 
 interface PostGroup {
@@ -336,15 +337,6 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
       ungroupedComments: sortedUngrouped,
     };
   }, [filteredMessages, postSort]);
-
-  const getInitials = (name: string) => {
-    return name
-      .split(" ")
-      .map((part) => part[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
-  };
 
   return (
     <div className="p-6 space-y-6">

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConfidenceBadge } from "@/components/confidence-badge";
+import { getInitials, getAvatarGradient } from "@/lib/avatar-utils";
 import type { MessageWithResponse } from "@shared/schema";
 
 interface MessageCardProps {
@@ -44,38 +45,6 @@ export function MessageCard({ message, onView }: MessageCardProps) {
       default:
         return null;
     }
-  };
-
-  const getInitials = (name: string) => {
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
-  };
-
-  // Generate a consistent gradient color based on username
-  const getAvatarGradient = (username: string) => {
-    const gradients = [
-      "bg-gradient-to-br from-rose-400 to-pink-600",
-      "bg-gradient-to-br from-pink-400 to-fuchsia-600",
-      "bg-gradient-to-br from-fuchsia-400 to-purple-600",
-      "bg-gradient-to-br from-purple-400 to-violet-600",
-      "bg-gradient-to-br from-violet-400 to-indigo-600",
-      "bg-gradient-to-br from-indigo-400 to-blue-600",
-      "bg-gradient-to-br from-blue-400 to-cyan-600",
-      "bg-gradient-to-br from-cyan-400 to-teal-600",
-      "bg-gradient-to-br from-teal-400 to-emerald-600",
-      "bg-gradient-to-br from-emerald-400 to-green-600",
-      "bg-gradient-to-br from-amber-400 to-orange-600",
-      "bg-gradient-to-br from-orange-400 to-red-600",
-    ];
-    let hash = 0;
-    for (let i = 0; i < username.length; i++) {
-      hash = username.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return gradients[Math.abs(hash) % gradients.length];
   };
 
   // Get media type icon and label
@@ -184,20 +153,22 @@ export function MessageCard({ message, onView }: MessageCardProps) {
                     alt="Mídia anexada" 
                     className="w-16 h-16 object-cover rounded-md border"
                     data-testid={`media-thumbnail-${message.id}`}
+                    onError={(e) => {
+                      // Replace broken image with a fallback icon
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                      const fallback = document.createElement('div');
+                      fallback.className = 'w-16 h-16 bg-muted rounded-md border flex items-center justify-center';
+                      fallback.innerHTML = '<svg class="h-6 w-6 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
+                      target.parentNode?.insertBefore(fallback, target);
+                    }}
                   />
                 ) : message.mediaType === 'video' || message.mediaType === 'reel' ? (
-                  <div className="relative w-16 h-16 rounded-md border overflow-hidden">
-                    <img 
-                      src={message.mediaUrl} 
-                      alt="Thumbnail do vídeo" 
-                      className="w-full h-full object-cover"
-                      data-testid={`video-thumbnail-${message.id}`}
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                      <div className="w-6 h-6 rounded-full bg-white/90 flex items-center justify-center">
-                        <Play className="h-3 w-3 text-black fill-black ml-0.5" />
-                      </div>
+                  <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-md border flex flex-col items-center justify-center">
+                    <div className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center mb-0.5">
+                      <Play className="h-4 w-4 text-purple-600 fill-purple-600 ml-0.5" />
                     </div>
+                    <span className="text-[10px] text-white font-medium">{message.mediaType === 'reel' ? 'Reel' : 'Vídeo'}</span>
                   </div>
                 ) : message.mediaType === 'audio' ? (
                   <div className="w-16 h-16 bg-muted rounded-md border flex items-center justify-center">

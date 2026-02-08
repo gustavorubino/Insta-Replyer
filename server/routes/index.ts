@@ -4265,11 +4265,10 @@ export async function registerRoutes(
         contentForAI = `[Anexo: ${getMediaDescriptionNatural(mediaType)}] ${text}`;
       }
 
-      // Fallback: Generate placeholder avatar if none found
-      // Fallback: Generate placeholder avatar if none found is now handled within resolveInstagramSender, 
-      // but we keep this as a final safety net for the local variables before creating the message
+      // Fallback: Let senderAvatar remain null if not found
+      // The frontend has a beautiful gradient fallback system
       if (!senderAvatar) {
-        senderAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(senderUsername || senderId)}&background=random&color=fff&size=128&bold=true`;
+        senderAvatar = null;
       }
 
       // Re-check for existing message now that we have the UserId (SaaS Isolation Secure Check)
@@ -4298,6 +4297,31 @@ export async function registerRoutes(
 
       // PONTO 3 ENQUEUE: DM-TRACE log (SAFE - IDs only)
       dmTrace("ENQUEUED=true", `messageId=${newMessage.id} userId=${instagramUser.id} mid=${messageId}`);
+      
+      // Transcribe media if it's video, reel, or audio
+      let mediaTranscription: string | null = null;
+      if (mediaUrl && (mediaType === 'video' || mediaType === 'reel' || mediaType === 'audio')) {
+        console.log(`[DM-WEBHOOK] 🎤 Iniciando transcrição de ${mediaType}...`);
+        try {
+          mediaTranscription = await getOrCreateTranscription(newMessage.id, instagramUser.id, mediaUrl, null);
+          if (mediaTranscription) {
+            console.log(`[DM-WEBHOOK] ✅ Transcrição concluída: ${mediaTranscription.substring(0, 100)}...`);
+            // Update contentForAI to include transcription
+            const mediaLabel = mediaType === 'reel' ? 'Reel' : (mediaType === 'video' ? 'Vídeo' : 'Áudio');
+            const transcriptionText = `[${mediaLabel} recebido - Transcrição do áudio: "${mediaTranscription}"]`;
+            if (text) {
+              contentForAI = `${transcriptionText} ${text}`;
+            } else {
+              contentForAI = transcriptionText;
+            }
+          } else {
+            console.log(`[DM-WEBHOOK] ⚠️ Não foi possível transcrever o ${mediaType} (pode não ter áudio)`);
+          }
+        } catch (transcriptionError) {
+          console.error(`[DM-WEBHOOK] ❌ Erro na transcrição de ${mediaType}:`, transcriptionError);
+        }
+      }
+      
       const historyMessages = await storage.getConversationHistory(senderId, instagramUser.id, 10);
       const conversationHistory: ConversationHistoryEntry[] = historyMessages
         .filter(m => m.id !== newMessage.id) // Exclude the current message
@@ -4312,7 +4336,10 @@ export async function registerRoutes(
       let aiResult: any = null;
 
       if (!isManualReply) {
-        aiResult = await generateAIResponse(contentForAI, "dm", senderName, instagramUser.id, undefined, conversationHistory);
+        // Enable Vision API for images
+        const attachments = (mediaType === 'image' && mediaUrl) ? [mediaUrl] : undefined;
+        
+        aiResult = await generateAIResponse(contentForAI, "dm", senderName, instagramUser.id, undefined, conversationHistory, attachments);
         await storage.createAiResponse({
           messageId: newMessage.id,
           suggestedResponse: aiResult.suggestedResponse,

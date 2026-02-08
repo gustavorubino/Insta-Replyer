@@ -39,6 +39,7 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
+import { getInitials, getAvatarGradient } from "@/lib/avatar-utils";
 
 import type { MessageWithResponse } from "@shared/schema";
 
@@ -166,38 +167,6 @@ export function ApprovalModal({
 
   if (!message) return null;
 
-  const getInitials = (name: string) => {
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
-  };
-
-  // Generate a consistent gradient color based on username
-  const getAvatarGradient = (username: string) => {
-    const gradients = [
-      "bg-gradient-to-br from-rose-400 to-pink-600",
-      "bg-gradient-to-br from-pink-400 to-fuchsia-600",
-      "bg-gradient-to-br from-fuchsia-400 to-purple-600",
-      "bg-gradient-to-br from-purple-400 to-violet-600",
-      "bg-gradient-to-br from-violet-400 to-indigo-600",
-      "bg-gradient-to-br from-indigo-400 to-blue-600",
-      "bg-gradient-to-br from-blue-400 to-cyan-600",
-      "bg-gradient-to-br from-cyan-400 to-teal-600",
-      "bg-gradient-to-br from-teal-400 to-emerald-600",
-      "bg-gradient-to-br from-emerald-400 to-green-600",
-      "bg-gradient-to-br from-amber-400 to-orange-600",
-      "bg-gradient-to-br from-orange-400 to-red-600",
-    ];
-    let hash = 0;
-    for (let i = 0; i < username.length; i++) {
-      hash = username.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return gradients[Math.abs(hash) % gradients.length];
-  };
-
   const originalResponse = message.aiResponse?.suggestedResponse || "";
   const wasEdited = editedResponse !== originalResponse;
 
@@ -293,30 +262,81 @@ export function ApprovalModal({
               {message.mediaUrl && (
                 <div className="mb-3">
                   {message.mediaType === 'image' || message.mediaType === 'gif' || message.mediaType === 'sticker' ? (
-                    <img 
-                      src={message.mediaUrl} 
-                      alt="Mídia anexada" 
-                      className="max-w-full max-h-48 object-contain rounded-md border"
-                      data-testid="media-image"
-                    />
+                    <>
+                      <img 
+                        src={message.mediaUrl} 
+                        alt="Mídia anexada" 
+                        className="max-w-full max-h-48 object-contain rounded-md border"
+                        data-testid="media-image"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const fallback = document.createElement('div');
+                          fallback.className = 'w-full h-48 bg-muted rounded-md border flex flex-col items-center justify-center text-muted-foreground';
+                          fallback.innerHTML = '<svg class="h-12 w-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg><span class="text-sm">Mídia não disponível</span>';
+                          target.parentNode?.insertBefore(fallback, target);
+                        }}
+                      />
+                      {message.type === 'dm' && (
+                        <div className="mt-2">
+                          <Badge variant="secondary" className="text-xs">
+                            👁️ Imagem analisada pela IA
+                          </Badge>
+                        </div>
+                      )}
+                    </>
                   ) : message.mediaType === 'video' || message.mediaType === 'reel' ? (
-                    <video 
-                      src={message.mediaUrl} 
-                      controls 
-                      className="max-w-full max-h-48 rounded-md border"
-                      data-testid="media-video"
-                    >
-                      Seu navegador não suporta vídeo.
-                    </video>
+                    <>
+                      <video 
+                        src={message.mediaUrl} 
+                        controls 
+                        className="max-w-full max-h-48 rounded-md border"
+                        data-testid="media-video"
+                        onError={(e) => {
+                          const target = e.target as HTMLVideoElement;
+                          target.style.display = 'none';
+                          const fallback = document.createElement('div');
+                          fallback.className = 'w-full h-48 bg-muted rounded-md border flex flex-col items-center justify-center text-muted-foreground';
+                          fallback.innerHTML = '<svg class="h-12 w-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg><span class="text-sm">Vídeo não disponível</span>';
+                          target.parentNode?.insertBefore(fallback, target);
+                        }}
+                      >
+                        Seu navegador não suporta vídeo.
+                      </video>
+                      {message.type === 'dm' && message.videoTranscription && (
+                        <div className="mt-2">
+                          <Badge variant="secondary" className="text-xs">
+                            🎤 Áudio transcrito pela IA
+                          </Badge>
+                        </div>
+                      )}
+                    </>
                   ) : message.mediaType === 'audio' ? (
-                    <audio 
-                      src={message.mediaUrl} 
-                      controls 
-                      className="w-full"
-                      data-testid="media-audio"
-                    >
-                      Seu navegador não suporta áudio.
-                    </audio>
+                    <>
+                      <audio 
+                        src={message.mediaUrl} 
+                        controls 
+                        className="w-full"
+                        data-testid="media-audio"
+                        onError={(e) => {
+                          const target = e.target as HTMLAudioElement;
+                          target.style.display = 'none';
+                          const fallback = document.createElement('div');
+                          fallback.className = 'w-full h-12 bg-muted rounded-md border flex items-center justify-center text-muted-foreground text-sm';
+                          fallback.textContent = 'Áudio não disponível';
+                          target.parentNode?.insertBefore(fallback, target);
+                        }}
+                      >
+                        Seu navegador não suporta áudio.
+                      </audio>
+                      {message.type === 'dm' && message.videoTranscription && (
+                        <div className="mt-2">
+                          <Badge variant="secondary" className="text-xs">
+                            🎤 Áudio transcrito pela IA
+                          </Badge>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <a 
                       href={message.mediaUrl} 
