@@ -16,7 +16,7 @@ const openai = new OpenAI();
 // ============================================
 // CONSTANTS
 // ============================================
-const MAX_POSTS = 500;
+const MAX_POSTS = 50;
 const MAX_COMMENTS_PER_POST = 10;
 
 // ============================================
