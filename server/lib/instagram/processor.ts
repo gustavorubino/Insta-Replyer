@@ -18,6 +18,9 @@ const openai = new OpenAI();
 // ============================================
 const MAX_POSTS = 50;
 const MAX_COMMENTS_PER_POST = 10;
+// Temporal window for Layer 4 reply detection: 7 days chosen to balance
+// between catching legitimate delayed replies and avoiding false positives
+const TEMPORAL_WINDOW_DAYS = 7;
 
 // ============================================
 // HELPER FUNCTIONS
@@ -27,9 +30,9 @@ const MAX_COMMENTS_PER_POST = 10;
  * Safely truncate text without breaking multi-byte Unicode characters (emojis, etc.)
  */
 function safeTruncate(text: string, maxLength: number): string {
-    if (!text || text.length <= maxLength) return text;
+    if (!text || text.length < maxLength) return text;
     
-    // Truncate at maxLength
+    // Text is exactly at or over maxLength, needs truncation
     let truncated = text.substring(0, maxLength);
     
     // Try to avoid breaking in the middle of a surrogate pair
@@ -235,7 +238,6 @@ function findOwnerReplyByTemporalProximity(
     ownerUsername: string,
     ownerInstagramId: string
 ): string | null {
-    const TEMPORAL_WINDOW_DAYS = 7;
     const originalTimestamp = new Date(originalComment.timestamp);
     const maxTimestamp = new Date(originalTimestamp.getTime() + TEMPORAL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     
@@ -254,8 +256,8 @@ function findOwnerReplyByTemporalProximity(
         
         if (!isOwner) return false;
         
-        // Check if this is NOT a reply to someone else (no parent_id or parent_id matches)
-        // If there's a parent_id, we want to make sure it's either undefined or matches our comment
+        // Accept if: no parent_id (undefined) OR parent_id matches our comment
+        // Reject if: parent_id exists but references a different comment
         const hasOtherParent = c.parent_id && c.parent_id !== originalComment.id;
         if (hasOtherParent) return false;
         
