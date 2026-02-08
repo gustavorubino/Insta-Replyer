@@ -16,6 +16,8 @@ import {
   Reply,
   ThumbsUp,
   ThumbsDown,
+  FileImage,
+  Video,
 } from "lucide-react";
 import {
   Dialog,
@@ -39,6 +41,7 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
+import { getInitials, getAvatarGradient } from "@/lib/avatar-utils";
 
 import type { MessageWithResponse } from "@shared/schema";
 
@@ -76,6 +79,9 @@ export function ApprovalModal({
   const [isEditing, setIsEditing] = useState(false);
   const [emojiPopoverOpen, setEmojiPopoverOpen] = useState(false);
   const [hasAIError, setHasAIError] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+  const [audioError, setAudioError] = useState(false);
 
   // Feedback state
   const [feedbackStatus, setFeedbackStatus] = useState<"like" | "dislike" | null>(null);
@@ -157,6 +163,10 @@ export function ApprovalModal({
       setFeedbackStatus(null);
       setFeedbackText("");
       setShowFeedbackInput(false);
+      // Reset media error states
+      setImageError(false);
+      setVideoError(false);
+      setAudioError(false);
     } else {
       setHasAIError(true); // No AI response at all
       setEditedResponse("");
@@ -165,38 +175,6 @@ export function ApprovalModal({
   }, [message]);
 
   if (!message) return null;
-
-  const getInitials = (name: string) => {
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
-  };
-
-  // Generate a consistent gradient color based on username
-  const getAvatarGradient = (username: string) => {
-    const gradients = [
-      "bg-gradient-to-br from-rose-400 to-pink-600",
-      "bg-gradient-to-br from-pink-400 to-fuchsia-600",
-      "bg-gradient-to-br from-fuchsia-400 to-purple-600",
-      "bg-gradient-to-br from-purple-400 to-violet-600",
-      "bg-gradient-to-br from-violet-400 to-indigo-600",
-      "bg-gradient-to-br from-indigo-400 to-blue-600",
-      "bg-gradient-to-br from-blue-400 to-cyan-600",
-      "bg-gradient-to-br from-cyan-400 to-teal-600",
-      "bg-gradient-to-br from-teal-400 to-emerald-600",
-      "bg-gradient-to-br from-emerald-400 to-green-600",
-      "bg-gradient-to-br from-amber-400 to-orange-600",
-      "bg-gradient-to-br from-orange-400 to-red-600",
-    ];
-    let hash = 0;
-    for (let i = 0; i < username.length; i++) {
-      hash = username.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return gradients[Math.abs(hash) % gradients.length];
-  };
 
   const originalResponse = message.aiResponse?.suggestedResponse || "";
   const wasEdited = editedResponse !== originalResponse;
@@ -293,30 +271,80 @@ export function ApprovalModal({
               {message.mediaUrl && (
                 <div className="mb-3">
                   {message.mediaType === 'image' || message.mediaType === 'gif' || message.mediaType === 'sticker' ? (
-                    <img 
-                      src={message.mediaUrl} 
-                      alt="Mídia anexada" 
-                      className="max-w-full max-h-48 object-contain rounded-md border"
-                      data-testid="media-image"
-                    />
+                    <>
+                      {imageError ? (
+                        <div className="w-full h-48 bg-muted rounded-md border flex flex-col items-center justify-center text-muted-foreground">
+                          <FileImage className="h-12 w-12 mb-2" />
+                          <span className="text-sm">Mídia não disponível</span>
+                        </div>
+                      ) : (
+                        <img 
+                          src={message.mediaUrl} 
+                          alt="Mídia anexada" 
+                          className="max-w-full max-h-48 object-contain rounded-md border"
+                          data-testid="media-image"
+                          onError={() => setImageError(true)}
+                        />
+                      )}
+                      {message.type === 'dm' && !imageError && (
+                        <div className="mt-2">
+                          <Badge variant="secondary" className="text-xs">
+                            👁️ Imagem analisada pela IA
+                          </Badge>
+                        </div>
+                      )}
+                    </>
                   ) : message.mediaType === 'video' || message.mediaType === 'reel' ? (
-                    <video 
-                      src={message.mediaUrl} 
-                      controls 
-                      className="max-w-full max-h-48 rounded-md border"
-                      data-testid="media-video"
-                    >
-                      Seu navegador não suporta vídeo.
-                    </video>
+                    <>
+                      {videoError ? (
+                        <div className="w-full h-48 bg-muted rounded-md border flex flex-col items-center justify-center text-muted-foreground">
+                          <Video className="h-12 w-12 mb-2" />
+                          <span className="text-sm">Vídeo não disponível</span>
+                        </div>
+                      ) : (
+                        <video 
+                          src={message.mediaUrl} 
+                          controls 
+                          className="max-w-full max-h-48 rounded-md border"
+                          data-testid="media-video"
+                          onError={() => setVideoError(true)}
+                        >
+                          Seu navegador não suporta vídeo.
+                        </video>
+                      )}
+                      {message.type === 'dm' && message.videoTranscription && !videoError && (
+                        <div className="mt-2">
+                          <Badge variant="secondary" className="text-xs">
+                            🎤 Áudio transcrito pela IA
+                          </Badge>
+                        </div>
+                      )}
+                    </>
                   ) : message.mediaType === 'audio' ? (
-                    <audio 
-                      src={message.mediaUrl} 
-                      controls 
-                      className="w-full"
-                      data-testid="media-audio"
-                    >
-                      Seu navegador não suporta áudio.
-                    </audio>
+                    <>
+                      {audioError ? (
+                        <div className="w-full h-12 bg-muted rounded-md border flex items-center justify-center text-muted-foreground text-sm">
+                          Áudio não disponível
+                        </div>
+                      ) : (
+                        <audio 
+                          src={message.mediaUrl} 
+                          controls 
+                          className="w-full"
+                          data-testid="media-audio"
+                          onError={() => setAudioError(true)}
+                        >
+                          Seu navegador não suporta áudio.
+                        </audio>
+                      )}
+                      {message.type === 'dm' && message.videoTranscription && !audioError && (
+                        <div className="mt-2">
+                          <Badge variant="secondary" className="text-xs">
+                            🎤 Áudio transcrito pela IA
+                          </Badge>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <a 
                       href={message.mediaUrl} 
