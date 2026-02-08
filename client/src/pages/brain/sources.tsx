@@ -143,12 +143,29 @@ export default function Sources() {
           // Logarithmic progress: slows down as it approaches target
           const remaining = PROGRESS_TARGET - prev;
           const increment = Math.max(MIN_INCREMENT, remaining * DECAY_RATE + Math.random() * RANDOM_VARIANCE);
-          return Math.min(prev + increment, PROGRESS_TARGET);
+          return Math.round(Math.min(prev + increment, PROGRESS_TARGET));
         });
       }, PROGRESS_INTERVAL_MS);
 
-      const response = await apiRequest("POST", "/api/knowledge/sync-official", {});
-      return response;
+      // Add a timeout safety net
+      const timeoutId = setTimeout(() => {
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        setIsSyncing(false);
+        setSyncProgress(0);
+        toast({ title: "Erro", description: "A sincronização demorou demais. Tente novamente.", variant: "destructive" });
+      }, 120000); // 2 minute timeout
+
+      try {
+        const response = await apiRequest("POST", "/api/knowledge/sync-official", {});
+        clearTimeout(timeoutId);
+        return response.json();
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
     },
     onSuccess: (data: any) => {
       // Stop progress interval
@@ -182,10 +199,15 @@ export default function Sources() {
       setIsSyncing(false);
       setSyncProgress(0);
 
-      const errorData = error?.message ? JSON.parse(error.message.substring(error.message.indexOf("{"))) : {};
-      const message = errorData.code === "NOT_CONNECTED"
-        ? "Conecte sua conta Instagram primeiro na aba Conexão."
-        : errorData.error || "Erro ao sincronizar conta.";
+      let message = "Erro ao sincronizar conta.";
+      try {
+        const errorData = error?.message ? JSON.parse(error.message.substring(error.message.indexOf("{"))) : {};
+        message = errorData.code === "NOT_CONNECTED"
+          ? "Conecte sua conta Instagram primeiro na aba Conexão."
+          : errorData.error || message;
+      } catch (e) {
+        // If error message parsing fails, use default message
+      }
       toast({ title: "Erro", description: message, variant: "destructive" });
     },
   });
