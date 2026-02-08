@@ -5125,6 +5125,8 @@ export async function registerRoutes(
   });
 
   // Progress tracking for official Instagram sync
+  const SYNC_CLEANUP_TIMEOUT_MS = 30000; // 30 seconds
+  
   interface SyncOfficialProgress {
     stage: string;
     percent: number;
@@ -5265,7 +5267,7 @@ export async function registerRoutes(
           });
 
           // Clean up progress after 30 seconds to allow client to fetch final status
-          setTimeout(() => syncOfficialProgress.delete(userId), 30000);
+          setTimeout(() => syncOfficialProgress.delete(userId), SYNC_CLEANUP_TIMEOUT_MS);
         } catch (error) {
           console.error("[Sync Official] Background sync error:", error);
           
@@ -5278,7 +5280,7 @@ export async function registerRoutes(
           });
 
           // Clean up error after 30 seconds
-          setTimeout(() => syncOfficialProgress.delete(userId), 30000);
+          setTimeout(() => syncOfficialProgress.delete(userId), SYNC_CLEANUP_TIMEOUT_MS);
         }
       })();
     } catch (error) {

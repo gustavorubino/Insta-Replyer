@@ -10,6 +10,8 @@ import { decrypt, isEncrypted } from "../encryption";
 const router = Router();
 
 // Progress tracking for brain sync-knowledge
+const SYNC_CLEANUP_TIMEOUT_MS = 30000; // 30 seconds
+
 interface SyncKnowledgeProgress {
   stage: string;
   percent: number;
@@ -549,7 +551,7 @@ router.post("/sync-knowledge", isAuthenticated, async (req, res) => {
                 });
 
                 // Clean up progress after 30 seconds
-                setTimeout(() => syncKnowledgeProgress.delete(userId), 30000);
+                setTimeout(() => syncKnowledgeProgress.delete(userId), SYNC_CLEANUP_TIMEOUT_MS);
             } catch (error: unknown) {
                 console.error("[Brain Sync] Background sync error:", error);
                 
@@ -574,7 +576,7 @@ router.post("/sync-knowledge", isAuthenticated, async (req, res) => {
                 });
 
                 // Clean up error after 30 seconds
-                setTimeout(() => syncKnowledgeProgress.delete(userId), 30000);
+                setTimeout(() => syncKnowledgeProgress.delete(userId), SYNC_CLEANUP_TIMEOUT_MS);
             }
         })();
     } catch (error: unknown) {

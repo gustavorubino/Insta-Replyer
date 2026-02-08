@@ -36,6 +36,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const [syncError, setSyncError] = useState<string | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastStatusRef = useRef<'running' | 'completed' | 'error' | null>(null);
+  const isPollingRef = useRef<boolean>(false);
 
   // Function to start polling for sync progress
   const startPolling = () => {
@@ -44,6 +45,13 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     }
 
     pollingIntervalRef.current = setInterval(async () => {
+      // Prevent overlapping requests
+      if (isPollingRef.current) {
+        return;
+      }
+      
+      isPollingRef.current = true;
+      
       try {
         const response = await fetch("/api/knowledge/sync-official/progress", {
           credentials: "include",
@@ -59,22 +67,24 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
             setSyncStatus(data.stage || "Sincronizando...");
             setSyncError(null);
             lastStatusRef.current = 'running';
-          } else if (data.status === 'completed' && lastStatusRef.current === 'running') {
-            // Sync just completed
+          } else if (data.status === 'completed' && (lastStatusRef.current === 'running' || (lastStatusRef.current === null && data.percent === 100))) {
+            // Sync just completed - handle transition from running or null (after refresh)
             setIsSyncing(false);
             setSyncProgress(100);
             setSyncStatus("Concluído!");
             setSyncError(null);
             
-            // Show success toast
-            toast({
-              title: "✅ Sincronização Concluída",
-              description: data.result?.message || `${data.result?.captionsCount || 0} legendas sincronizadas!`,
-            });
+            // Show success toast only if we haven't already shown it
+            if (lastStatusRef.current === 'running' || (lastStatusRef.current === null && data.percent === 100)) {
+              toast({
+                title: "✅ Sincronização Concluída",
+                description: data.result?.message || `${data.result?.captionsCount || 0} legendas sincronizadas!`,
+              });
 
-            // Invalidate queries to refresh data
-            queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
+              // Invalidate queries to refresh data
+              queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
+            }
 
             // Reset state after brief animation
             setTimeout(() => {
@@ -114,6 +124,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (err) {
         console.error("Progress polling error:", err);
+      } finally {
+        isPollingRef.current = false;
       }
     }, 1500); // Poll every 1.5 seconds
   };
