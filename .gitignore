@@ -10,3 +10,4 @@ scripts/*.local.*
 .env.*
 !.env.example
 test-dedup-logic.ts
+test-layer4-logic.ts
