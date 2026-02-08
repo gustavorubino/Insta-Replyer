@@ -82,6 +82,7 @@ export default function Connections() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
       toast({
         title: t.settings.connection.disconnected,
         description: t.settings.connection.disconnectedDesc,

@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Sparkles,
   AlertTriangle,
+  CheckCircle,
 } from "lucide-react";
 import {
   Card,
@@ -131,21 +132,25 @@ export default function Sources() {
 
       progressIntervalRef.current = setInterval(() => {
         setSyncProgress((prev) => {
-          // Increment by 3-8% randomly, cap at 90%
-          const increment = Math.floor(Math.random() * 5) + 3;
-          return Math.min(prev + increment, 90);
+          // Use a curve that slows down as it approaches 95%
+          // The higher the current value, the smaller the increment
+          const remaining = 95 - prev;
+          const increment = Math.max(0.5, remaining * 0.08 + Math.random() * 1.5);
+          return Math.min(prev + increment, 95);
         });
-      }, 600);
+      }, 800);
 
       const response = await apiRequest("POST", "/api/knowledge/sync-official", {});
       return response;
     },
     onSuccess: (data: any) => {
-      // Stop progress and jump to 100%
+      // Stop progress interval
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
         progressIntervalRef.current = null;
       }
+      
+      // Jump to 100% (browser will animate the transition smoothly)
       setSyncProgress(100);
 
       // Reset after animation
@@ -424,18 +429,31 @@ export default function Sources() {
 
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-2">
-              <Button
-                onClick={() => syncOfficialMutation.mutate()}
-                disabled={syncOfficialMutation.isPending}
-                className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
-              >
-                {syncOfficialMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                )}
-                Sincronizar Minha Conta Oficial
-              </Button>
+              {(() => {
+                const hasCompletedProfile = instagramProfiles.some((p: any) => p.status === "completed");
+                const isButtonDisabled = syncOfficialMutation.isPending || isSyncing || hasCompletedProfile;
+
+                return (
+                  <Button
+                    onClick={() => syncOfficialMutation.mutate()}
+                    disabled={isButtonDisabled}
+                    className={
+                      hasCompletedProfile
+                        ? "flex-1 bg-green-600 hover:bg-green-700 opacity-75 cursor-not-allowed"
+                        : "flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+                    }
+                  >
+                    {syncOfficialMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : hasCompletedProfile ? (
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    )}
+                    {hasCompletedProfile ? "Conta Sincronizada" : "Sincronizar Minha Conta Oficial"}
+                  </Button>
+                );
+              })()}
               <Button
                 onClick={() => generatePersonalityMutation.mutate()}
                 disabled={generatePersonalityMutation.isPending || instagramProfiles.length === 0}
