@@ -10,6 +10,7 @@ import { db } from "../../db";
 import { mediaLibrary, interactionDialect } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import OpenAI from "openai";
+import { transcribeVideoAudio } from "../../transcription";
 
 const openai = new OpenAI();
 
@@ -21,6 +22,12 @@ const MAX_COMMENTS_PER_POST = 10;
 // Temporal window for Layer 4 reply detection: 7 days chosen to balance
 // between catching legitimate delayed replies and avoiding false positives
 const TEMPORAL_WINDOW_DAYS = 7;
+
+// Vision analysis prompts
+const VISION_ANALYSIS_PROMPT_STANDARD = "Analise esta imagem em detalhes para fornecer contexto completo. Descreva: 1) Pessoas (quantidade, expressões, ações), 2) Objetos e cenário, 3) Texto visível (placas, legendas, memes), 4) Logos ou marcas identificáveis, 5) Tom/sentimento geral (humor, seriedade, tristeza, celebração), 6) Cores predominantes. Responda em português.";
+const VISION_ANALYSIS_PROMPT_VIDEO = "Analise esta imagem de vídeo para fornecer contexto visual. Descreva: 1) Pessoas (quantidade, expressões, ações), 2) Objetos e cenário visíveis, 3) Texto visível (placas, legendas), 4) Logos ou marcas identificáveis, 5) Tom/sentimento visual, 6) Cores predominantes. Responda em português.";
+const VISION_MAX_TOKENS = 500;
+const VISION_ANALYSIS_PREFIX = "[ANÁLISE VISUAL DA IA]:";
 
 // ============================================
 // HELPER FUNCTIONS
@@ -44,6 +51,16 @@ function safeTruncate(text: string, maxLength: number): string {
     }
     
     return truncated + '...';
+}
+
+/**
+ * Fallback transcription using caption when real transcription fails
+ */
+function getFallbackTranscription(caption: string | null | undefined): string | null {
+    if (caption) {
+        return `[Vídeo] ${caption.substring(0, 500)}`;
+    }
+    return null;
 }
 
 /**
@@ -237,6 +254,27 @@ async function fetchAllCommentsForMedia(mediaId: string, accessToken: string): P
         return comments;
     } catch (error) {
         console.log(`[SYNC] ❌ Error fetching all comments for media ${mediaId}:`, error);
+        return [];
+    }
+}
+
+// ============================================
+// FETCH CAROUSEL CHILDREN
+// ============================================
+async function fetchCarouselChildren(mediaId: string, accessToken: string): Promise<{ media_url: string; media_type: string }[]> {
+    try {
+        const url = `https://graph.instagram.com/${mediaId}/children?fields=media_url,media_type&access_token=${accessToken}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            console.log(`[SYNC] Failed to fetch carousel children for ${mediaId}: ${response.status}`);
+            return [];
+        }
+
+        const data = await response.json() as { data?: { media_url: string; media_type: string }[] };
+        return data.data || [];
+    } catch (error) {
+        console.log(`[SYNC] Error fetching carousel children for ${mediaId}:`, error);
         return [];
     }
 }
@@ -606,15 +644,36 @@ async function insertMediaAndInteractions(
             let imageDescription: string | null = null;
             let enrichedCaption = post.caption || null;
 
-            // For videos, use caption as context
-            if (post.media_type === 'VIDEO' && post.caption && post.caption.length > 50) {
-                videoTranscription = `[Vídeo] ${post.caption.substring(0, 500)}`;
+            // For videos, transcribe audio using Whisper
+            if (post.media_type === 'VIDEO' && post.media_url) {
+                try {
+                    console.log(`[SYNC] Transcribing video audio for post ${post.id}...`);
+                    const transcriptionResult = await transcribeVideoAudio(post.media_url);
+                    
+                    if (transcriptionResult.transcription) {
+                        videoTranscription = transcriptionResult.transcription;
+                        console.log(`[SYNC] Transcription result: ${videoTranscription.substring(0, 100)}${videoTranscription.length > 100 ? '...' : ''}`);
+                    } else {
+                        // Fallback to caption if transcription failed
+                        videoTranscription = getFallbackTranscription(post.caption);
+                        if (videoTranscription) {
+                            console.log(`[SYNC] Using caption as fallback: ${transcriptionResult.error || 'No transcription available'}`);
+                        } else {
+                            console.log(`[SYNC] No transcription available: ${transcriptionResult.error || 'Unknown error'}`);
+                        }
+                    }
+                } catch (transcriptionError) {
+                    console.log(`[SYNC] Transcription error for post ${post.id}:`, transcriptionError);
+                    // Fallback to caption if error occurs
+                    videoTranscription = getFallbackTranscription(post.caption);
+                }
             }
 
-            // For images/carousels, generate AI vision description
-            if ((post.media_type === 'IMAGE' || post.media_type === 'CAROUSEL_ALBUM') && post.media_url) {
+            // For videos, also analyze thumbnail visually to complement audio transcription
+            if (post.media_type === 'VIDEO' && (post.thumbnail_url || post.media_url)) {
                 try {
-                    console.log(`[SYNC] Generating vision analysis for post ${post.id}...`);
+                    const videoImageUrl = post.thumbnail_url || post.media_url;
+                    console.log(`[SYNC] Generating visual analysis of video thumbnail for post ${post.id}...`);
                     const visionResponse = await openai.chat.completions.create({
                         model: "gpt-4o-mini",
                         messages: [
@@ -623,23 +682,135 @@ async function insertMediaAndInteractions(
                                 content: [
                                     {
                                         type: "text",
-                                        text: "Descreva esta imagem em detalhes para fornecer contexto. Inclua: pessoas, objetos, cenário, cores, texto visível. Máximo 200 caracteres. Responda apenas com a descrição, em português."
+                                        text: VISION_ANALYSIS_PROMPT_VIDEO
+                                    },
+                                    { type: "image_url", image_url: { url: videoImageUrl } }
+                                ]
+                            }
+                        ],
+                        max_tokens: VISION_MAX_TOKENS,
+                    });
+                    imageDescription = visionResponse.choices[0]?.message?.content || null;
+
+                    if (imageDescription) {
+                        console.log(`[SYNC] Video visual analysis result: ${imageDescription}`);
+                        enrichedCaption = (enrichedCaption || post.caption || "") + `\n\n${VISION_ANALYSIS_PREFIX} ${imageDescription}`;
+                    }
+                } catch (visionError) {
+                    console.log(`[SYNC] Video visual analysis error for post ${post.id}:`, visionError);
+                }
+            }
+
+            // For images/carousels, generate AI vision description
+            if (post.media_type === 'IMAGE' && post.media_url) {
+                try {
+                    console.log(`[SYNC] Generating vision analysis for image ${post.id}...`);
+                    const visionResponse = await openai.chat.completions.create({
+                        model: "gpt-4o-mini",
+                        messages: [
+                            {
+                                role: "user",
+                                content: [
+                                    {
+                                        type: "text",
+                                        text: VISION_ANALYSIS_PROMPT_STANDARD
                                     },
                                     { type: "image_url", image_url: { url: post.media_url } }
                                 ]
                             }
                         ],
-                        max_tokens: 150,
+                        max_tokens: VISION_MAX_TOKENS,
                     });
                     imageDescription = visionResponse.choices[0]?.message?.content || null;
 
                     // CRITICAL: Append vision analysis to caption with visible prefix
                     if (imageDescription) {
                         console.log(`[SYNC] Vision result: ${imageDescription}`);
-                        enrichedCaption = (post.caption || "") + `\n\n[ANÁLISE VISUAL DA IA]: ${imageDescription}`;
+                        enrichedCaption = (post.caption || "") + `\n\n${VISION_ANALYSIS_PREFIX} ${imageDescription}`;
                     }
                 } catch (visionError) {
                     console.log(`[SYNC] Vision error for post ${post.id}:`, visionError);
+                }
+            }
+
+            // For carousels, analyze all images in the album
+            if (post.media_type === 'CAROUSEL_ALBUM') {
+                try {
+                    console.log(`[SYNC] Fetching carousel children for post ${post.id}...`);
+                    const children = await fetchCarouselChildren(post.id, accessToken);
+                    
+                    if (children.length) {
+                        console.log(`[SYNC] Found ${children.length} children in carousel`);
+                        const descriptions: string[] = [];
+                        
+                        for (let i = 0; i < children.length; i++) {
+                            const child = children[i];
+                            if (child.media_type === 'IMAGE' && child.media_url) {
+                                try {
+                                    console.log(`[SYNC] Analyzing carousel slide ${i + 1}/${children.length}...`);
+                                    const visionResponse = await openai.chat.completions.create({
+                                        model: "gpt-4o-mini",
+                                        messages: [
+                                            {
+                                                role: "user",
+                                                content: [
+                                                    {
+                                                        type: "text",
+                                                        text: VISION_ANALYSIS_PROMPT_STANDARD
+                                                    },
+                                                    { type: "image_url", image_url: { url: child.media_url } }
+                                                ]
+                                            }
+                                        ],
+                                        max_tokens: VISION_MAX_TOKENS,
+                                    });
+                                    const childDescription = visionResponse.choices[0]?.message?.content || null;
+                                    if (childDescription) {
+                                        descriptions.push(`Slide ${i + 1}: ${childDescription}`);
+                                    }
+                                } catch (childError) {
+                                    console.log(`[SYNC] Vision error for carousel slide ${i + 1}:`, childError);
+                                }
+                            }
+                        }
+                        
+                        if (descriptions.length > 0) {
+                            imageDescription = descriptions.join('\n\n');
+                            console.log(`[SYNC] Carousel analysis complete: ${descriptions.length} slides analyzed`);
+                            enrichedCaption = (post.caption || "") + `\n\n${VISION_ANALYSIS_PREFIX} ${imageDescription}`;
+                        }
+                    } else {
+                        // Fallback to analyzing main media_url if children fetch fails
+                        console.log(`[SYNC] No carousel children found, using fallback to main media_url`);
+                        if (post.media_url) {
+                            try {
+                                const visionResponse = await openai.chat.completions.create({
+                                    model: "gpt-4o-mini",
+                                    messages: [
+                                        {
+                                            role: "user",
+                                            content: [
+                                                {
+                                                    type: "text",
+                                                    text: VISION_ANALYSIS_PROMPT_STANDARD
+                                                },
+                                                { type: "image_url", image_url: { url: post.media_url } }
+                                            ]
+                                        }
+                                    ],
+                                    max_tokens: VISION_MAX_TOKENS,
+                                });
+                                imageDescription = visionResponse.choices[0]?.message?.content || null;
+                                if (imageDescription) {
+                                    enrichedCaption = (post.caption || "") + `\n\n${VISION_ANALYSIS_PREFIX} ${imageDescription}`;
+                                }
+                            } catch (visionError) {
+                                console.log(`[SYNC] Vision error for carousel fallback:`, visionError);
+                            }
+                        }
+                    }
+                } catch (carouselError) {
+                    console.log(`[SYNC] Carousel processing error for post ${post.id}:`, carouselError);
                 }
             }
 

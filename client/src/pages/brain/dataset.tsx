@@ -1064,9 +1064,9 @@ export default function Dataset() {
                 </div>
                 {selectedMedia.imageDescription && (
                   <div>
-                    <Label className="text-xs text-muted-foreground">🔍 DESCRIÇÃO IA</Label>
-                    <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 mt-1 border border-blue-200">
-                      <p className="text-sm">{selectedMedia.imageDescription}</p>
+                    <Label className="text-xs text-muted-foreground">🖼️ ANÁLISE VISUAL DA IA</Label>
+                    <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 mt-1 border border-blue-200 dark:border-blue-900 max-h-[120px] overflow-y-auto">
+                      <p className="text-sm whitespace-pre-wrap">{selectedMedia.imageDescription}</p>
                     </div>
                   </div>
                 )}
