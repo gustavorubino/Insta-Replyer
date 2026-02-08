@@ -77,6 +77,7 @@ export interface CommentContext {
   postVideoTranscription?: string | null; // Cached transcription of video audio
   parentCommentText?: string | null;
   parentCommentUsername?: string | null;
+  siblingComments?: { username: string; text: string }[]; // Other replies in the same thread
 }
 
 // Conversation history entry for DMs
@@ -397,6 +398,13 @@ IMPORTANTE: Analise o histórico acima para:
       parts.push(`\nCOMENTÁRIO PAI (ao qual esta pessoa está respondendo):`);
       parts.push(`  - Autor: @${commentContext.parentCommentUsername}`);
       parts.push(`  - Texto: "${commentContext.parentCommentText}"`);
+    }
+    
+    if (commentContext.siblingComments && commentContext.siblingComments.length > 0) {
+      parts.push(`\nOUTROS COMENTÁRIOS NA MESMA THREAD:`);
+      for (const sibling of commentContext.siblingComments) {
+        parts.push(`  - @${sibling.username}: "${sibling.text}"`);
+      }
     }
     
     if (parts.length > 0) {
@@ -817,6 +825,13 @@ IMPORTANTE: Analise o histórico acima para:
       parts.push(`\nCOMENTÁRIO PAI (ao qual esta pessoa está respondendo):`);
       parts.push(`  - Autor: @${commentContext.parentCommentUsername}`);
       parts.push(`  - Texto: "${commentContext.parentCommentText}"`);
+    }
+    
+    if (commentContext.siblingComments && commentContext.siblingComments.length > 0) {
+      parts.push(`\nOUTROS COMENTÁRIOS NA MESMA THREAD:`);
+      for (const sibling of commentContext.siblingComments) {
+        parts.push(`  - @${sibling.username}: "${sibling.text}"`);
+      }
     }
     
     if (parts.length > 0) {

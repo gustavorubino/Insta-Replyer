@@ -3680,6 +3680,42 @@ export async function registerRoutes(
         }
       }
 
+      // Fetch sibling comments (other replies in the same thread) if this is a reply
+      let siblingComments: { username: string; text: string }[] = [];
+      if (parentId && instagramUser.instagramAccessToken) {
+        try {
+          console.log(`[COMMENT-WEBHOOK] 🔍 Buscando respostas irmãs na thread ${parentId}...`);
+          const encToken = instagramUser.instagramAccessToken;
+          const accessToken = isEncrypted(encToken) ? decrypt(encToken) : encToken;
+
+          // Fetch all replies to the parent comment
+          const repliesUrl = `https://graph.instagram.com/v21.0/${parentId}/replies?fields=id,text,username,from{id,username}&access_token=${encodeURIComponent(accessToken)}`;
+          const repliesRes = await fetch(repliesUrl);
+          const repliesData = await repliesRes.json() as any;
+
+          if (repliesRes.ok && repliesData.data) {
+            // Filter out the current comment and get sibling comments
+            siblingComments = repliesData.data
+              .filter((reply: any) => reply.id !== commentId) // Exclude the current comment
+              .map((reply: any) => ({
+                username: reply.from?.username || reply.username || 'instagram_user',
+                text: reply.text || ''
+              }));
+            
+            console.log(`[COMMENT-WEBHOOK] ✅ Encontradas ${siblingComments.length} respostas irmãs na thread`);
+            if (siblingComments.length > 0) {
+              siblingComments.slice(0, 3).forEach((sibling, idx) => {
+                console.log(`    [${idx + 1}] @${sibling.username}: ${sibling.text.substring(0, 50)}${sibling.text.length > 50 ? '...' : ''}`);
+              });
+            }
+          } else if (repliesData?.error) {
+            console.log(`[COMMENT-WEBHOOK] ⚠️ Erro ao buscar respostas irmãs: ${repliesData.error.message}`);
+          }
+        } catch (e) {
+          console.log(`[COMMENT-WEBHOOK] ⚠️ Erro ao buscar respostas irmãs:`, e);
+        }
+      }
+
       // Re-check for existing message now that we have the UserId (SaaS Isolation Secure Check)
       const existingMessage = await storage.getMessageByInstagramId(commentId, instagramUser.id);
       if (existingMessage) {
@@ -3759,6 +3795,7 @@ export async function registerRoutes(
           postVideoTranscription, // Include video transcription for audio context
           parentCommentText,
           parentCommentUsername,
+          siblingComments, // Include sibling comments for thread context
         });
         await storage.createAiResponse({
           messageId: newMessage.id,
