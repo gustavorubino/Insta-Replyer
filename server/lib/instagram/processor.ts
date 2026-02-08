@@ -125,8 +125,8 @@ async function fetchProfile(accessToken: string): Promise<{ username: string; bi
 // STEP 2: FETCH WITH DEPTH (Posts + Nested Comments)
 // ============================================
 async function fetchPostsWithComments(accessToken: string): Promise<InstagramMedia[]> {
-    // Query fields include nested comments with from{} for username
-    const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(10){id,text,username,timestamp,from{id,username}}";
+    // Query fields include nested comments with from{} for username AND nested replies
+    const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(10){id,text,username,timestamp,from{id,username},replies{id,text,username,timestamp,from{id,username}}}";
     const mediaUrl = `https://graph.instagram.com/me/media?fields=${encodeURIComponent(fields)}&access_token=${accessToken}&limit=${MAX_POSTS}`;
 
     const response = await fetch(mediaUrl);
@@ -164,6 +164,32 @@ async function fetchRepliesForComment(commentId: string, accessToken: string): P
 }
 
 // ============================================
+// STEP 2c: FALLBACK - FETCH ALL COMMENTS FOR A MEDIA POST
+// When /{comment-id}/replies returns empty, fetch all comments
+// from /{media-id}/comments and find owner replies by matching
+// parent_id relationships. This is a known workaround for the
+// Instagram Graph API limitation where owner replies may not
+// appear in the /replies endpoint.
+// ============================================
+async function fetchAllCommentsForMedia(mediaId: string, accessToken: string): Promise<InstagramReply[]> {
+    try {
+        const url = `https://graph.instagram.com/${mediaId}/comments?fields=id,text,username,timestamp,from{id,username},parent_id&limit=100&access_token=${accessToken}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            console.log(`[SYNC] Failed to fetch all comments for media ${mediaId}: ${response.status}`);
+            return [];
+        }
+
+        const data = await response.json() as { data?: (InstagramReply & { parent_id?: { id: string } })[] };
+        return data.data || [];
+    } catch (error) {
+        console.log(`[SYNC] Error fetching all comments for media ${mediaId}:`, error);
+        return [];
+    }
+}
+
+// ============================================
 // STEP 3: ENFORCE LIMITS
 // ============================================
 function enforcePostLimit(posts: InstagramMedia[]): InstagramMedia[] {
@@ -194,7 +220,8 @@ async function parseCommentsForInteractions(
     ownerUsername: string,
     ownerInstagramId: string,
     postCaption: string | null,
-    accessToken: string
+    accessToken: string,
+    mediaId: string
 ): Promise<ParsedInteraction[]> {
     if (!comments || comments.length === 0) {
         return [];
@@ -204,6 +231,12 @@ async function parseCommentsForInteractions(
     const limitedComments = comments.slice(0, MAX_COMMENTS_PER_POST);
 
     console.log(`[SYNC] Processing ${limitedComments.length} comments, looking for owner replies...`);
+
+    // Pre-fetch all comments at the media level as fallback data.
+    // The /{comment-id}/replies endpoint is known to sometimes NOT return
+    // owner replies. Fetching all comments from /{media-id}/comments lets
+    // us find owner replies by matching parent_id relationships.
+    let mediaLevelComments: (InstagramReply & { parent_id?: { id: string } })[] | null = null;
 
     for (const comment of limitedComments) {
         // Get username from 'from' field first, then fallback to 'username'
@@ -222,39 +255,53 @@ async function parseCommentsForInteractions(
         // Get the real username from 'from' field (priority) or 'username' field
         const senderUsername = comment.from?.username?.trim() || comment.username?.trim() || "Seguidor";
 
-        // Fetch replies for this comment via separate API call
-        const replies = await fetchRepliesForComment(comment.id, accessToken);
-        console.log(`[SYNC] Comment ${comment.id} has ${replies.length} replies from API`);
-
-        // Check if owner has replied to this comment
+        // === LAYER 1: Check nested replies from initial fetch ===
         let ownerReplyText: string | null = null;
-        console.log(`[SYNC] 🔍 Checking ${replies.length} replies for comment ${comment.id}`);
+        const nestedReplies = comment.replies?.data || [];
 
-        for (const reply of replies) {
-            const replyUsername = reply.from?.username?.toLowerCase() || reply.username?.toLowerCase() || '';
-            const replyUserId = reply.from?.id;
+        if (nestedReplies.length > 0) {
+            console.log(`[SYNC] 🔍 Layer 1: Checking ${nestedReplies.length} nested replies for comment ${comment.id}`);
+            ownerReplyText = findOwnerReply(nestedReplies, ownerUsername, ownerInstagramId, 'nested');
+        }
 
-            console.log(`[SYNC]   - Reply by @${replyUsername} (ID: ${replyUserId || 'N/A'}): "${reply.text.substring(0, 30)}..."`);
+        // === LAYER 2: Fetch replies via separate /{comment-id}/replies endpoint ===
+        if (!ownerReplyText) {
+            const replies = await fetchRepliesForComment(comment.id, accessToken);
+            console.log(`[SYNC] 🔍 Layer 2: Comment ${comment.id} has ${replies.length} replies from /replies endpoint`);
 
-            const isIdMatch = replyUserId && replyUserId === ownerInstagramId;
-            const isUserMatch = replyUsername && replyUsername === ownerUsername.toLowerCase();
+            if (replies.length > 0) {
+                ownerReplyText = findOwnerReply(replies, ownerUsername, ownerInstagramId, 'endpoint');
+            }
+        }
 
-            console.log(`[SYNC]     ID Match: ${isIdMatch} (${replyUserId} === ${ownerInstagramId})`);
-            console.log(`[SYNC]     Username Match: ${isUserMatch} (${replyUsername} === ${ownerUsername.toLowerCase()})`);
+        // === LAYER 3: Fallback - fetch all comments at media level ===
+        if (!ownerReplyText) {
+            // Lazy-load media-level comments only once per post (on first miss)
+            if (mediaLevelComments === null) {
+                console.log(`[SYNC] 🔍 Layer 3: Fetching all comments from /{media-id}/comments as fallback...`);
+                mediaLevelComments = await fetchAllCommentsForMedia(mediaId, accessToken) as (InstagramReply & { parent_id?: { id: string } })[];
+                console.log(`[SYNC] 🔍 Layer 3: Found ${mediaLevelComments.length} total comments at media level`);
+            }
 
-            if (isIdMatch || isUserMatch) {
-                ownerReplyText = reply.text || '';
-                const replyPreview = ownerReplyText.substring(0, 50);
-                const matchType = isIdMatch ? "ID" : "Username";
-                console.log(`[SYNC] ✅ Found owner reply (matched by ${matchType}): "${replyPreview}..."`);
-                break;
+            // Find owner replies that reference this comment as parent
+            const ownerRepliesFromMedia = mediaLevelComments.filter(c => {
+                const parentId = c.parent_id?.id;
+                if (parentId !== comment.id) return false;
+
+                const replyUsername = c.from?.username?.toLowerCase() || c.username?.toLowerCase() || '';
+                const replyUserId = c.from?.id;
+                return (replyUserId && replyUserId === ownerInstagramId) || (replyUsername === ownerUsername.toLowerCase());
+            });
+
+            if (ownerRepliesFromMedia.length > 0) {
+                ownerReplyText = ownerRepliesFromMedia[0].text || '';
+                console.log(`[SYNC] ✅ Layer 3 (media-level fallback): Found owner reply: "${ownerReplyText.substring(0, 50)}..."`);
             }
         }
 
         if (!ownerReplyText) {
             console.log(`[SYNC] ❌ No owner reply found for comment by @${senderUsername}`);
         }
-
 
         // SAVE ALL COMMENTS - myResponse will be null if owner didn't reply
         interactions.push({
@@ -280,6 +327,32 @@ async function parseCommentsForInteractions(
     const withReplies = interactions.filter(i => i.myResponse).length;
     console.log(`[SYNC] ✅ Saved ${interactions.length} comments (${withReplies} with owner replies)`);
     return interactions;
+}
+
+/**
+ * Helper: Find owner reply in a list of replies by matching ID or username.
+ */
+function findOwnerReply(
+    replies: InstagramReply[],
+    ownerUsername: string,
+    ownerInstagramId: string,
+    source: string
+): string | null {
+    for (const reply of replies) {
+        const replyUsername = reply.from?.username?.toLowerCase() || reply.username?.toLowerCase() || '';
+        const replyUserId = reply.from?.id;
+
+        const isIdMatch = replyUserId && replyUserId === ownerInstagramId;
+        const isUserMatch = replyUsername && replyUsername === ownerUsername.toLowerCase();
+
+        if (isIdMatch || isUserMatch) {
+            const replyText = reply.text || '';
+            const matchType = isIdMatch ? "ID" : "Username";
+            console.log(`[SYNC] ✅ Found owner reply via ${source} (matched by ${matchType}): "${replyText.substring(0, 50)}..."`);
+            return replyText;
+        }
+    }
+    return null;
 }
 
 // ============================================
@@ -389,7 +462,8 @@ async function insertMediaAndInteractions(
                 ownerUsername,
                 ownerInstagramId,
                 post.caption || null,
-                accessToken
+                accessToken,
+                post.id
             );
 
             // Insert all interactions for this post

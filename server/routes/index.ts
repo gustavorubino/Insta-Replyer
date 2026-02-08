@@ -5087,6 +5087,11 @@ export async function registerRoutes(
 
       const captionsCount = result.captions.length;
 
+      // Get interaction count to show in the profile stats
+      const interactionCount = await storage.getInteractionDialectCount(userId);
+      const withReplies = (await storage.getInteractionDialect(userId, 'public_comment'))
+        .filter(i => i.myResponse).length;
+
       // Update or create profile record
       const existingProfiles = await storage.getInstagramProfiles(userId);
       const existingProfile = existingProfiles.find(
@@ -5097,6 +5102,7 @@ export async function registerRoutes(
         await storage.updateInstagramProfile(existingProfile.id, {
           bio: result.bio,
           postsScraped: captionsCount,
+          datasetEntriesGenerated: interactionCount,
           status: "completed",
           progress: 100,
           lastSyncAt: new Date(),
@@ -5108,19 +5114,22 @@ export async function registerRoutes(
           profileUrl: `https://www.instagram.com/${result.username}/`,
           bio: result.bio,
           postsScraped: captionsCount,
+          datasetEntriesGenerated: interactionCount,
           status: "completed",
           progress: 100,
           lastSyncAt: new Date(),
         });
       }
 
-      console.log(`[Sync Official] ✅ Sincronização concluída: ${captionsCount} legendas disponíveis para síntese`);
+      console.log(`[Sync Official] ✅ Sincronização concluída: ${captionsCount} posts, ${interactionCount} conversas (${withReplies} com respostas)`);
 
       res.json({
         success: true,
         username: result.username,
         captionsCount,
-        message: `${captionsCount} legendas encontradas! Use "Gerar Personalidade" para criar seu tom de voz.`
+        interactionCount,
+        withReplies,
+        message: `${captionsCount} posts e ${interactionCount} conversas sincronizadas (${withReplies} com suas respostas)!`
       });
     } catch (error) {
       console.error("[Sync Official] Error:", error);
