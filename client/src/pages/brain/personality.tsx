@@ -10,6 +10,7 @@ import {
   Pencil,
   X,
   Trash2,
+  Check,
 } from "lucide-react";
 import {
   Card,
@@ -156,14 +157,26 @@ export default function Personality() {
                     </Button>
                   </div>
                 ) : (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setIsEditingPrompt(false)}
-                    title="Cancelar edição"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleSave}
+                      disabled={!hasChanges || saveMutation.isPending}
+                      title="Salvar alterações"
+                      className="text-muted-foreground hover:text-primary"
+                    >
+                      <Check className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setIsEditingPrompt(false)}
+                      title="Cancelar edição"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
                 )}
               </div>
               <CardDescription>
@@ -182,6 +195,7 @@ export default function Personality() {
                 placeholder={t.settings.ai.systemPromptPlaceholder}
                 className={`min-h-[300px] font-mono text-sm ${!isEditingPrompt ? "cursor-not-allowed opacity-75" : ""}`}
                 readOnly={!isEditingPrompt}
+                spellCheck={true}
               />
               <p className="text-xs text-muted-foreground">
                 {t.settings.ai.systemPromptHelper}
