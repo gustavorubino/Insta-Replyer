@@ -276,6 +276,8 @@ async function fetchAllCommentsForMedia(mediaId: string, accessToken: string): P
             if (data.paging?.next) {
                 url = data.paging.next;
                 console.log(`[SYNC] 📄 Following pagination to fetch more comments...`);
+                // Add small delay to avoid rate limiting
+                await new Promise(resolve => setTimeout(resolve, 500));
             } else {
                 hasMore = false;
             }
