@@ -58,6 +58,7 @@ interface InstagramReply {
         id: string;
         username: string;
     };
+    parent_id?: string;
 }
 
 interface SyncResult {
@@ -171,22 +172,99 @@ async function fetchRepliesForComment(commentId: string, accessToken: string): P
 // Instagram Graph API limitation where owner replies may not
 // appear in the /replies endpoint.
 // ============================================
-async function fetchAllCommentsForMedia(mediaId: string, accessToken: string): Promise<InstagramReply[]> {
+async function fetchAllCommentsForMedia(mediaId: string, accessToken: string): Promise<(InstagramReply & { parent_id?: string })[]> {
     try {
         const url = `https://graph.instagram.com/${mediaId}/comments?fields=id,text,username,timestamp,from{id,username},parent_id&limit=100&access_token=${accessToken}`;
         const response = await fetch(url);
 
         if (!response.ok) {
-            console.log(`[SYNC] Failed to fetch all comments for media ${mediaId}: ${response.status}`);
+            console.log(`[SYNC] ⚠️ Failed to fetch all comments for media ${mediaId}: ${response.status}`);
             return [];
         }
 
-        const data = await response.json() as { data?: (InstagramReply & { parent_id?: { id: string } })[] };
-        return data.data || [];
+        const data = await response.json() as { data?: (InstagramReply & { parent_id?: string })[] };
+        const comments = data.data || [];
+        
+        console.log(`[SYNC] 📊 Fetched ${comments.length} total comments from media level`);
+        
+        // Debug: Log each comment with detailed info
+        for (const comment of comments) {
+            const username = comment.from?.username || comment.username || 'unknown';
+            const hasParentId = comment.parent_id ? 'YES' : 'NO';
+            const hasFromId = comment.from?.id ? 'YES' : 'NO';
+            console.log(`[SYNC] 📋 Comment ${comment.id}: @${username}, parent_id=${hasParentId}, from.id=${hasFromId}`);
+        }
+        
+        return comments;
     } catch (error) {
-        console.log(`[SYNC] Error fetching all comments for media ${mediaId}:`, error);
+        console.log(`[SYNC] ❌ Error fetching all comments for media ${mediaId}:`, error);
         return [];
     }
+}
+
+// ============================================
+// LAYER 4 HELPER: Find owner reply by temporal proximity and username matching
+// ============================================
+function findOwnerReplyByTemporalProximity(
+    comments: (InstagramReply & { parent_id?: string })[],
+    originalComment: InstagramComment,
+    ownerUsername: string,
+    ownerInstagramId: string
+): string | null {
+    const TEMPORAL_WINDOW_DAYS = 7;
+    const originalTimestamp = new Date(originalComment.timestamp);
+    const maxTimestamp = new Date(originalTimestamp.getTime() + TEMPORAL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    
+    console.log(`[SYNC] 🔍 Layer 4: Searching for owner replies within ${TEMPORAL_WINDOW_DAYS} days after ${originalComment.timestamp}`);
+    
+    // Filter owner comments that came AFTER the original comment
+    const ownerCommentsAfter = comments.filter(c => {
+        const commentTime = new Date(c.timestamp);
+        if (commentTime <= originalTimestamp || commentTime > maxTimestamp) {
+            return false;
+        }
+        
+        const replyUsername = c.from?.username?.toLowerCase() || c.username?.toLowerCase() || '';
+        const replyUserId = c.from?.id;
+        const isOwner = (replyUserId && replyUserId === ownerInstagramId) || (replyUsername === ownerUsername.toLowerCase());
+        
+        if (!isOwner) return false;
+        
+        // Check if this is NOT a reply to someone else (no parent_id or parent_id matches)
+        // If there's a parent_id, we want to make sure it's either undefined or matches our comment
+        const hasOtherParent = c.parent_id && c.parent_id !== originalComment.id;
+        if (hasOtherParent) return false;
+        
+        return true;
+    });
+    
+    console.log(`[SYNC] 🔍 Layer 4: Found ${ownerCommentsAfter.length} potential owner replies after the comment`);
+    
+    if (ownerCommentsAfter.length === 0) {
+        return null;
+    }
+    
+    // Sort by timestamp to get the first reply after the original comment
+    ownerCommentsAfter.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    
+    // Check for @username mentions as additional confidence
+    const originalUsername = originalComment.from?.username || originalComment.username || '';
+    const mentionPattern = new RegExp(`@${originalUsername}`, 'i');
+    
+    // Prefer replies that mention the user
+    const repliesWithMention = ownerCommentsAfter.filter(c => mentionPattern.test(c.text || ''));
+    
+    if (repliesWithMention.length > 0) {
+        const replyText = repliesWithMention[0].text || '';
+        console.log(`[SYNC] ✅ Layer 4 (temporal + mention): Found owner reply mentioning @${originalUsername}: "${replyText.substring(0, 50)}..."`);
+        return replyText;
+    }
+    
+    // Otherwise, take the first one chronologically
+    const replyText = ownerCommentsAfter[0].text || '';
+    const timeDiff = Math.round((new Date(ownerCommentsAfter[0].timestamp).getTime() - originalTimestamp.getTime()) / 1000 / 60);
+    console.log(`[SYNC] ✅ Layer 4 (temporal): Found owner reply ${timeDiff} minutes after comment: "${replyText.substring(0, 50)}..."`);
+    return replyText;
 }
 
 // ============================================
@@ -197,6 +275,71 @@ function enforcePostLimit(posts: InstagramMedia[]): InstagramMedia[] {
     const validPosts = posts.slice(0, MAX_POSTS);
     console.log(`[SYNC] Enforced limit: ${validPosts.length} posts (max ${MAX_POSTS})`);
     return validPosts;
+}
+
+// ============================================
+// LAYER 4 HELPER: Find owner reply by temporal proximity and username matching
+// ============================================
+function findOwnerReplyByTemporalProximity(
+    comments: (InstagramReply & { parent_id?: string })[],
+    originalComment: InstagramComment,
+    ownerUsername: string,
+    ownerInstagramId: string
+): string | null {
+    const TEMPORAL_WINDOW_DAYS = 7;
+    const originalTimestamp = new Date(originalComment.timestamp);
+    const maxTimestamp = new Date(originalTimestamp.getTime() + TEMPORAL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    
+    console.log(`[SYNC] 🔍 Layer 4: Searching for owner replies within ${TEMPORAL_WINDOW_DAYS} days after ${originalComment.timestamp}`);
+    
+    // Filter owner comments that came AFTER the original comment
+    const ownerCommentsAfter = comments.filter(c => {
+        const commentTime = new Date(c.timestamp);
+        if (commentTime <= originalTimestamp || commentTime > maxTimestamp) {
+            return false;
+        }
+        
+        const replyUsername = c.from?.username?.toLowerCase() || c.username?.toLowerCase() || '';
+        const replyUserId = c.from?.id;
+        const isOwner = (replyUserId && replyUserId === ownerInstagramId) || (replyUsername === ownerUsername.toLowerCase());
+        
+        if (!isOwner) return false;
+        
+        // Check if this is NOT a reply to someone else (no parent_id or parent_id matches)
+        // If there's a parent_id, we want to make sure it's either undefined or matches our comment
+        const hasOtherParent = c.parent_id && c.parent_id !== originalComment.id;
+        if (hasOtherParent) return false;
+        
+        return true;
+    });
+    
+    console.log(`[SYNC] 🔍 Layer 4: Found ${ownerCommentsAfter.length} potential owner replies after the comment`);
+    
+    if (ownerCommentsAfter.length === 0) {
+        return null;
+    }
+    
+    // Sort by timestamp to get the first reply after the original comment
+    ownerCommentsAfter.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    
+    // Check for @username mentions as additional confidence
+    const originalUsername = originalComment.from?.username || originalComment.username || '';
+    const mentionPattern = new RegExp(`@${originalUsername}`, 'i');
+    
+    // Prefer replies that mention the user
+    const repliesWithMention = ownerCommentsAfter.filter(c => mentionPattern.test(c.text || ''));
+    
+    if (repliesWithMention.length > 0) {
+        const replyText = repliesWithMention[0].text || '';
+        console.log(`[SYNC] ✅ Layer 4 (temporal + mention): Found owner reply mentioning @${originalUsername}: "${replyText.substring(0, 50)}..."`);
+        return replyText;
+    }
+    
+    // Otherwise, take the first one chronologically
+    const replyText = ownerCommentsAfter[0].text || '';
+    const timeDiff = Math.round((new Date(ownerCommentsAfter[0].timestamp).getTime() - originalTimestamp.getTime()) / 1000 / 60);
+    console.log(`[SYNC] ✅ Layer 4 (temporal): Found owner reply ${timeDiff} minutes after comment: "${replyText.substring(0, 50)}..."`);
+    return replyText;
 }
 
 // ============================================
@@ -215,6 +358,15 @@ interface ParsedInteraction {
     interactedAt: Date;
 }
 
+// Track which layer found each reply for debugging
+interface LayerStats {
+    layer1: number;
+    layer2: number;
+    layer3: number;
+    layer4: number;
+    notFound: number;
+}
+
 async function parseCommentsForInteractions(
     comments: InstagramComment[] | undefined,
     ownerUsername: string,
@@ -229,16 +381,31 @@ async function parseCommentsForInteractions(
 
     const interactions: ParsedInteraction[] = [];
     const limitedComments = comments.slice(0, MAX_COMMENTS_PER_POST);
+    
+    // Track which layer found each reply
+    const layerStats: LayerStats = {
+        layer1: 0,
+        layer2: 0,
+        layer3: 0,
+        layer4: 0,
+        notFound: 0
+    };
 
-    console.log(`[SYNC] Processing ${limitedComments.length} comments, looking for owner replies...`);
+    console.log(`[SYNC] 📊 Processing ${limitedComments.length} comments, looking for owner replies...`);
+    console.log(`[SYNC] 🔍 DEBUG - Owner credentials: ID=${ownerInstagramId}, Username=@${ownerUsername}`);
 
     // Pre-fetch all comments at the media level as fallback data.
     // The /{comment-id}/replies endpoint is known to sometimes NOT return
     // owner replies. Fetching all comments from /{media-id}/comments lets
     // us find owner replies by matching parent_id relationships.
-    let mediaLevelComments: (InstagramReply & { parent_id?: { id: string } })[] | null = null;
+    let mediaLevelComments: (InstagramReply & { parent_id?: string })[] | null = null;
 
     for (const comment of limitedComments) {
+        // Enhanced debug logging for each comment
+        console.log(`[SYNC] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`[SYNC] 📝 Processing comment ${comment.id} by @${comment.from?.username || comment.username || 'unknown'}`);
+        console.log(`[SYNC] 🔍 DEBUG - Comment fields: from.id=${comment.from?.id || 'undefined'}, from.username=${comment.from?.username || 'undefined'}, username=${comment.username || 'undefined'}`);
+        
         // Get username from 'from' field first, then fallback to 'username'
         const commentUsername = comment.from?.username?.trim().toLowerCase() || comment.username?.trim().toLowerCase() || '';
         const commentUserId = comment.from?.id;
@@ -248,12 +415,13 @@ async function parseCommentsForInteractions(
 
         if (isOwnerComment) {
             const textPreview = (comment.text || '[sem texto]').substring(0, 30);
-            console.log(`[SYNC] Skipping owner's own comment: ${textPreview}...`);
+            console.log(`[SYNC] ⏭️ Skipping owner's own comment: ${textPreview}...`);
             continue;
         }
 
         // Get the real username from 'from' field (priority) or 'username' field
         const senderUsername = comment.from?.username?.trim() || comment.username?.trim() || "Seguidor";
+        let foundLayer: number = 0;
 
         // === LAYER 1: Check nested replies from initial fetch ===
         let ownerReplyText: string | null = null;
@@ -261,7 +429,11 @@ async function parseCommentsForInteractions(
 
         if (nestedReplies.length > 0) {
             console.log(`[SYNC] 🔍 Layer 1: Checking ${nestedReplies.length} nested replies for comment ${comment.id}`);
-            ownerReplyText = findOwnerReply(nestedReplies, ownerUsername, ownerInstagramId, 'nested');
+            ownerReplyText = findOwnerReply(nestedReplies, ownerUsername, ownerInstagramId, 'Layer 1 (nested)');
+            if (ownerReplyText) {
+                foundLayer = 1;
+                layerStats.layer1++;
+            }
         }
 
         // === LAYER 2: Fetch replies via separate /{comment-id}/replies endpoint ===
@@ -270,7 +442,11 @@ async function parseCommentsForInteractions(
             console.log(`[SYNC] 🔍 Layer 2: Comment ${comment.id} has ${replies.length} replies from /replies endpoint`);
 
             if (replies.length > 0) {
-                ownerReplyText = findOwnerReply(replies, ownerUsername, ownerInstagramId, 'endpoint');
+                ownerReplyText = findOwnerReply(replies, ownerUsername, ownerInstagramId, 'Layer 2 (/replies)');
+                if (ownerReplyText) {
+                    foundLayer = 2;
+                    layerStats.layer2++;
+                }
             }
         }
 
@@ -279,28 +455,70 @@ async function parseCommentsForInteractions(
             // Lazy-load media-level comments only once per post (on first miss)
             if (mediaLevelComments === null) {
                 console.log(`[SYNC] 🔍 Layer 3: Fetching all comments from /{media-id}/comments as fallback...`);
-                mediaLevelComments = await fetchAllCommentsForMedia(mediaId, accessToken) as (InstagramReply & { parent_id?: { id: string } })[];
+                mediaLevelComments = await fetchAllCommentsForMedia(mediaId, accessToken);
                 console.log(`[SYNC] 🔍 Layer 3: Found ${mediaLevelComments.length} total comments at media level`);
             }
 
             // Find owner replies that reference this comment as parent
             const ownerRepliesFromMedia = mediaLevelComments.filter(c => {
-                const parentId = c.parent_id?.id;
+                const parentId = c.parent_id;
+                
+                // Debug log for parent_id check
+                if (parentId === undefined) {
+                    console.log(`[SYNC] 🔍 Layer 3: Comment ${c.id} has parent_id=undefined`);
+                } else if (parentId !== comment.id) {
+                    console.log(`[SYNC] 🔍 Layer 3: Comment ${c.id} has parent_id=${parentId} (not a match for ${comment.id})`);
+                } else {
+                    console.log(`[SYNC] 🔍 Layer 3: Comment ${c.id} has parent_id=${parentId} (MATCH!)`);
+                }
+                
                 if (parentId !== comment.id) return false;
 
                 const replyUsername = c.from?.username?.toLowerCase() || c.username?.toLowerCase() || '';
                 const replyUserId = c.from?.id;
-                return (replyUserId && replyUserId === ownerInstagramId) || (replyUsername === ownerUsername.toLowerCase());
+                const isOwner = (replyUserId && replyUserId === ownerInstagramId) || (replyUsername === ownerUsername.toLowerCase());
+                
+                console.log(`[SYNC] 🔍 Layer 3: Checking if ${c.id} is from owner: from.id=${replyUserId}, username=${replyUsername}, isOwner=${isOwner}`);
+                
+                return isOwner;
             });
 
             if (ownerRepliesFromMedia.length > 0) {
                 ownerReplyText = ownerRepliesFromMedia[0].text || '';
-                console.log(`[SYNC] ✅ Layer 3 (media-level fallback): Found owner reply: "${ownerReplyText.substring(0, 50)}..."`);
+                foundLayer = 3;
+                layerStats.layer3++;
+                console.log(`[SYNC] ✅ Layer 3 (parent_id match): Found owner reply: "${ownerReplyText.substring(0, 50)}..."`);
+            }
+        }
+
+        // === LAYER 4: Temporal proximity and username matching ===
+        if (!ownerReplyText) {
+            // Lazy-load media-level comments if not already fetched
+            if (mediaLevelComments === null) {
+                console.log(`[SYNC] 🔍 Layer 4: Fetching all comments from /{media-id}/comments...`);
+                mediaLevelComments = await fetchAllCommentsForMedia(mediaId, accessToken);
+            }
+
+            if (mediaLevelComments.length > 0) {
+                ownerReplyText = findOwnerReplyByTemporalProximity(
+                    mediaLevelComments,
+                    comment,
+                    ownerUsername,
+                    ownerInstagramId
+                );
+                if (ownerReplyText) {
+                    foundLayer = 4;
+                    layerStats.layer4++;
+                }
             }
         }
 
         if (!ownerReplyText) {
-            console.log(`[SYNC] ❌ No owner reply found for comment by @${senderUsername}`);
+            layerStats.notFound++;
+            console.log(`[SYNC] ❌ No owner reply found for comment by @${senderUsername} after checking all 4 layers`);
+            console.log(`[SYNC] 📊 Possible reasons: parent_id not returned by API, from.id missing, or genuinely no reply yet`);
+        } else {
+            console.log(`[SYNC] ✅ Found reply via Layer ${foundLayer} for comment by @${senderUsername}`);
         }
 
         // SAVE ALL COMMENTS - myResponse will be null if owner didn't reply
@@ -325,7 +543,15 @@ async function parseCommentsForInteractions(
     }
 
     const withReplies = interactions.filter(i => i.myResponse).length;
-    console.log(`[SYNC] ✅ Saved ${interactions.length} comments (${withReplies} with owner replies)`);
+    console.log(`[SYNC] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`[SYNC] 📊 LAYER STATS SUMMARY:`);
+    console.log(`[SYNC] 📊   Layer 1 (nested):    ${layerStats.layer1} replies`);
+    console.log(`[SYNC] 📊   Layer 2 (/replies):  ${layerStats.layer2} replies`);
+    console.log(`[SYNC] 📊   Layer 3 (parent_id): ${layerStats.layer3} replies`);
+    console.log(`[SYNC] 📊   Layer 4 (temporal):  ${layerStats.layer4} replies`);
+    console.log(`[SYNC] 📊   Not found:           ${layerStats.notFound} comments`);
+    console.log(`[SYNC] 📊   TOTAL:               ${withReplies} replies found out of ${interactions.length} comments`);
+    console.log(`[SYNC] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     return interactions;
 }
 
@@ -342,6 +568,9 @@ function findOwnerReply(
         const replyUsername = reply.from?.username?.toLowerCase() || reply.username?.toLowerCase() || '';
         const replyUserId = reply.from?.id;
 
+        // Debug log for each reply checked
+        console.log(`[SYNC] 🔍 ${source}: Checking reply ${reply.id} - from.id=${replyUserId || 'undefined'}, from.username=${reply.from?.username || 'undefined'}, username=${reply.username || 'undefined'}`);
+
         const isIdMatch = replyUserId && replyUserId === ownerInstagramId;
         const isUserMatch = replyUsername && replyUsername === ownerUsername.toLowerCase();
 
@@ -352,6 +581,7 @@ function findOwnerReply(
             return replyText;
         }
     }
+    console.log(`[SYNC] ❌ ${source}: No owner reply found in ${replies.length} replies`);
     return null;
 }
 
