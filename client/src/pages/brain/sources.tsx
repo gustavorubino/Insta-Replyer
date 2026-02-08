@@ -161,6 +161,12 @@ export default function Sources() {
       try {
         const response = await apiRequest("POST", "/api/knowledge/sync-official", {});
         clearTimeout(timeoutId);
+        
+        // Check if response is ok before parsing
+        if (!response.ok) {
+          throw new Error(`API request failed with status ${response.status}`);
+        }
+        
         return response.json();
       } catch (error) {
         clearTimeout(timeoutId);
