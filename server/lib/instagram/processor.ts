@@ -30,9 +30,9 @@ const TEMPORAL_WINDOW_DAYS = 7;
  * Safely truncate text without breaking multi-byte Unicode characters (emojis, etc.)
  */
 function safeTruncate(text: string, maxLength: number): string {
-    if (!text || text.length < maxLength) return text;
+    if (!text || text.length <= maxLength) return text;
     
-    // Text is exactly at or over maxLength, needs truncation
+    // Text exceeds maxLength, needs truncation
     let truncated = text.substring(0, maxLength);
     
     // Try to avoid breaking in the middle of a surrogate pair
@@ -44,6 +44,13 @@ function safeTruncate(text: string, maxLength: number): string {
     }
     
     return truncated + '...';
+}
+
+/**
+ * Escape special regex characters in a string for literal matching
+ */
+function escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // ============================================
@@ -85,6 +92,9 @@ interface InstagramReply {
         id: string;
         username: string;
     };
+    // parent_id is often undefined or missing in Instagram API responses,
+    // especially for owner replies. This is a known API limitation that
+    // Layer 4 temporal proximity matching was designed to work around.
     parent_id?: string;
 }
 
@@ -214,7 +224,9 @@ async function fetchAllCommentsForMedia(mediaId: string, accessToken: string): P
         
         console.log(`[SYNC] 📊 Fetched ${comments.length} total comments from media level`);
         
-        // Debug: Log each comment with detailed info
+        // Detailed debug logging for troubleshooting Instagram API issues
+        // This helps diagnose why certain replies are not detected (missing parent_id, from.id, etc.)
+        // NOTE: This generates significant log volume - consider adding a DEBUG flag in production
         for (const comment of comments) {
             const username = comment.from?.username || comment.username || 'unknown';
             const hasParentId = comment.parent_id ? 'YES' : 'NO';
@@ -275,7 +287,7 @@ function findOwnerReplyByTemporalProximity(
     
     // Check for @username mentions as additional confidence
     const originalUsername = originalComment.from?.username || originalComment.username || '';
-    const mentionPattern = new RegExp(`@${originalUsername}`, 'i');
+    const mentionPattern = new RegExp(`@${escapeRegex(originalUsername)}`, 'i');
     
     // Prefer replies that mention the user
     const repliesWithMention = ownerCommentsAfter.filter(c => mentionPattern.test(c.text || ''));
