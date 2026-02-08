@@ -158,7 +158,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
 
       // Sync started successfully, begin polling
       startPolling();
-    } catch (error: any) {
+    } catch (error: unknown) {
       setIsSyncing(false);
       setSyncProgress(0);
       setSyncStatus("");
@@ -166,21 +166,17 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       let message = "Erro ao sincronizar conta.";
       let title = "Erro";
       
-      try {
-        if (error.message) {
-          const errorStr = error.message;
-          if (errorStr.includes("NOT_CONNECTED") || errorStr.includes("não conectada")) {
-            title = "Não Conectado";
-            message = "Conecte sua conta Instagram primeiro na aba Conexão.";
-          } else if (errorStr.includes("INVALID_TOKEN") || errorStr.includes("Token")) {
-            title = "Token Expirado";
-            message = "Token do Instagram inválido ou expirado. Reconecte sua conta.";
-          } else {
-            message = errorStr;
-          }
+      if (error instanceof Error) {
+        const errorStr = error.message;
+        if (errorStr.includes("NOT_CONNECTED") || errorStr.includes("não conectada")) {
+          title = "Não Conectado";
+          message = "Conecte sua conta Instagram primeiro na aba Conexão.";
+        } else if (errorStr.includes("INVALID_TOKEN") || errorStr.includes("Token")) {
+          title = "Token Expirado";
+          message = "Token do Instagram inválido ou expirado. Reconecte sua conta.";
+        } else {
+          message = errorStr;
         }
-      } catch (e) {
-        // Use default message
       }
       
       setSyncError(message);
@@ -219,6 +215,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     return () => {
       stopPolling();
     };
+    // Note: toast and queryClient are stable references from hooks and don't need to be in deps
+    // startPolling is defined in component scope and uses refs to maintain stable behavior
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const value: SyncContextValue = {

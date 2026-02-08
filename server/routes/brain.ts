@@ -550,16 +550,19 @@ router.post("/sync-knowledge", isAuthenticated, async (req, res) => {
 
                 // Clean up progress after 30 seconds
                 setTimeout(() => syncKnowledgeProgress.delete(userId), 30000);
-            } catch (error: any) {
+            } catch (error: unknown) {
                 console.error("[Brain Sync] Background sync error:", error);
                 
                 // Determine error message
-                let errorMessage = error?.message || "Failed to sync knowledge";
+                let errorMessage = "Failed to sync knowledge";
                 
-                if (errorMessage.includes("Token do Instagram inválido") || errorMessage.includes("expirado")) {
-                    errorMessage = "Token do Instagram inválido ou expirado. Reconecte sua conta.";
-                } else if (errorMessage.includes("Failed to fetch")) {
-                    errorMessage = "Erro ao conectar com a API do Instagram. Tente novamente.";
+                if (error instanceof Error) {
+                    errorMessage = error.message;
+                    if (errorMessage.includes("Token do Instagram inválido") || errorMessage.includes("expirado")) {
+                        errorMessage = "Token do Instagram inválido ou expirado. Reconecte sua conta.";
+                    } else if (errorMessage.includes("Failed to fetch")) {
+                        errorMessage = "Erro ao conectar com a API do Instagram. Tente novamente.";
+                    }
                 }
                 
                 // Mark as error with message
@@ -574,11 +577,13 @@ router.post("/sync-knowledge", isAuthenticated, async (req, res) => {
                 setTimeout(() => syncKnowledgeProgress.delete(userId), 30000);
             }
         })();
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("[Brain Sync] Error starting sync:", error);
         
+        const errorMessage = error instanceof Error ? error.message : "Erro ao iniciar sincronização";
+        
         res.status(500).json({
-            error: error?.message || "Erro ao iniciar sincronização",
+            error: errorMessage,
             code: "SYNC_START_ERROR"
         });
     }
