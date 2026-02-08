@@ -204,7 +204,7 @@ async function fetchProfile(accessToken: string): Promise<{ username: string; bi
 // ============================================
 async function fetchPostsWithComments(accessToken: string): Promise<InstagramMedia[]> {
     // Query fields include nested comments with from{} for username AND nested replies
-    const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(10){id,text,username,timestamp,from{id,username},replies{id,text,username,timestamp,from{id,username}}}";
+    const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(50){id,text,username,timestamp,from{id,username},replies{id,text,username,timestamp,from{id,username}}}";
     const mediaUrl = `https://graph.instagram.com/me/media?fields=${encodeURIComponent(fields)}&access_token=${accessToken}&limit=${MAX_POSTS}`;
 
     const response = await fetchWithTimeout(mediaUrl);
@@ -251,30 +251,49 @@ async function fetchRepliesForComment(commentId: string, accessToken: string): P
 // ============================================
 async function fetchAllCommentsForMedia(mediaId: string, accessToken: string): Promise<(InstagramReply & { parent_id?: string })[]> {
     try {
-        const url = `https://graph.instagram.com/${mediaId}/comments?fields=id,text,username,timestamp,from{id,username},parent_id&limit=100&access_token=${accessToken}`;
-        const response = await fetchWithTimeout(url);
-
-        if (!response.ok) {
-            console.log(`[SYNC] ⚠️ Failed to fetch all comments for media ${mediaId}: ${response.status}`);
-            return [];
-        }
-
-        const data = await response.json() as { data?: (InstagramReply & { parent_id?: string })[] };
-        const comments = data.data || [];
+        let allComments: (InstagramReply & { parent_id?: string })[] = [];
+        let url = `https://graph.instagram.com/${mediaId}/comments?fields=id,text,username,timestamp,from{id,username},parent_id&limit=100&access_token=${accessToken}`;
+        let hasMore = true;
         
-        console.log(`[SYNC] 📊 Fetched ${comments.length} total comments from media level`);
+        while (hasMore) {
+            const response = await fetchWithTimeout(url);
+
+            if (!response.ok) {
+                console.log(`[SYNC] ⚠️ Failed to fetch all comments for media ${mediaId}: ${response.status}`);
+                break;
+            }
+
+            const data = await response.json() as { 
+                data?: (InstagramReply & { parent_id?: string })[],
+                paging?: { next?: string }
+            };
+            const comments = data.data || [];
+            allComments = allComments.concat(comments);
+            
+            console.log(`[SYNC] 📊 Fetched ${comments.length} comments from media level (total so far: ${allComments.length})`);
+            
+            // Check if there's a next page
+            if (data.paging?.next) {
+                url = data.paging.next;
+                console.log(`[SYNC] 📄 Following pagination to fetch more comments...`);
+            } else {
+                hasMore = false;
+            }
+        }
+        
+        console.log(`[SYNC] 📊 Total fetched: ${allComments.length} comments from media level with pagination`);
         
         // Detailed debug logging for troubleshooting Instagram API issues
         // This helps diagnose why certain replies are not detected (missing parent_id, from.id, etc.)
         // NOTE: This generates significant log volume - consider adding a DEBUG flag in production
-        for (const comment of comments) {
+        for (const comment of allComments) {
             const username = comment.from?.username || comment.username || 'unknown';
             const hasParentId = comment.parent_id ? 'YES' : 'NO';
             const hasFromId = comment.from?.id ? 'YES' : 'NO';
             console.log(`[SYNC] 📋 Comment ${comment.id}: @${username}, parent_id=${hasParentId}, from.id=${hasFromId}`);
         }
         
-        return comments;
+        return allComments;
     } catch (error) {
         console.log(`[SYNC] ❌ Error fetching all comments for media ${mediaId}:`, error);
         return [];
@@ -551,11 +570,25 @@ async function parseCommentsForInteractions(
             layerStats.notFound++;
             console.log(`[SYNC] ❌ No owner reply found for comment by @${senderUsername} after checking all 4 layers`);
             console.log(`[SYNC] 📊 Possible reasons: parent_id not returned by API, from.id missing, or genuinely no reply yet`);
-            console.log(`[SYNC] ⏭️  Skipped comment: @${senderUsername} (no owner reply)`);
+            console.log(`[SYNC] 💾 Saving comment WITHOUT owner reply (myResponse: null) for personality training data`);
+            
+            // SAVE COMMENT WITHOUT OWNER REPLY (still valuable for AI training)
+            interactions.push({
+                channelType: 'public_comment',
+                senderName: senderUsername,
+                senderUsername: senderUsername,
+                userMessage: comment.text || '',
+                myResponse: null,
+                postContext: postCaption?.substring(0, 200) || null,
+                instagramCommentId: comment.id,
+                parentCommentId: null,
+                isOwnerReply: false,
+                interactedAt: comment.timestamp ? new Date(comment.timestamp) : new Date(),
+            });
         } else {
             console.log(`[SYNC] ✅ Found reply via Layer ${foundLayer} for comment by @${senderUsername}`);
             
-            // ONLY SAVE COMMENTS WITH OWNER REPLIES (useful for AI training)
+            // SAVE COMMENT WITH OWNER REPLY (useful for AI training)
             interactions.push({
                 channelType: 'public_comment',
                 senderName: senderUsername,
