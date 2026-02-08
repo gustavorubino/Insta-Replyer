@@ -39,6 +39,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useSyncContext } from "@/contexts/SyncContext";
 
 export default function Sources() {
   const { toast } = useToast();
@@ -48,66 +49,8 @@ export default function Sources() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [profileToDelete, setProfileToDelete] = useState<number | null>(null);
 
-  // Real progress tracking state
-  const [syncProgress, setSyncProgress] = useState(0);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<string>("");
-  const [estimatedTime, setEstimatedTime] = useState<string>("");
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const progressHistoryRef = useRef<Array<{ percent: number; timestamp: number }>>([]);
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Cleanup interval on unmount
-  useEffect(() => {
-    return () => {
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-      }
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
-
-  // Calculate estimated time remaining
-  const calculateEstimatedTime = (currentPercent: number): string => {
-    const history = progressHistoryRef.current;
-    history.push({ percent: currentPercent, timestamp: Date.now() });
-    
-    // Keep only last 5 samples for rate calculation
-    if (history.length > 5) {
-      history.shift();
-    }
-
-    // Need at least 2 samples to calculate rate
-    if (history.length < 2) {
-      return "Calculando tempo...";
-    }
-
-    const first = history[0];
-    const last = history[history.length - 1];
-    const percentChange = last.percent - first.percent;
-    const timeElapsed = last.timestamp - first.timestamp;
-
-    // Avoid division by zero or negative rates
-    if (percentChange <= 0 || timeElapsed <= 0) {
-      return "Calculando tempo...";
-    }
-
-    const percentPerMs = percentChange / timeElapsed;
-    const remainingPercent = 100 - last.percent;
-    const estimatedMs = remainingPercent / percentPerMs;
-    const estimatedSeconds = Math.round(estimatedMs / 1000);
-
-    if (estimatedSeconds < 60) {
-      return `Tempo estimado: ~${estimatedSeconds} segundos`;
-    } else if (estimatedSeconds < 120) {
-      return "Tempo estimado: ~1 minuto";
-    } else {
-      const minutes = Math.round(estimatedSeconds / 60);
-      return `Tempo estimado: ~${minutes} minutos`;
-    }
-  };
+  // Use global sync context
+  const { isSyncing, syncProgress, syncStatus, startSync } = useSyncContext();
 
   const { data: knowledgeLinks = [], isLoading: linksLoading } = useQuery<any[]>({
     queryKey: ["/api/knowledge/links"],
@@ -170,160 +113,6 @@ export default function Sources() {
     },
   });
 
-  // Sync official Instagram account with real progress polling
-  const syncOfficialMutation = useMutation({
-    mutationFn: async () => {
-      // Initialize state
-      setIsSyncing(true);
-      setSyncProgress(0);
-      setSyncStatus("Iniciando...");
-      setEstimatedTime("Calculando tempo...");
-      progressHistoryRef.current = [];
-
-      // Create abort controller for timeout
-      abortControllerRef.current = new AbortController();
-
-      // Start polling for progress
-      progressIntervalRef.current = setInterval(async () => {
-        try {
-          const response = await fetch("/api/knowledge/sync-official/progress", {
-            credentials: "include",
-            signal: abortControllerRef.current?.signal,
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            setSyncProgress(data.percent || 0);
-            setSyncStatus(data.stage || "Sincronizando...");
-            
-            // Calculate estimated time if progress is moving
-            if (data.percent > 0 && data.percent < 100) {
-              const estimate = calculateEstimatedTime(data.percent);
-              setEstimatedTime(estimate);
-            }
-          }
-        } catch (err) {
-          // Ignore errors during polling (will be handled by main request)
-          if (err instanceof Error && err.name !== 'AbortError') {
-            console.error("Progress polling error:", err);
-          }
-        }
-      }, 1500); // Poll every 1.5 seconds
-
-      // Set up 5-minute timeout
-      const timeoutId = setTimeout(() => {
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-        }
-        if (progressIntervalRef.current) {
-          clearInterval(progressIntervalRef.current);
-          progressIntervalRef.current = null;
-        }
-        setIsSyncing(false);
-        setSyncProgress(0);
-        setSyncStatus("");
-        setEstimatedTime("");
-        toast({ 
-          title: "Erro", 
-          description: "A sincronização demorou demais (timeout de 5 minutos). Tente novamente.", 
-          variant: "destructive" 
-        });
-      }, 300000); // 5 minute timeout
-
-      try {
-        const response = await fetch("/api/knowledge/sync-official", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          signal: abortControllerRef.current.signal,
-          body: JSON.stringify({}),
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(JSON.stringify(errorData));
-        }
-        
-        return response.json();
-      } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-      }
-    },
-    onSuccess: (data: any) => {
-      // Stop progress polling
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-        progressIntervalRef.current = null;
-      }
-      
-      // Set to 100% completion
-      setSyncProgress(100);
-      setSyncStatus("Concluído!");
-      setEstimatedTime("");
-
-      // Reset after brief animation
-      setTimeout(() => {
-        setIsSyncing(false);
-        setSyncProgress(0);
-        setSyncStatus("");
-        progressHistoryRef.current = [];
-      }, 1500);
-
-      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/brain/dataset"] });
-      toast({
-        title: "✅ Sincronização Concluída",
-        description: data.message || `${data.captionsCount} legendas sincronizadas!`,
-      });
-    },
-    onError: (error: any) => {
-      // Stop progress on error
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current);
-        progressIntervalRef.current = null;
-      }
-      setIsSyncing(false);
-      setSyncProgress(0);
-      setSyncStatus("");
-      setEstimatedTime("");
-      progressHistoryRef.current = [];
-
-      let message = "Erro ao sincronizar conta.";
-      let title = "Erro";
-      
-      try {
-        // Try to parse error response from API
-        const errorData = error?.message ? JSON.parse(error.message.substring(error.message.indexOf("{"))) : {};
-        
-        if (errorData.code === "NOT_CONNECTED") {
-          title = "Não Conectado";
-          message = "Conecte sua conta Instagram primeiro na aba Conexão.";
-        } else if (errorData.code === "INVALID_TOKEN") {
-          title = "Token Expirado";
-          message = "Token do Instagram inválido ou expirado. Reconecte sua conta nas configurações.";
-        } else if (errorData.code === "API_ERROR") {
-          title = "Erro de API";
-          message = errorData.error || "Erro ao conectar com a API do Instagram. Tente novamente.";
-        } else if (errorData.error) {
-          message = errorData.error;
-        }
-      } catch (e) {
-        // If error message parsing fails, check for common error patterns
-        const errorStr = error?.message || "";
-        if (errorStr.includes("Token") || errorStr.includes("token")) {
-          title = "Token Expirado";
-          message = "Token do Instagram inválido ou expirado. Reconecte sua conta.";
-        } else if (errorStr.includes("timeout") || errorStr.includes("demorou")) {
-          message = "A sincronização demorou demais. Tente novamente.";
-        }
-      }
-      
-      toast({ title, description: message, variant: "destructive" });
-    },
-  });
 
   // Generate personality from synced content
   const generatePersonalityMutation = useMutation({
@@ -573,11 +362,11 @@ export default function Sources() {
             <div className="flex flex-col sm:flex-row gap-2">
               {(() => {
                 const hasCompletedProfile = instagramProfiles.some((p: any) => p.status === "completed");
-                const isButtonDisabled = syncOfficialMutation.isPending || isSyncing || hasCompletedProfile;
+                const isButtonDisabled = isSyncing || hasCompletedProfile;
 
                 return (
                   <Button
-                    onClick={() => syncOfficialMutation.mutate()}
+                    onClick={startSync}
                     disabled={isButtonDisabled}
                     className={
                       hasCompletedProfile
@@ -585,7 +374,7 @@ export default function Sources() {
                         : "flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
                     }
                   >
-                    {syncOfficialMutation.isPending ? (
+                    {isSyncing ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : hasCompletedProfile ? (
                       <CheckCircle className="h-4 w-4 mr-2" />
@@ -627,11 +416,6 @@ export default function Sources() {
                   value={syncProgress}
                   className="h-2 bg-purple-100 dark:bg-purple-950 transition-all duration-300"
                 />
-                {estimatedTime && (
-                  <div className="text-xs text-muted-foreground text-center">
-                    {estimatedTime}
-                  </div>
-                )}
               </div>
             )}
 

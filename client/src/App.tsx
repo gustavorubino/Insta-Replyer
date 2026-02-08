@@ -10,6 +10,7 @@ import { LanguageToggle } from "@/components/language-toggle";
 import { LanguageProvider } from "@/i18n";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useAuth } from "@/hooks/use-auth";
+import { SyncProvider } from "@/contexts/SyncContext";
 import {
   SidebarProvider,
   SidebarTrigger,
@@ -120,8 +121,10 @@ function App() {
       <LanguageProvider defaultLanguage="pt-BR">
         <ThemeProvider defaultTheme="light" storageKey="instagram-ai-theme">
           <TooltipProvider>
-            <AuthenticatedApp />
-            <Toaster />
+            <SyncProvider>
+              <AuthenticatedApp />
+              <Toaster />
+            </SyncProvider>
           </TooltipProvider>
         </ThemeProvider>
       </LanguageProvider>
