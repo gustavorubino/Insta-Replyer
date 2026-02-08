@@ -486,8 +486,24 @@ router.post("/sync-knowledge", isAuthenticated, async (req, res) => {
         });
     } catch (error: any) {
         console.error("Error syncing knowledge:", error);
-        res.status(500).json({
-            error: error?.message || "Failed to sync knowledge",
+        
+        // Determine appropriate status code and error message
+        let statusCode = 500;
+        let errorMessage = error?.message || "Failed to sync knowledge";
+        let errorCode = "UNKNOWN_ERROR";
+        
+        if (errorMessage.includes("Token do Instagram inválido") || errorMessage.includes("expirado")) {
+            statusCode = 401;
+            errorCode = "INVALID_TOKEN";
+        } else if (errorMessage.includes("Failed to fetch")) {
+            statusCode = 503;
+            errorCode = "API_ERROR";
+            errorMessage = "Erro ao conectar com a API do Instagram. Tente novamente.";
+        }
+        
+        res.status(statusCode).json({
+            error: errorMessage,
+            code: errorCode,
         });
     }
 });
