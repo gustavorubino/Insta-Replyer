@@ -139,7 +139,7 @@ export default function Dataset() {
   const [selectedMedia, setSelectedMedia] = useState<MediaLibraryEntry | null>(null);
   const [editingGuideline, setEditingGuideline] = useState<UserGuideline | null>(null);
   const [editingManualQA, setEditingManualQA] = useState<ManualQAEntry | null>(null);
-  const [guidelineForm, setGuidelineForm] = useState({ rule: "", priority: 3, category: "geral" });
+  const [guidelineForm, setGuidelineForm] = useState({ rule: "", priority: 5, category: "geral" });
   const [manualQAForm, setManualQAForm] = useState({ question: "", answer: "" });
   const [searchTerm, setSearchTerm] = useState("");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
@@ -370,7 +370,7 @@ export default function Dataset() {
 
   const openCreateGuideline = () => {
     setEditingGuideline(null);
-    setGuidelineForm({ rule: "", priority: 3, category: "geral" });
+    setGuidelineForm({ rule: "", priority: 5, category: "geral" });
     setIsDialogOpen(true);
   };
 
@@ -428,16 +428,6 @@ export default function Dataset() {
     }
   };
 
-  const getPriorityBadge = (priority: number) => {
-    const colors: Record<number, string> = {
-      5: "bg-red-100 text-red-700 border-red-200",
-      4: "bg-orange-100 text-orange-700 border-orange-200",
-      3: "bg-yellow-100 text-yellow-700 border-yellow-200",
-      2: "bg-blue-100 text-blue-700 border-blue-200",
-      1: "bg-gray-100 text-gray-700 border-gray-200",
-    };
-    return <Badge variant="outline" className={colors[priority] || colors[1]}>P{priority}</Badge>;
-  };
 
   const sortData = <T extends { createdAt?: string; postedAt?: string | null }>(data: T[]): T[] => {
     return [...data].sort((a, b) => {
@@ -595,10 +585,8 @@ export default function Dataset() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[5%]">Ativo</TableHead>
-                      <TableHead className="w-[10%]">Prior.</TableHead>
-                      <TableHead className="w-[15%]">Categoria</TableHead>
-                      <TableHead className="w-[55%]">Regra</TableHead>
+                      <TableHead className="w-[10%]">Ativo</TableHead>
+                      <TableHead className="w-[75%]">Regra</TableHead>
                       <TableHead className="w-[15%] text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -612,10 +600,6 @@ export default function Dataset() {
                               toggleGuidelineMutation.mutate({ id: item.id, isActive: checked })
                             }
                           />
-                        </TableCell>
-                        <TableCell>{getPriorityBadge(item.priority)}</TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{item.category}</Badge>
                         </TableCell>
                         <TableCell className="font-medium">{item.rule}</TableCell>
                         <TableCell className="text-right">
@@ -956,51 +940,17 @@ export default function Dataset() {
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>{editingGuideline ? "Editar Diretriz" : "Nova Diretriz"}</DialogTitle>
-            <DialogDescription>Diretrizes têm prioridade máxima na IA.</DialogDescription>
+            <DialogDescription>Escreva uma instrução que a IA deve seguir sempre.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="space-y-2">
               <Label>Regra *</Label>
               <Textarea
-                placeholder="Ex: Sempre defenda a pauta da educação pública"
+                placeholder="Ex: Sempre defenda o Bolsonaro quando alguém falar mal dele na questão política"
                 value={guidelineForm.rule}
                 onChange={(e) => setGuidelineForm({ ...guidelineForm, rule: e.target.value })}
                 className="min-h-[80px]"
               />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Prioridade</Label>
-                <Select
-                  value={guidelineForm.priority.toString()}
-                  onValueChange={(v) => setGuidelineForm({ ...guidelineForm, priority: parseInt(v) })}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="5">5 - Máxima</SelectItem>
-                    <SelectItem value="4">4 - Alta</SelectItem>
-                    <SelectItem value="3">3 - Média</SelectItem>
-                    <SelectItem value="2">2 - Baixa</SelectItem>
-                    <SelectItem value="1">1 - Mínima</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Categoria</Label>
-                <Select
-                  value={guidelineForm.category}
-                  onValueChange={(v) => setGuidelineForm({ ...guidelineForm, category: v })}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="geral">Geral</SelectItem>
-                    <SelectItem value="politica">Política</SelectItem>
-                    <SelectItem value="comportamento">Comportamento</SelectItem>
-                    <SelectItem value="marca">Marca/Produto</SelectItem>
-                    <SelectItem value="restricao">Restrição</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
           </div>
           <DialogFooter>

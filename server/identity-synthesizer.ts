@@ -173,7 +173,7 @@ export async function synthesizeIdentity(userId: string): Promise<SynthesisResul
     const activeGuidelines = guidelines
         .filter(g => g.isActive)
         .sort((a, b) => b.priority - a.priority)
-        .map(g => `[P${g.priority}/${g.category}] ${g.rule}`);
+        .map(g => g.rule);
 
     // 3. Extract patterns
     const patterns = extractPatterns([...captions, ...publicResponses]);

@@ -266,7 +266,7 @@ export async function generateAIResponse(
       if (activeGuidelines.length > 0) {
         const guidelinesList = activeGuidelines
           .sort((a, b) => b.priority - a.priority) // Higher priority first
-          .map((g, i) => `${i + 1}. [Prioridade ${g.priority}] ${g.rule}`)
+          .map((g, i) => `${i + 1}. ${g.rule}`)
           .join("\n");
         
         guidelinesContext = `
@@ -722,7 +722,7 @@ export async function regenerateResponse(
       if (activeGuidelines.length > 0) {
         const guidelinesList = activeGuidelines
           .sort((a, b) => b.priority - a.priority) // Higher priority first
-          .map((g, i) => `${i + 1}. [Prioridade ${g.priority}] ${g.rule}`)
+          .map((g, i) => `${i + 1}. ${g.rule}`)
           .join("\n");
         
         guidelinesContext = `
