@@ -67,7 +67,7 @@ export default function Sources() {
   });
 
   // Query settings to check if systemPrompt already exists
-  const { data: settings } = useQuery<any>({
+  const { data: settings } = useQuery<{ systemPrompt?: string }>({
     queryKey: ["/api/settings"],
   });
 
@@ -101,7 +101,7 @@ export default function Sources() {
     mutationFn: async () => {
       // Create a timeout promise (60 seconds)
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Tempo limite excedido. A operação está demorando muito.")), 60000);
+        setTimeout(() => reject(new Error("Tempo limite de 60 segundos excedido.")), 60000);
       });
 
       // Race between API call and timeout
@@ -121,7 +121,7 @@ export default function Sources() {
       let message = "Erro ao gerar personalidade.";
       
       if (errorMessage.includes("Tempo limite")) {
-        message = "A operação excedeu o tempo limite. Tente novamente ou entre em contato com o suporte.";
+        message = errorMessage; // Use the full timeout message from the error
       } else {
         try {
           const errorData = errorMessage.includes("{") 

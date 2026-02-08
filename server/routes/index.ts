@@ -5314,7 +5314,7 @@ export async function registerRoutes(
 
       // Set timeout for the entire operation (60 seconds)
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Timeout: A geração da personalidade excedeu o tempo limite de 60 segundos.")), 60000);
+        setTimeout(() => reject(new Error("Tempo Limite Excedido: A geração excedeu 60 segundos.")), 60000);
       });
 
       // Use the synthesizeIdentity that reads from already-synced knowledge tables
@@ -5340,7 +5340,7 @@ export async function registerRoutes(
     } catch (error) {
       console.error("[Generate Personality] Error:", error);
       
-      const isTimeout = error instanceof Error && error.message.includes("Timeout");
+      const isTimeout = error instanceof Error && error.message.includes("Tempo Limite");
       const statusCode = isTimeout ? 504 : 500;
       
       res.status(statusCode).json({
