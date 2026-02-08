@@ -122,7 +122,7 @@ interface LayerStats {
 
 ## Testing
 
-Created `test-layer4-logic.ts` to demonstrate Layer 4 works correctly:
+Created and ran `test-layer4-logic.ts` (excluded from git via .gitignore) to demonstrate Layer 4 works correctly:
 
 **Test 1**: Basic temporal matching
 - Original comment at 10:00 AM
@@ -132,6 +132,8 @@ Created `test-layer4-logic.ts` to demonstrate Layer 4 works correctly:
 **Test 2**: Mention preference
 - Two owner replies: one at 10:08 AM, another at 10:15 AM with @mention
 - ✅ Layer 4 prefers the one with @mention
+
+**Note**: The test file is a standalone demonstration script and is not included in the repository. The Layer 4 logic can be verified by reviewing the `findOwnerReplyByTemporalProximity()` function in `server/lib/instagram/processor.ts`.
 
 ## Files Modified
 

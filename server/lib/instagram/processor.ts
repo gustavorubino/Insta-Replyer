@@ -20,6 +20,30 @@ const MAX_POSTS = 50;
 const MAX_COMMENTS_PER_POST = 10;
 
 // ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+/**
+ * Safely truncate text without breaking multi-byte Unicode characters (emojis, etc.)
+ */
+function safeTruncate(text: string, maxLength: number): string {
+    if (!text || text.length <= maxLength) return text;
+    
+    // Truncate at maxLength
+    let truncated = text.substring(0, maxLength);
+    
+    // Try to avoid breaking in the middle of a surrogate pair
+    // Check if we're in the middle of a surrogate pair
+    const lastChar = truncated.charCodeAt(truncated.length - 1);
+    if (lastChar >= 0xD800 && lastChar <= 0xDBFF) {
+        // High surrogate at the end - remove it to avoid breaking the pair
+        truncated = truncated.substring(0, truncated.length - 1);
+    }
+    
+    return truncated + '...';
+}
+
+// ============================================
 // TYPES
 // ============================================
 interface InstagramMedia {
@@ -256,14 +280,14 @@ function findOwnerReplyByTemporalProximity(
     
     if (repliesWithMention.length > 0) {
         const replyText = repliesWithMention[0].text || '';
-        console.log(`[SYNC] ✅ Layer 4 (temporal + mention): Found owner reply mentioning @${originalUsername}: "${replyText.substring(0, 50)}..."`);
+        console.log(`[SYNC] ✅ Layer 4 (temporal + mention): Found owner reply mentioning @${originalUsername}: "${safeTruncate(replyText, 50)}"`);
         return replyText;
     }
     
     // Otherwise, take the first one chronologically
     const replyText = ownerCommentsAfter[0].text || '';
     const timeDiff = Math.round((new Date(ownerCommentsAfter[0].timestamp).getTime() - originalTimestamp.getTime()) / 1000 / 60);
-    console.log(`[SYNC] ✅ Layer 4 (temporal): Found owner reply ${timeDiff} minutes after comment: "${replyText.substring(0, 50)}..."`);
+    console.log(`[SYNC] ✅ Layer 4 (temporal): Found owner reply ${timeDiff} minutes after comment: "${safeTruncate(replyText, 50)}"`);
     return replyText;
 }
 
@@ -275,71 +299,6 @@ function enforcePostLimit(posts: InstagramMedia[]): InstagramMedia[] {
     const validPosts = posts.slice(0, MAX_POSTS);
     console.log(`[SYNC] Enforced limit: ${validPosts.length} posts (max ${MAX_POSTS})`);
     return validPosts;
-}
-
-// ============================================
-// LAYER 4 HELPER: Find owner reply by temporal proximity and username matching
-// ============================================
-function findOwnerReplyByTemporalProximity(
-    comments: (InstagramReply & { parent_id?: string })[],
-    originalComment: InstagramComment,
-    ownerUsername: string,
-    ownerInstagramId: string
-): string | null {
-    const TEMPORAL_WINDOW_DAYS = 7;
-    const originalTimestamp = new Date(originalComment.timestamp);
-    const maxTimestamp = new Date(originalTimestamp.getTime() + TEMPORAL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-    
-    console.log(`[SYNC] 🔍 Layer 4: Searching for owner replies within ${TEMPORAL_WINDOW_DAYS} days after ${originalComment.timestamp}`);
-    
-    // Filter owner comments that came AFTER the original comment
-    const ownerCommentsAfter = comments.filter(c => {
-        const commentTime = new Date(c.timestamp);
-        if (commentTime <= originalTimestamp || commentTime > maxTimestamp) {
-            return false;
-        }
-        
-        const replyUsername = c.from?.username?.toLowerCase() || c.username?.toLowerCase() || '';
-        const replyUserId = c.from?.id;
-        const isOwner = (replyUserId && replyUserId === ownerInstagramId) || (replyUsername === ownerUsername.toLowerCase());
-        
-        if (!isOwner) return false;
-        
-        // Check if this is NOT a reply to someone else (no parent_id or parent_id matches)
-        // If there's a parent_id, we want to make sure it's either undefined or matches our comment
-        const hasOtherParent = c.parent_id && c.parent_id !== originalComment.id;
-        if (hasOtherParent) return false;
-        
-        return true;
-    });
-    
-    console.log(`[SYNC] 🔍 Layer 4: Found ${ownerCommentsAfter.length} potential owner replies after the comment`);
-    
-    if (ownerCommentsAfter.length === 0) {
-        return null;
-    }
-    
-    // Sort by timestamp to get the first reply after the original comment
-    ownerCommentsAfter.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    
-    // Check for @username mentions as additional confidence
-    const originalUsername = originalComment.from?.username || originalComment.username || '';
-    const mentionPattern = new RegExp(`@${originalUsername}`, 'i');
-    
-    // Prefer replies that mention the user
-    const repliesWithMention = ownerCommentsAfter.filter(c => mentionPattern.test(c.text || ''));
-    
-    if (repliesWithMention.length > 0) {
-        const replyText = repliesWithMention[0].text || '';
-        console.log(`[SYNC] ✅ Layer 4 (temporal + mention): Found owner reply mentioning @${originalUsername}: "${replyText.substring(0, 50)}..."`);
-        return replyText;
-    }
-    
-    // Otherwise, take the first one chronologically
-    const replyText = ownerCommentsAfter[0].text || '';
-    const timeDiff = Math.round((new Date(ownerCommentsAfter[0].timestamp).getTime() - originalTimestamp.getTime()) / 1000 / 60);
-    console.log(`[SYNC] ✅ Layer 4 (temporal): Found owner reply ${timeDiff} minutes after comment: "${replyText.substring(0, 50)}..."`);
-    return replyText;
 }
 
 // ============================================
@@ -414,8 +373,8 @@ async function parseCommentsForInteractions(
         const isOwnerComment = (commentUserId && commentUserId === ownerInstagramId) || (commentUsername === ownerUsername.toLowerCase());
 
         if (isOwnerComment) {
-            const textPreview = (comment.text || '[sem texto]').substring(0, 30);
-            console.log(`[SYNC] ⏭️ Skipping owner's own comment: ${textPreview}...`);
+            const textPreview = safeTruncate(comment.text || '[sem texto]', 30);
+            console.log(`[SYNC] ⏭️ Skipping owner's own comment: ${textPreview}`);
             continue;
         }
 
@@ -487,7 +446,7 @@ async function parseCommentsForInteractions(
                 ownerReplyText = ownerRepliesFromMedia[0].text || '';
                 foundLayer = 3;
                 layerStats.layer3++;
-                console.log(`[SYNC] ✅ Layer 3 (parent_id match): Found owner reply: "${ownerReplyText.substring(0, 50)}..."`);
+                console.log(`[SYNC] ✅ Layer 3 (parent_id match): Found owner reply: "${safeTruncate(ownerReplyText, 50)}"`);
             }
         }
 
@@ -577,7 +536,7 @@ function findOwnerReply(
         if (isIdMatch || isUserMatch) {
             const replyText = reply.text || '';
             const matchType = isIdMatch ? "ID" : "Username";
-            console.log(`[SYNC] ✅ Found owner reply via ${source} (matched by ${matchType}): "${replyText.substring(0, 50)}..."`);
+            console.log(`[SYNC] ✅ Found owner reply via ${source} (matched by ${matchType}): "${safeTruncate(replyText, 50)}"`);
             return replyText;
         }
     }
@@ -624,7 +583,7 @@ async function insertMediaAndInteractions(
             for (const c of post.comments.data) {
                 const commentText = c.text || '[sem texto]';
                 const username = c.from?.username || c.username || 'unknown';
-                console.log(`[SYNC]   Comment by @${username}: "${commentText.substring(0, 30)}..."`);
+                console.log(`[SYNC]   Comment by @${username}: "${safeTruncate(commentText, 30)}"`);
             }
         }
 
