@@ -11,3 +11,4 @@ scripts/*.local.*
 !.env.example
 test-dedup-logic.ts
 test-layer4-logic.ts
+test-manual-qa-crud.ts

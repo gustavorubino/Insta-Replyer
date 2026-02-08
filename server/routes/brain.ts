@@ -378,6 +378,53 @@ router.get("/manual-qa", isAuthenticated, async (req, res) => {
     }
 });
 
+// PATCH /api/brain/manual-qa/:id - Update manual Q&A correction
+router.patch("/manual-qa/:id", isAuthenticated, async (req, res) => {
+    try {
+        const { userId } = await getUserContext(req);
+        const id = parseInt(req.params.id);
+
+        if (isNaN(id)) {
+            return res.status(400).json({ error: "Invalid ID" });
+        }
+
+        const { question, answer } = req.body;
+        const updateData: { question?: string; answer?: string } = {};
+
+        if (question !== undefined) updateData.question = question;
+        if (answer !== undefined) updateData.answer = answer;
+
+        const updated = await storage.updateManualQA(id, userId, updateData);
+
+        if (!updated) {
+            return res.status(404).json({ error: "Manual QA entry not found" });
+        }
+
+        res.json(updated);
+    } catch (error) {
+        console.error("Error updating manual QA:", error);
+        res.status(500).json({ error: "Failed to update manual QA" });
+    }
+});
+
+// DELETE /api/brain/manual-qa/:id - Delete manual Q&A correction
+router.delete("/manual-qa/:id", isAuthenticated, async (req, res) => {
+    try {
+        const { userId } = await getUserContext(req);
+        const id = parseInt(req.params.id);
+
+        if (isNaN(id)) {
+            return res.status(400).json({ error: "Invalid ID" });
+        }
+
+        await storage.deleteManualQA(id, userId);
+        res.status(204).send();
+    } catch (error) {
+        console.error("Error deleting manual QA:", error);
+        res.status(500).json({ error: "Failed to delete manual QA" });
+    }
+});
+
 // GET /api/brain/media-library - List all media library entries
 router.get("/media-library", isAuthenticated, async (req, res) => {
     try {

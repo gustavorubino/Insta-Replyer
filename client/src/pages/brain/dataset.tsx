@@ -38,6 +38,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import {
   Table,
@@ -122,10 +132,15 @@ export default function Dataset() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("guidelines");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isManualQADialogOpen, setIsManualQADialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [manualQAToDelete, setManualQAToDelete] = useState<number | null>(null);
   const [isMediaDialogOpen, setIsMediaDialogOpen] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<MediaLibraryEntry | null>(null);
   const [editingGuideline, setEditingGuideline] = useState<UserGuideline | null>(null);
+  const [editingManualQA, setEditingManualQA] = useState<ManualQAEntry | null>(null);
   const [guidelineForm, setGuidelineForm] = useState({ rule: "", priority: 3, category: "geral" });
+  const [manualQAForm, setManualQAForm] = useState({ question: "", answer: "" });
   const [searchTerm, setSearchTerm] = useState("");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [isSyncing, setIsSyncing] = useState(false);
@@ -288,6 +303,40 @@ export default function Dataset() {
     },
   });
 
+  // Manual QA mutations
+  const updateManualQAMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: { question: string; answer: string } }) => {
+      const response = await apiRequest("PATCH", `/api/brain/manual-qa/${id}`, data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/manual-qa"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/knowledge/stats"] });
+      setIsManualQADialogOpen(false);
+      setEditingManualQA(null);
+      toast({ title: "✅ Correção Atualizada" });
+    },
+    onError: () => {
+      toast({ title: "Erro", description: "Falha ao atualizar correção.", variant: "destructive" });
+    },
+  });
+
+  const deleteManualQAMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/brain/manual-qa/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/manual-qa"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/brain/knowledge/stats"] });
+      setIsDeleteDialogOpen(false);
+      setManualQAToDelete(null);
+      toast({ title: "Correção Removida" });
+    },
+    onError: () => {
+      toast({ title: "Erro", description: "Falha ao remover correção.", variant: "destructive" });
+    },
+  });
+
   // Promote to Gold mutation
   const promoteToGoldMutation = useMutation({
     mutationFn: async (interactionId: number) => {
@@ -323,6 +372,30 @@ export default function Dataset() {
     setEditingGuideline(null);
     setGuidelineForm({ rule: "", priority: 3, category: "geral" });
     setIsDialogOpen(true);
+  };
+
+  const handleSaveManualQA = () => {
+    if (!manualQAForm.question.trim() || !manualQAForm.answer.trim()) return;
+    if (editingManualQA) {
+      updateManualQAMutation.mutate({ id: editingManualQA.id, data: manualQAForm });
+    }
+  };
+
+  const openEditManualQA = (item: ManualQAEntry) => {
+    setEditingManualQA(item);
+    setManualQAForm({ question: item.question, answer: item.answer });
+    setIsManualQADialogOpen(true);
+  };
+
+  const confirmDeleteManualQA = (id: number) => {
+    setManualQAToDelete(id);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (manualQAToDelete !== null) {
+      deleteManualQAMutation.mutate(manualQAToDelete);
+    }
   };
 
   const openMediaAnalysis = (media: MediaLibraryEntry) => {
@@ -582,10 +655,11 @@ export default function Dataset() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[40%]">Pergunta</TableHead>
-                      <TableHead className="w-[40%]">Resposta</TableHead>
-                      <TableHead className="w-[10%]">Fonte</TableHead>
-                      <TableHead className="w-[10%]">Data</TableHead>
+                      <TableHead className="w-[35%]">Pergunta</TableHead>
+                      <TableHead className="w-[35%]">Resposta</TableHead>
+                      <TableHead className="w-[8%]">Fonte</TableHead>
+                      <TableHead className="w-[8%]">Data</TableHead>
+                      <TableHead className="w-[14%] text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -599,6 +673,21 @@ export default function Dataset() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{formatDate(item.createdAt)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="icon" onClick={() => openEditManualQA(item)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => confirmDeleteManualQA(item.id)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -925,6 +1014,66 @@ export default function Dataset() {
           </DialogFooter>
         </DialogContent>
       </Dialog >
+
+      {/* Manual QA Edit Dialog */}
+      <Dialog open={isManualQADialogOpen} onOpenChange={setIsManualQADialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Editar Correção de Ouro</DialogTitle>
+            <DialogDescription>Atualize a pergunta e/ou resposta da correção.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label>Pergunta *</Label>
+              <Textarea
+                placeholder="Ex: Como funciona o sistema?"
+                value={manualQAForm.question}
+                onChange={(e) => setManualQAForm({ ...manualQAForm, question: e.target.value })}
+                className="min-h-[80px]"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Resposta *</Label>
+              <Textarea
+                placeholder="Ex: O sistema funciona através de..."
+                value={manualQAForm.answer}
+                onChange={(e) => setManualQAForm({ ...manualQAForm, answer: e.target.value })}
+                className="min-h-[80px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsManualQADialogOpen(false)}>Cancelar</Button>
+            <Button onClick={handleSaveManualQA} disabled={updateManualQAMutation.isPending}>
+              {updateManualQAMutation.isPending && (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              )}
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Correção de Ouro?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. A correção será permanentemente removida da sua base de conhecimento.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Media Analysis Dialog */}
       < Dialog open={isMediaDialogOpen} onOpenChange={setIsMediaDialogOpen} >

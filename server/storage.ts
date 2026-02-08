@@ -138,6 +138,8 @@ export interface IStorage {
   // Manual Q&A (FIFO 500 limit per user)
   getManualQA(userId: string): Promise<ManualQA[]>;
   addManualQA(entry: InsertManualQA): Promise<ManualQA>;
+  updateManualQA(id: number, userId: string, data: { question?: string; answer?: string }): Promise<ManualQA | undefined>;
+  deleteManualQA(id: number, userId: string): Promise<void>;
   getManualQACount(userId: string): Promise<number>;
 
   // Media Library (50 posts per user)
@@ -1051,6 +1053,25 @@ export class DatabaseStorage implements IStorage {
 
     const [created] = await db.insert(manualQA).values(entry).returning();
     return created;
+  }
+
+  async updateManualQA(
+    id: number,
+    userId: string,
+    data: { question?: string; answer?: string }
+  ): Promise<ManualQA | undefined> {
+    const [updated] = await db
+      .update(manualQA)
+      .set(data)
+      .where(and(eq(manualQA.id, id), eq(manualQA.userId, userId)))
+      .returning();
+    return updated;
+  }
+
+  async deleteManualQA(id: number, userId: string): Promise<void> {
+    await db
+      .delete(manualQA)
+      .where(and(eq(manualQA.id, id), eq(manualQA.userId, userId)));
   }
 
   async getManualQACount(userId: string): Promise<number> {
