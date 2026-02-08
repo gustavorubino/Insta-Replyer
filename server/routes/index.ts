@@ -2768,6 +2768,10 @@ export async function registerRoutes(
       const interactionsDeleted = await storage.clearInteractionDialect(userId);
       console.log(`[Instagram Disconnect] Cleared ${mediaDeleted} media entries and ${interactionsDeleted} interactions for user ${userId}`);
 
+      // Delete all Instagram profiles for this user in a single batch operation
+      const profilesDeleted = await storage.deleteInstagramProfilesByUserId(userId);
+      console.log(`[Instagram Disconnect] Deleted ${profilesDeleted} Instagram profile(s) for user ${userId}`);
+
       // Clear user's Instagram credentials
       await authStorage.updateUser(userId, {
         instagramAccountId: null,
@@ -2779,7 +2783,7 @@ export async function registerRoutes(
       await storage.setSetting("instagramConnected", "false");
       await storage.setSetting("instagramUsername", "");
 
-      res.json({ success: true, mediaDeleted, interactionsDeleted });
+      res.json({ success: true, mediaDeleted, interactionsDeleted, profilesDeleted });
     } catch (error) {
       console.error("Error disconnecting Instagram:", error);
       res.status(500).json({ error: "Failed to disconnect Instagram" });
