@@ -23,6 +23,11 @@ const MAX_COMMENTS_PER_POST = 10;
 // between catching legitimate delayed replies and avoiding false positives
 const TEMPORAL_WINDOW_DAYS = 7;
 
+// Vision analysis prompts
+const VISION_ANALYSIS_PROMPT_STANDARD = "Analise esta imagem em detalhes para fornecer contexto completo. Descreva: 1) Pessoas (quantidade, expressões, ações), 2) Objetos e cenário, 3) Texto visível (placas, legendas, memes), 4) Logos ou marcas identificáveis, 5) Tom/sentimento geral (humor, seriedade, tristeza, celebração), 6) Cores predominantes. Responda em português.";
+const VISION_ANALYSIS_PROMPT_VIDEO = "Analise esta imagem de vídeo para fornecer contexto visual. Descreva: 1) Pessoas (quantidade, expressões, ações), 2) Objetos e cenário visíveis, 3) Texto visível (placas, legendas), 4) Logos ou marcas identificáveis, 5) Tom/sentimento visual, 6) Cores predominantes. Responda em português.";
+const VISION_MAX_TOKENS = 500;
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -668,13 +673,13 @@ async function insertMediaAndInteractions(
                                 content: [
                                     {
                                         type: "text",
-                                        text: "Analise esta imagem de vídeo para fornecer contexto visual. Descreva: 1) Pessoas (quantidade, expressões, ações), 2) Objetos e cenário visíveis, 3) Texto visível (placas, legendas), 4) Logos ou marcas identificáveis, 5) Tom/sentimento visual, 6) Cores predominantes. Responda em português."
+                                        text: VISION_ANALYSIS_PROMPT_VIDEO
                                     },
                                     { type: "image_url", image_url: { url: videoImageUrl } }
                                 ]
                             }
                         ],
-                        max_tokens: 500,
+                        max_tokens: VISION_MAX_TOKENS,
                     });
                     imageDescription = visionResponse.choices[0]?.message?.content || null;
 
@@ -699,13 +704,13 @@ async function insertMediaAndInteractions(
                                 content: [
                                     {
                                         type: "text",
-                                        text: "Analise esta imagem em detalhes para fornecer contexto completo. Descreva: 1) Pessoas (quantidade, expressões, ações), 2) Objetos e cenário, 3) Texto visível (placas, legendas, memes), 4) Logos ou marcas identificáveis, 5) Tom/sentimento geral (humor, seriedade, tristeza, celebração), 6) Cores predominantes. Responda em português."
+                                        text: VISION_ANALYSIS_PROMPT_STANDARD
                                     },
                                     { type: "image_url", image_url: { url: post.media_url } }
                                 ]
                             }
                         ],
-                        max_tokens: 500,
+                        max_tokens: VISION_MAX_TOKENS,
                     });
                     imageDescription = visionResponse.choices[0]?.message?.content || null;
 
@@ -742,13 +747,13 @@ async function insertMediaAndInteractions(
                                                 content: [
                                                     {
                                                         type: "text",
-                                                        text: "Analise esta imagem em detalhes para fornecer contexto completo. Descreva: 1) Pessoas (quantidade, expressões, ações), 2) Objetos e cenário, 3) Texto visível (placas, legendas, memes), 4) Logos ou marcas identificáveis, 5) Tom/sentimento geral (humor, seriedade, tristeza, celebração), 6) Cores predominantes. Responda em português."
+                                                        text: VISION_ANALYSIS_PROMPT_STANDARD
                                                     },
                                                     { type: "image_url", image_url: { url: child.media_url } }
                                                 ]
                                             }
                                         ],
-                                        max_tokens: 500,
+                                        max_tokens: VISION_MAX_TOKENS,
                                     });
                                     const childDescription = visionResponse.choices[0]?.message?.content || null;
                                     if (childDescription) {
@@ -778,13 +783,13 @@ async function insertMediaAndInteractions(
                                             content: [
                                                 {
                                                     type: "text",
-                                                    text: "Analise esta imagem em detalhes para fornecer contexto completo. Descreva: 1) Pessoas (quantidade, expressões, ações), 2) Objetos e cenário, 3) Texto visível (placas, legendas, memes), 4) Logos ou marcas identificáveis, 5) Tom/sentimento geral (humor, seriedade, tristeza, celebração), 6) Cores predominantes. Responda em português."
+                                                    text: VISION_ANALYSIS_PROMPT_STANDARD
                                                 },
                                                 { type: "image_url", image_url: { url: post.media_url } }
                                             ]
                                         }
                                     ],
-                                    max_tokens: 500,
+                                    max_tokens: VISION_MAX_TOKENS,
                                 });
                                 imageDescription = visionResponse.choices[0]?.message?.content || null;
                                 if (imageDescription) {
