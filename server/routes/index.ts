@@ -5124,6 +5124,26 @@ export async function registerRoutes(
     }
   });
 
+  // Progress tracking for official Instagram sync
+  interface SyncOfficialProgress {
+    stage: string;
+    percent: number;
+    detail?: string;
+  }
+  const syncOfficialProgress = new Map<string, SyncOfficialProgress>();
+
+  // GET /api/knowledge/sync-official/progress - Get sync progress
+  app.get("/api/knowledge/sync-official/progress", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const progress = syncOfficialProgress.get(userId);
+      res.json(progress || { stage: "", percent: 0, detail: "" });
+    } catch (error) {
+      console.error("Error fetching sync progress:", error);
+      res.status(500).json({ error: "Failed to fetch sync progress" });
+    }
+  });
+
   // POST /api/knowledge/sync-official - Sync user's connected Instagram account
   app.post("/api/knowledge/sync-official", isAuthenticated, async (req, res) => {
     try {
@@ -5148,10 +5168,17 @@ export async function registerRoutes(
 
       console.log(`[Sync Official] Iniciando sincronização para userId: ${userId}`);
 
+      // Initialize progress
+      syncOfficialProgress.set(userId, { stage: "Iniciando sincronização...", percent: 0 });
+
       const result = await syncInstagramKnowledge(
         userId,
         accessToken,
-        user.instagramAccountId
+        user.instagramAccountId,
+        (progress) => {
+          // Update progress map for polling endpoint
+          syncOfficialProgress.set(userId, progress);
+        }
       );
 
       const captionsCount = result.captions.length;
@@ -5192,6 +5219,9 @@ export async function registerRoutes(
 
       console.log(`[Sync Official] ✅ Sincronização concluída: ${captionsCount} posts, ${interactionCount} conversas (${withReplies} com respostas)`);
 
+      // Clean up progress after a delay (to allow final poll)
+      setTimeout(() => syncOfficialProgress.delete(userId), 5000);
+
       res.json({
         success: true,
         username: result.username,
@@ -5202,6 +5232,11 @@ export async function registerRoutes(
       });
     } catch (error) {
       console.error("[Sync Official] Error:", error);
+      
+      // Clean up progress on error
+      const { userId } = await getUserContext(req);
+      syncOfficialProgress.delete(userId);
+      
       res.status(500).json({
         error: error instanceof Error ? error.message : "Erro ao sincronizar conta",
         code: "SYNC_ERROR"

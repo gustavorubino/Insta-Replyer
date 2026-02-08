@@ -262,9 +262,10 @@ Responda APENAS com o System Prompt final.`;
 export async function syncInstagramKnowledge(
     userId: string,
     accessToken: string,
-    instagramAccountId: string
+    instagramAccountId: string,
+    onProgress?: (progress: SyncProgress) => void
 ): Promise<{ captions: string[]; bio: string; username: string }> {
-    const result = await syncAllKnowledge(userId, accessToken, instagramAccountId);
+    const result = await syncAllKnowledge(userId, accessToken, instagramAccountId, onProgress);
     const mediaLibrary = await storage.getMediaLibrary(userId);
     const captions = mediaLibrary
         .map(m => m.caption)
