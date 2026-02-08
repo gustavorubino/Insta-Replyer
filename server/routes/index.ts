@@ -5125,10 +5125,21 @@ export async function registerRoutes(
   });
 
   // Progress tracking for official Instagram sync
+  const SYNC_CLEANUP_TIMEOUT_MS = 30000; // 30 seconds
+  
   interface SyncOfficialProgress {
     stage: string;
     percent: number;
     detail?: string;
+    status: 'running' | 'completed' | 'error';
+    error?: string;
+    result?: {
+      username?: string;
+      captionsCount?: number;
+      interactionCount?: number;
+      withReplies?: number;
+      message?: string;
+    };
   }
   const syncOfficialProgress = new Map<string, SyncOfficialProgress>();
 
@@ -5137,7 +5148,7 @@ export async function registerRoutes(
     try {
       const { userId } = await getUserContext(req);
       const progress = syncOfficialProgress.get(userId);
-      res.json(progress || { stage: "", percent: 0, detail: "" });
+      res.json(progress || { stage: "", percent: 0, detail: "", status: 'completed' });
     } catch (error) {
       console.error("Error fetching sync progress:", error);
       res.status(500).json({ error: "Failed to fetch sync progress" });
@@ -5148,6 +5159,16 @@ export async function registerRoutes(
   app.post("/api/knowledge/sync-official", isAuthenticated, async (req, res) => {
     try {
       const { userId } = await getUserContext(req);
+
+      // Check if sync is already running
+      const existingProgress = syncOfficialProgress.get(userId);
+      if (existingProgress && existingProgress.status === 'running') {
+        return res.status(409).json({
+          error: "Sincronização já em andamento",
+          code: "ALREADY_SYNCING",
+          progress: existingProgress
+        });
+      }
 
       // Get user's Instagram credentials
       const user = await storage.getUser(userId);
@@ -5162,84 +5183,112 @@ export async function registerRoutes(
       // Decrypt access token
       const accessToken = decrypt(user.instagramAccessToken);
 
-      // Import and run sync
-      // Fixed: Static import
-      // const { syncInstagramKnowledge } = await import("./identity-synthesizer");
-
       console.log(`[Sync Official] Iniciando sincronização para userId: ${userId}`);
 
-      // Initialize progress
-      syncOfficialProgress.set(userId, { stage: "Iniciando sincronização...", percent: 0 });
+      // Initialize progress with running status
+      syncOfficialProgress.set(userId, { 
+        stage: "Iniciando sincronização...", 
+        percent: 0,
+        status: 'running'
+      });
 
-      const result = await syncInstagramKnowledge(
-        userId,
-        accessToken,
-        user.instagramAccountId,
-        (progress) => {
-          // Update progress map for polling endpoint
-          syncOfficialProgress.set(userId, progress);
-        }
-      );
-
-      const captionsCount = result.captions.length;
-
-      // Get interaction count to show in the profile stats
-      const interactionCount = await storage.getInteractionDialectCount(userId);
-      const withReplies = (await storage.getInteractionDialect(userId, 'public_comment'))
-        .filter(i => i.myResponse).length;
-
-      // Update or create profile record
-      const existingProfiles = await storage.getInstagramProfiles(userId);
-      const existingProfile = existingProfiles.find(
-        p => p.username.toLowerCase() === result.username.toLowerCase()
-      );
-
-      if (existingProfile) {
-        await storage.updateInstagramProfile(existingProfile.id, {
-          bio: result.bio,
-          postsScraped: captionsCount,
-          datasetEntriesGenerated: interactionCount,
-          status: "completed",
-          progress: 100,
-          lastSyncAt: new Date(),
-        });
-      } else {
-        await storage.createInstagramProfile({
-          userId,
-          username: result.username,
-          profileUrl: `https://www.instagram.com/${result.username}/`,
-          bio: result.bio,
-          postsScraped: captionsCount,
-          datasetEntriesGenerated: interactionCount,
-          status: "completed",
-          progress: 100,
-          lastSyncAt: new Date(),
-        });
-      }
-
-      console.log(`[Sync Official] ✅ Sincronização concluída: ${captionsCount} posts, ${interactionCount} conversas (${withReplies} com respostas)`);
-
-      // Clean up progress after a delay (to allow final poll)
-      setTimeout(() => syncOfficialProgress.delete(userId), 5000);
-
+      // Respond immediately - fire and forget pattern
       res.json({
         success: true,
-        username: result.username,
-        captionsCount,
-        interactionCount,
-        withReplies,
-        message: `${captionsCount} posts e ${interactionCount} conversas sincronizadas (${withReplies} com suas respostas)!`
+        message: "Sincronização iniciada em segundo plano"
       });
+
+      // Run sync in background (fire-and-forget)
+      (async () => {
+        try {
+          const result = await syncInstagramKnowledge(
+            userId,
+            accessToken,
+            user.instagramAccountId,
+            (progress) => {
+              // Update progress map for polling endpoint
+              syncOfficialProgress.set(userId, {
+                ...progress,
+                status: 'running'
+              });
+            }
+          );
+
+          const captionsCount = result.captions.length;
+
+          // Get interaction count to show in the profile stats
+          const interactionCount = await storage.getInteractionDialectCount(userId);
+          const withReplies = (await storage.getInteractionDialect(userId, 'public_comment'))
+            .filter(i => i.myResponse).length;
+
+          // Update or create profile record
+          const existingProfiles = await storage.getInstagramProfiles(userId);
+          const existingProfile = existingProfiles.find(
+            p => p.username.toLowerCase() === result.username.toLowerCase()
+          );
+
+          if (existingProfile) {
+            await storage.updateInstagramProfile(existingProfile.id, {
+              bio: result.bio,
+              postsScraped: captionsCount,
+              datasetEntriesGenerated: interactionCount,
+              status: "completed",
+              progress: 100,
+              lastSyncAt: new Date(),
+            });
+          } else {
+            await storage.createInstagramProfile({
+              userId,
+              username: result.username,
+              profileUrl: `https://www.instagram.com/${result.username}/`,
+              bio: result.bio,
+              postsScraped: captionsCount,
+              datasetEntriesGenerated: interactionCount,
+              status: "completed",
+              progress: 100,
+              lastSyncAt: new Date(),
+            });
+          }
+
+          console.log(`[Sync Official] ✅ Sincronização concluída: ${captionsCount} posts, ${interactionCount} conversas (${withReplies} com respostas)`);
+
+          // Mark as completed with result
+          syncOfficialProgress.set(userId, {
+            stage: "Concluído!",
+            percent: 100,
+            status: 'completed',
+            result: {
+              username: result.username,
+              captionsCount,
+              interactionCount,
+              withReplies,
+              message: `${captionsCount} posts e ${interactionCount} conversas sincronizadas (${withReplies} com suas respostas)!`
+            }
+          });
+
+          // Clean up progress after 30 seconds to allow client to fetch final status
+          setTimeout(() => syncOfficialProgress.delete(userId), SYNC_CLEANUP_TIMEOUT_MS);
+        } catch (error) {
+          console.error("[Sync Official] Background sync error:", error);
+          
+          // Mark as error with message
+          syncOfficialProgress.set(userId, {
+            stage: "Erro na sincronização",
+            percent: 0,
+            status: 'error',
+            error: error instanceof Error ? error.message : "Erro ao sincronizar conta"
+          });
+
+          // Clean up error after 30 seconds
+          setTimeout(() => syncOfficialProgress.delete(userId), SYNC_CLEANUP_TIMEOUT_MS);
+        }
+      })();
     } catch (error) {
-      console.error("[Sync Official] Error:", error);
-      
-      // Clean up progress on error
-      const { userId } = await getUserContext(req);
-      syncOfficialProgress.delete(userId);
+      console.error("[Sync Official] Error starting sync:", error);
       
       res.status(500).json({
-        error: error instanceof Error ? error.message : "Erro ao sincronizar conta",
-        code: "SYNC_ERROR"
+        error: error instanceof Error ? error.message : "Erro ao iniciar sincronização",
+        code: "SYNC_START_ERROR"
       });
     }
   });

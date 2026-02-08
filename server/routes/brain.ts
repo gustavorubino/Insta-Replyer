@@ -9,6 +9,22 @@ import { decrypt, isEncrypted } from "../encryption";
 
 const router = Router();
 
+// Progress tracking for brain sync-knowledge
+const SYNC_CLEANUP_TIMEOUT_MS = 30000; // 30 seconds
+
+interface SyncKnowledgeProgress {
+  stage: string;
+  percent: number;
+  status: 'running' | 'completed' | 'error';
+  error?: string;
+  result?: {
+    mediaCount?: number;
+    interactionCount?: number;
+    message?: string;
+  };
+}
+const syncKnowledgeProgress = new Map<string, SyncKnowledgeProgress>();
+
 // ============================================
 // AI Brain / Dataset API Endpoints
 // ============================================
@@ -450,10 +466,33 @@ router.get("/interaction-dialect", isAuthenticated, async (req, res) => {
     }
 });
 
+// GET /api/brain/sync-knowledge/progress - Get sync progress
+router.get("/sync-knowledge/progress", isAuthenticated, async (req, res) => {
+    try {
+        const { userId } = await getUserContext(req);
+        const progress = syncKnowledgeProgress.get(userId);
+        res.json(progress || { stage: "", percent: 0, status: 'completed' });
+    } catch (error) {
+        console.error("Error fetching sync knowledge progress:", error);
+        res.status(500).json({ error: "Failed to fetch sync progress" });
+    }
+});
+
 // POST /api/brain/sync-knowledge - Sync all knowledge from Instagram (with progress)
 router.post("/sync-knowledge", isAuthenticated, async (req, res) => {
     try {
         const { userId } = await getUserContext(req);
+
+        // Check if sync is already running
+        const existingProgress = syncKnowledgeProgress.get(userId);
+        if (existingProgress && existingProgress.status === 'running') {
+            return res.status(409).json({
+                error: "Sincronização já em andamento",
+                code: "ALREADY_SYNCING",
+                progress: existingProgress
+            });
+        }
+
         const user = await authStorage.getUser(userId);
 
         if (!user?.instagramAccessToken || !user?.instagramAccountId) {
@@ -469,41 +508,85 @@ router.post("/sync-knowledge", isAuthenticated, async (req, res) => {
             accessToken = decrypt(accessToken);
         }
 
-        // Import identity synthesizer
-        const { syncAllKnowledge } = await import("../identity-synthesizer");
+        console.log(`[Brain Sync] Iniciando sincronização para userId: ${userId}`);
 
-        // Run sync (this is a blocking operation for now, could be made async with SSE)
-        const result = await syncAllKnowledge(
-            userId,
-            accessToken,
-            user.instagramAccountId
-        );
+        // Initialize progress with running status
+        syncKnowledgeProgress.set(userId, { 
+            stage: "Iniciando sincronização...", 
+            percent: 0,
+            status: 'running'
+        });
 
+        // Respond immediately - fire and forget pattern
         res.json({
             success: true,
-            message: `Sincronizado: ${result.mediaCount} posts, ${result.interactionCount} interações`,
-            ...result,
+            message: "Sincronização iniciada em segundo plano"
         });
-    } catch (error: any) {
-        console.error("Error syncing knowledge:", error);
+
+        // Run sync in background (fire-and-forget)
+        (async () => {
+            try {
+                // Import identity synthesizer
+                const { syncAllKnowledge } = await import("../identity-synthesizer");
+
+                // Run sync
+                const result = await syncAllKnowledge(
+                    userId,
+                    accessToken,
+                    user.instagramAccountId
+                );
+
+                console.log(`[Brain Sync] ✅ Sincronização concluída: ${result.mediaCount} posts, ${result.interactionCount} interações`);
+
+                // Mark as completed with result
+                syncKnowledgeProgress.set(userId, {
+                    stage: "Concluído!",
+                    percent: 100,
+                    status: 'completed',
+                    result: {
+                        mediaCount: result.mediaCount,
+                        interactionCount: result.interactionCount,
+                        message: `Sincronizado: ${result.mediaCount} posts, ${result.interactionCount} interações`
+                    }
+                });
+
+                // Clean up progress after 30 seconds
+                setTimeout(() => syncKnowledgeProgress.delete(userId), SYNC_CLEANUP_TIMEOUT_MS);
+            } catch (error: unknown) {
+                console.error("[Brain Sync] Background sync error:", error);
+                
+                // Determine error message
+                let errorMessage = "Failed to sync knowledge";
+                
+                if (error instanceof Error) {
+                    errorMessage = error.message;
+                    if (errorMessage.includes("Token do Instagram inválido") || errorMessage.includes("expirado")) {
+                        errorMessage = "Token do Instagram inválido ou expirado. Reconecte sua conta.";
+                    } else if (errorMessage.includes("Failed to fetch")) {
+                        errorMessage = "Erro ao conectar com a API do Instagram. Tente novamente.";
+                    }
+                }
+                
+                // Mark as error with message
+                syncKnowledgeProgress.set(userId, {
+                    stage: "Erro na sincronização",
+                    percent: 0,
+                    status: 'error',
+                    error: errorMessage
+                });
+
+                // Clean up error after 30 seconds
+                setTimeout(() => syncKnowledgeProgress.delete(userId), SYNC_CLEANUP_TIMEOUT_MS);
+            }
+        })();
+    } catch (error: unknown) {
+        console.error("[Brain Sync] Error starting sync:", error);
         
-        // Determine appropriate status code and error message
-        let statusCode = 500;
-        let errorMessage = error?.message || "Failed to sync knowledge";
-        let errorCode = "UNKNOWN_ERROR";
+        const errorMessage = error instanceof Error ? error.message : "Erro ao iniciar sincronização";
         
-        if (errorMessage.includes("Token do Instagram inválido") || errorMessage.includes("expirado")) {
-            statusCode = 401;
-            errorCode = "INVALID_TOKEN";
-        } else if (errorMessage.includes("Failed to fetch")) {
-            statusCode = 503;
-            errorCode = "API_ERROR";
-            errorMessage = "Erro ao conectar com a API do Instagram. Tente novamente.";
-        }
-        
-        res.status(statusCode).json({
+        res.status(500).json({
             error: errorMessage,
-            code: errorCode,
+            code: "SYNC_START_ERROR"
         });
     }
 });
