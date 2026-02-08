@@ -129,6 +129,7 @@ export interface IStorage {
   createInstagramProfile(data: InsertInstagramProfile): Promise<InstagramProfile>;
   updateInstagramProfile(id: number, data: Partial<InstagramProfile>): Promise<InstagramProfile | undefined>;
   deleteInstagramProfile(id: number): Promise<void>;
+  deleteInstagramProfilesByUserId(userId: string): Promise<number>;
   deleteInstagramProfileWithCascade(id: number, userId: string): Promise<{ mediaDeleted: number; interactionsDeleted: number }>;
 
   // ============================================
@@ -994,6 +995,11 @@ export class DatabaseStorage implements IStorage {
 
   async deleteInstagramProfile(id: number): Promise<void> {
     await db.delete(instagramProfiles).where(eq(instagramProfiles.id, id));
+  }
+
+  async deleteInstagramProfilesByUserId(userId: string): Promise<number> {
+    const deleted = await db.delete(instagramProfiles).where(eq(instagramProfiles.userId, userId)).returning();
+    return deleted.length;
   }
 
   async deleteInstagramProfileWithCascade(id: number, userId: string): Promise<{ mediaDeleted: number; interactionsDeleted: number }> {

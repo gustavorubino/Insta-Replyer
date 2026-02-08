@@ -53,6 +53,14 @@ export default function Sources() {
   const [isSyncing, setIsSyncing] = useState(false);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Progress bar animation constants
+  // These create a logarithmic curve that slows down as it approaches the target
+  const PROGRESS_TARGET = 95; // Never quite reaches 100% until API responds
+  const MIN_INCREMENT = 0.5; // Minimum progress increment (keeps bar moving)
+  const DECAY_RATE = 0.08; // How quickly increments slow down (8% of remaining)
+  const RANDOM_VARIANCE = 1.5; // Random variation to make progress feel natural
+  const PROGRESS_INTERVAL_MS = 800; // Update every 800ms for smooth animation
+
   // Cleanup interval on unmount
   useEffect(() => {
     return () => {
@@ -132,13 +140,12 @@ export default function Sources() {
 
       progressIntervalRef.current = setInterval(() => {
         setSyncProgress((prev) => {
-          // Use a curve that slows down as it approaches 95%
-          // The higher the current value, the smaller the increment
-          const remaining = 95 - prev;
-          const increment = Math.max(0.5, remaining * 0.08 + Math.random() * 1.5);
-          return Math.min(prev + increment, 95);
+          // Logarithmic progress: slows down as it approaches target
+          const remaining = PROGRESS_TARGET - prev;
+          const increment = Math.max(MIN_INCREMENT, remaining * DECAY_RATE + Math.random() * RANDOM_VARIANCE);
+          return Math.min(prev + increment, PROGRESS_TARGET);
         });
-      }, 800);
+      }, PROGRESS_INTERVAL_MS);
 
       const response = await apiRequest("POST", "/api/knowledge/sync-official", {});
       return response;
@@ -439,7 +446,7 @@ export default function Sources() {
                     disabled={isButtonDisabled}
                     className={
                       hasCompletedProfile
-                        ? "flex-1 bg-green-600 hover:bg-green-700 opacity-75 cursor-not-allowed"
+                        ? "flex-1 bg-green-600 disabled:bg-green-600 opacity-75 cursor-not-allowed"
                         : "flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
                     }
                   >
