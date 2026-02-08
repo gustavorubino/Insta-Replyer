@@ -357,7 +357,7 @@ router.get("/knowledge/stats", isAuthenticated, async (req, res) => {
 
         res.json({
             manualQA: { count: manualQACount, limit: 500 },
-            mediaLibrary: { count: mediaLibraryCount, limit: 50 },
+            mediaLibrary: { count: mediaLibraryCount, limit: 500 },
             interactionDialect: { count: interactionCount, limit: 200 },
         });
     } catch (error) {
