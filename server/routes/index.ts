@@ -4265,11 +4265,7 @@ export async function registerRoutes(
         contentForAI = `[Anexo: ${getMediaDescriptionNatural(mediaType)}] ${text}`;
       }
 
-      // Fallback: Let senderAvatar remain null if not found
-      // The frontend has a beautiful gradient fallback system
-      if (!senderAvatar) {
-        senderAvatar = null;
-      }
+      // Let senderAvatar remain null if not found - frontend gradient fallback will be used
 
       // Re-check for existing message now that we have the UserId (SaaS Isolation Secure Check)
       const existingMessage = await storage.getMessageByInstagramId(messageId, instagramUser.id);
@@ -4303,7 +4299,12 @@ export async function registerRoutes(
       if (mediaUrl && (mediaType === 'video' || mediaType === 'reel' || mediaType === 'audio')) {
         console.log(`[DM-WEBHOOK] 🎤 Iniciando transcrição de ${mediaType}...`);
         try {
-          mediaTranscription = await getOrCreateTranscription(newMessage.id, instagramUser.id, mediaUrl, null);
+          mediaTranscription = await getOrCreateTranscription(
+            newMessage.id, 
+            instagramUser.id, 
+            mediaUrl, 
+            null  // cachedTranscription - always fetch fresh for new messages
+          );
           if (mediaTranscription) {
             console.log(`[DM-WEBHOOK] ✅ Transcrição concluída: ${mediaTranscription.substring(0, 100)}...`);
             // Update contentForAI to include transcription

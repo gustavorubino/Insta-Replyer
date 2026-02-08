@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ConfidenceBadge } from "@/components/confidence-badge";
 import { getInitials, getAvatarGradient } from "@/lib/avatar-utils";
 import type { MessageWithResponse } from "@shared/schema";
+import { useState } from "react";
 
 interface MessageCardProps {
   message: MessageWithResponse;
@@ -16,6 +17,8 @@ interface MessageCardProps {
 }
 
 export function MessageCard({ message, onView }: MessageCardProps) {
+  const [imageError, setImageError] = useState(false);
+  
   const getStatusBadge = () => {
     switch (message.status) {
       case "pending":
@@ -148,21 +151,19 @@ export function MessageCard({ message, onView }: MessageCardProps) {
             {message.mediaUrl && (
               <div className="mt-2 flex items-start gap-2">
                 {message.mediaType === 'image' || message.mediaType === 'gif' || message.mediaType === 'animated_gif' || message.mediaType === 'sticker' ? (
-                  <img 
-                    src={message.mediaUrl} 
-                    alt="Mídia anexada" 
-                    className="w-16 h-16 object-cover rounded-md border"
-                    data-testid={`media-thumbnail-${message.id}`}
-                    onError={(e) => {
-                      // Replace broken image with a fallback icon
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
-                      const fallback = document.createElement('div');
-                      fallback.className = 'w-16 h-16 bg-muted rounded-md border flex items-center justify-center';
-                      fallback.innerHTML = '<svg class="h-6 w-6 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
-                      target.parentNode?.insertBefore(fallback, target);
-                    }}
-                  />
+                  imageError ? (
+                    <div className="w-16 h-16 bg-muted rounded-md border flex items-center justify-center">
+                      <FileImage className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <img 
+                      src={message.mediaUrl} 
+                      alt="Mídia anexada" 
+                      className="w-16 h-16 object-cover rounded-md border"
+                      data-testid={`media-thumbnail-${message.id}`}
+                      onError={() => setImageError(true)}
+                    />
+                  )
                 ) : message.mediaType === 'video' || message.mediaType === 'reel' ? (
                   <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-md border flex flex-col items-center justify-center">
                     <div className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center mb-0.5">

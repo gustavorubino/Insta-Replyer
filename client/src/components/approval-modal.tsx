@@ -16,6 +16,8 @@ import {
   Reply,
   ThumbsUp,
   ThumbsDown,
+  FileImage,
+  Video,
 } from "lucide-react";
 import {
   Dialog,
@@ -77,6 +79,9 @@ export function ApprovalModal({
   const [isEditing, setIsEditing] = useState(false);
   const [emojiPopoverOpen, setEmojiPopoverOpen] = useState(false);
   const [hasAIError, setHasAIError] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+  const [audioError, setAudioError] = useState(false);
 
   // Feedback state
   const [feedbackStatus, setFeedbackStatus] = useState<"like" | "dislike" | null>(null);
@@ -158,6 +163,10 @@ export function ApprovalModal({
       setFeedbackStatus(null);
       setFeedbackText("");
       setShowFeedbackInput(false);
+      // Reset media error states
+      setImageError(false);
+      setVideoError(false);
+      setAudioError(false);
     } else {
       setHasAIError(true); // No AI response at all
       setEditedResponse("");
@@ -263,21 +272,21 @@ export function ApprovalModal({
                 <div className="mb-3">
                   {message.mediaType === 'image' || message.mediaType === 'gif' || message.mediaType === 'sticker' ? (
                     <>
-                      <img 
-                        src={message.mediaUrl} 
-                        alt="Mídia anexada" 
-                        className="max-w-full max-h-48 object-contain rounded-md border"
-                        data-testid="media-image"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.style.display = 'none';
-                          const fallback = document.createElement('div');
-                          fallback.className = 'w-full h-48 bg-muted rounded-md border flex flex-col items-center justify-center text-muted-foreground';
-                          fallback.innerHTML = '<svg class="h-12 w-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg><span class="text-sm">Mídia não disponível</span>';
-                          target.parentNode?.insertBefore(fallback, target);
-                        }}
-                      />
-                      {message.type === 'dm' && (
+                      {imageError ? (
+                        <div className="w-full h-48 bg-muted rounded-md border flex flex-col items-center justify-center text-muted-foreground">
+                          <FileImage className="h-12 w-12 mb-2" />
+                          <span className="text-sm">Mídia não disponível</span>
+                        </div>
+                      ) : (
+                        <img 
+                          src={message.mediaUrl} 
+                          alt="Mídia anexada" 
+                          className="max-w-full max-h-48 object-contain rounded-md border"
+                          data-testid="media-image"
+                          onError={() => setImageError(true)}
+                        />
+                      )}
+                      {message.type === 'dm' && !imageError && (
                         <div className="mt-2">
                           <Badge variant="secondary" className="text-xs">
                             👁️ Imagem analisada pela IA
@@ -287,23 +296,23 @@ export function ApprovalModal({
                     </>
                   ) : message.mediaType === 'video' || message.mediaType === 'reel' ? (
                     <>
-                      <video 
-                        src={message.mediaUrl} 
-                        controls 
-                        className="max-w-full max-h-48 rounded-md border"
-                        data-testid="media-video"
-                        onError={(e) => {
-                          const target = e.target as HTMLVideoElement;
-                          target.style.display = 'none';
-                          const fallback = document.createElement('div');
-                          fallback.className = 'w-full h-48 bg-muted rounded-md border flex flex-col items-center justify-center text-muted-foreground';
-                          fallback.innerHTML = '<svg class="h-12 w-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg><span class="text-sm">Vídeo não disponível</span>';
-                          target.parentNode?.insertBefore(fallback, target);
-                        }}
-                      >
-                        Seu navegador não suporta vídeo.
-                      </video>
-                      {message.type === 'dm' && message.videoTranscription && (
+                      {videoError ? (
+                        <div className="w-full h-48 bg-muted rounded-md border flex flex-col items-center justify-center text-muted-foreground">
+                          <Video className="h-12 w-12 mb-2" />
+                          <span className="text-sm">Vídeo não disponível</span>
+                        </div>
+                      ) : (
+                        <video 
+                          src={message.mediaUrl} 
+                          controls 
+                          className="max-w-full max-h-48 rounded-md border"
+                          data-testid="media-video"
+                          onError={() => setVideoError(true)}
+                        >
+                          Seu navegador não suporta vídeo.
+                        </video>
+                      )}
+                      {message.type === 'dm' && message.videoTranscription && !videoError && (
                         <div className="mt-2">
                           <Badge variant="secondary" className="text-xs">
                             🎤 Áudio transcrito pela IA
@@ -313,23 +322,22 @@ export function ApprovalModal({
                     </>
                   ) : message.mediaType === 'audio' ? (
                     <>
-                      <audio 
-                        src={message.mediaUrl} 
-                        controls 
-                        className="w-full"
-                        data-testid="media-audio"
-                        onError={(e) => {
-                          const target = e.target as HTMLAudioElement;
-                          target.style.display = 'none';
-                          const fallback = document.createElement('div');
-                          fallback.className = 'w-full h-12 bg-muted rounded-md border flex items-center justify-center text-muted-foreground text-sm';
-                          fallback.textContent = 'Áudio não disponível';
-                          target.parentNode?.insertBefore(fallback, target);
-                        }}
-                      >
-                        Seu navegador não suporta áudio.
-                      </audio>
-                      {message.type === 'dm' && message.videoTranscription && (
+                      {audioError ? (
+                        <div className="w-full h-12 bg-muted rounded-md border flex items-center justify-center text-muted-foreground text-sm">
+                          Áudio não disponível
+                        </div>
+                      ) : (
+                        <audio 
+                          src={message.mediaUrl} 
+                          controls 
+                          className="w-full"
+                          data-testid="media-audio"
+                          onError={() => setAudioError(true)}
+                        >
+                          Seu navegador não suporta áudio.
+                        </audio>
+                      )}
+                      {message.type === 'dm' && message.videoTranscription && !audioError && (
                         <div className="mt-2">
                           <Badge variant="secondary" className="text-xs">
                             🎤 Áudio transcrito pela IA
