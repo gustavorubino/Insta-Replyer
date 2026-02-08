@@ -285,7 +285,7 @@ async function parseCommentsForInteractions(
 
             // Find owner replies that reference this comment as parent
             const ownerRepliesFromMedia = mediaLevelComments.filter(c => {
-                const parentId = (c as any).parent_id?.id;
+                const parentId = c.parent_id?.id;
                 if (parentId !== comment.id) return false;
 
                 const replyUsername = c.from?.username?.toLowerCase() || c.username?.toLowerCase() || '';
