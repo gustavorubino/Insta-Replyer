@@ -48,19 +48,14 @@ export default function Sources() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [profileToDelete, setProfileToDelete] = useState<number | null>(null);
 
-  // Simulated progress bar state
+  // Real progress tracking state
   const [syncProgress, setSyncProgress] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>("");
+  const [estimatedTime, setEstimatedTime] = useState<string>("");
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Progress bar animation constants
-  // These create a logarithmic curve that slows down as it approaches the target
-  const PROGRESS_TARGET = 98; // Increased from 95 to 98 to reduce stuck feeling
-  const MIN_INCREMENT = 0.3; // Slightly smaller minimum to make it smoother
-  const DECAY_RATE = 0.05; // Reduced from 0.08 to slow down less aggressively
-  const RANDOM_VARIANCE = 1.0; // Reduced variance for smoother progression
-  const PROGRESS_INTERVAL_MS = 800; // Update every 800ms for smooth animation
+  const progressHistoryRef = useRef<Array<{ percent: number; timestamp: number }>>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Cleanup interval on unmount
   useEffect(() => {
@@ -68,8 +63,51 @@ export default function Sources() {
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
       }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
   }, []);
+
+  // Calculate estimated time remaining
+  const calculateEstimatedTime = (currentPercent: number): string => {
+    const history = progressHistoryRef.current;
+    history.push({ percent: currentPercent, timestamp: Date.now() });
+    
+    // Keep only last 5 samples for rate calculation
+    if (history.length > 5) {
+      history.shift();
+    }
+
+    // Need at least 2 samples to calculate rate
+    if (history.length < 2) {
+      return "Calculando tempo...";
+    }
+
+    const first = history[0];
+    const last = history[history.length - 1];
+    const percentChange = last.percent - first.percent;
+    const timeElapsed = last.timestamp - first.timestamp;
+
+    // Avoid division by zero or negative rates
+    if (percentChange <= 0 || timeElapsed <= 0) {
+      return "Calculando tempo...";
+    }
+
+    const percentPerMs = percentChange / timeElapsed;
+    const remainingPercent = 100 - last.percent;
+    const estimatedMs = remainingPercent / percentPerMs;
+    const estimatedSeconds = Math.round(estimatedMs / 1000);
+
+    if (estimatedSeconds < 60) {
+      return `Tempo estimado: ~${estimatedSeconds} segundos`;
+    } else if (estimatedSeconds < 120) {
+      return "Tempo estimado: ~1 minuto";
+    } else {
+      const minutes = Math.round(estimatedSeconds / 60);
+      return `Tempo estimado: ~${minutes} minutos`;
+    }
+  };
 
   const { data: knowledgeLinks = [], isLoading: linksLoading } = useQuery<any[]>({
     queryKey: ["/api/knowledge/links"],
@@ -132,30 +170,51 @@ export default function Sources() {
     },
   });
 
-  // Sync official Instagram account with simulated progress
+  // Sync official Instagram account with real progress polling
   const syncOfficialMutation = useMutation({
     mutationFn: async () => {
-      // Start simulated progress
+      // Initialize state
       setIsSyncing(true);
-      setSyncProgress(10);
-      setSyncStatus("Sincronizando...");
+      setSyncProgress(0);
+      setSyncStatus("Iniciando...");
+      setEstimatedTime("Calculando tempo...");
+      progressHistoryRef.current = [];
 
-      progressIntervalRef.current = setInterval(() => {
-        setSyncProgress((prev) => {
-          // Update status message based on progress
-          if (prev > 90) {
-            setSyncStatus("Finalizando...");
-          }
+      // Create abort controller for timeout
+      abortControllerRef.current = new AbortController();
+
+      // Start polling for progress
+      progressIntervalRef.current = setInterval(async () => {
+        try {
+          const response = await fetch("/api/knowledge/sync-official/progress", {
+            credentials: "include",
+            signal: abortControllerRef.current?.signal,
+          });
           
-          // Logarithmic progress: slows down as it approaches target
-          const remaining = PROGRESS_TARGET - prev;
-          const increment = Math.max(MIN_INCREMENT, remaining * DECAY_RATE + Math.random() * RANDOM_VARIANCE);
-          return Math.round(Math.min(prev + increment, PROGRESS_TARGET));
-        });
-      }, PROGRESS_INTERVAL_MS);
+          if (response.ok) {
+            const data = await response.json();
+            setSyncProgress(data.percent || 0);
+            setSyncStatus(data.stage || "Sincronizando...");
+            
+            // Calculate estimated time if progress is moving
+            if (data.percent > 0 && data.percent < 100) {
+              const estimate = calculateEstimatedTime(data.percent);
+              setEstimatedTime(estimate);
+            }
+          }
+        } catch (err) {
+          // Ignore errors during polling (will be handled by main request)
+          if (err instanceof Error && err.name !== 'AbortError') {
+            console.error("Progress polling error:", err);
+          }
+        }
+      }, 1500); // Poll every 1.5 seconds
 
-      // Add a timeout safety net - increased from 2 min to 5 min
+      // Set up 5-minute timeout
       const timeoutId = setTimeout(() => {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
         if (progressIntervalRef.current) {
           clearInterval(progressIntervalRef.current);
           progressIntervalRef.current = null;
@@ -163,20 +222,28 @@ export default function Sources() {
         setIsSyncing(false);
         setSyncProgress(0);
         setSyncStatus("");
+        setEstimatedTime("");
         toast({ 
           title: "Erro", 
           description: "A sincronização demorou demais (timeout de 5 minutos). Tente novamente.", 
           variant: "destructive" 
         });
-      }, 300000); // 5 minute timeout (increased from 120000)
+      }, 300000); // 5 minute timeout
 
       try {
-        const response = await apiRequest("POST", "/api/knowledge/sync-official", {});
+        const response = await fetch("/api/knowledge/sync-official", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          signal: abortControllerRef.current.signal,
+          body: JSON.stringify({}),
+        });
+        
         clearTimeout(timeoutId);
         
-        // Check if response is ok before parsing
         if (!response.ok) {
-          throw new Error(`API request failed with status ${response.status}`);
+          const errorData = await response.json();
+          throw new Error(JSON.stringify(errorData));
         }
         
         return response.json();
@@ -186,21 +253,23 @@ export default function Sources() {
       }
     },
     onSuccess: (data: any) => {
-      // Stop progress interval
+      // Stop progress polling
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
         progressIntervalRef.current = null;
       }
       
-      // Jump to 100% (browser will animate the transition smoothly)
+      // Set to 100% completion
       setSyncProgress(100);
       setSyncStatus("Concluído!");
+      setEstimatedTime("");
 
-      // Reset after animation
+      // Reset after brief animation
       setTimeout(() => {
         setIsSyncing(false);
         setSyncProgress(0);
         setSyncStatus("");
+        progressHistoryRef.current = [];
       }, 1500);
 
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
@@ -219,6 +288,8 @@ export default function Sources() {
       setIsSyncing(false);
       setSyncProgress(0);
       setSyncStatus("");
+      setEstimatedTime("");
+      progressHistoryRef.current = [];
 
       let message = "Erro ao sincronizar conta.";
       let title = "Erro";
@@ -554,8 +625,13 @@ export default function Sources() {
                 </div>
                 <Progress
                   value={syncProgress}
-                  className="h-2 bg-purple-100 dark:bg-purple-950"
+                  className="h-2 bg-purple-100 dark:bg-purple-950 transition-all duration-300"
                 />
+                {estimatedTime && (
+                  <div className="text-xs text-muted-foreground text-center">
+                    {estimatedTime}
+                  </div>
+                )}
               </div>
             )}
 

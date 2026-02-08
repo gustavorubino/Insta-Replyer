@@ -22,6 +22,8 @@ const MAX_COMMENTS_PER_POST = 10;
 // Temporal window for Layer 4 reply detection: 7 days chosen to balance
 // between catching legitimate delayed replies and avoiding false positives
 const TEMPORAL_WINDOW_DAYS = 7;
+// Timeout for individual Instagram API fetch calls (30 seconds)
+const API_FETCH_TIMEOUT_MS = 30000;
 
 // Vision analysis prompts
 const VISION_ANALYSIS_PROMPT_STANDARD = "Analise esta imagem em detalhes para fornecer contexto completo. Descreva: 1) Pessoas (quantidade, expressões, ações), 2) Objetos e cenário, 3) Texto visível (placas, legendas, memes), 4) Logos ou marcas identificáveis, 5) Tom/sentimento geral (humor, seriedade, tristeza, celebração), 6) Cores predominantes. Responda em português.";
@@ -68,6 +70,26 @@ function getFallbackTranscription(caption: string | null | undefined): string | 
  */
 function escapeRegex(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Fetch with timeout to prevent hanging forever on slow API calls
+ */
+async function fetchWithTimeout(url: string, timeoutMs: number = API_FETCH_TIMEOUT_MS): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        return response;
+    } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error(`Request timeout after ${timeoutMs}ms`);
+        }
+        throw error;
+    }
 }
 
 // ============================================
@@ -125,6 +147,7 @@ interface SyncResult {
 interface SyncProgress {
     stage: string;
     percent: number;
+    detail?: string;
 }
 
 // ============================================
@@ -158,7 +181,7 @@ async function nuclearClean(userId: string): Promise<{ mediaDeleted: number; int
 // ============================================
 async function fetchProfile(accessToken: string): Promise<{ username: string; bio: string }> {
     const profileUrl = `https://graph.instagram.com/me?fields=id,username,biography&access_token=${accessToken}`;
-    const response = await fetch(profileUrl);
+    const response = await fetchWithTimeout(profileUrl);
 
     if (!response.ok) {
         throw new Error(`Failed to fetch profile: ${response.status}`);
@@ -184,7 +207,7 @@ async function fetchPostsWithComments(accessToken: string): Promise<InstagramMed
     const fields = "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink,comments.limit(10){id,text,username,timestamp,from{id,username},replies{id,text,username,timestamp,from{id,username}}}";
     const mediaUrl = `https://graph.instagram.com/me/media?fields=${encodeURIComponent(fields)}&access_token=${accessToken}&limit=${MAX_POSTS}`;
 
-    const response = await fetch(mediaUrl);
+    const response = await fetchWithTimeout(mediaUrl);
 
     if (!response.ok) {
         throw new Error(`Failed to fetch posts: ${response.status}`);
@@ -203,7 +226,7 @@ async function fetchPostsWithComments(accessToken: string): Promise<InstagramMed
 async function fetchRepliesForComment(commentId: string, accessToken: string): Promise<InstagramReply[]> {
     try {
         const url = `https://graph.instagram.com/${commentId}/replies?fields=id,text,username,timestamp,from{id,username}&access_token=${accessToken}`;
-        const response = await fetch(url);
+        const response = await fetchWithTimeout(url);
 
         if (!response.ok) {
             console.log(`[SYNC] Failed to fetch replies for comment ${commentId}: ${response.status}`);
@@ -229,7 +252,7 @@ async function fetchRepliesForComment(commentId: string, accessToken: string): P
 async function fetchAllCommentsForMedia(mediaId: string, accessToken: string): Promise<(InstagramReply & { parent_id?: string })[]> {
     try {
         const url = `https://graph.instagram.com/${mediaId}/comments?fields=id,text,username,timestamp,from{id,username},parent_id&limit=100&access_token=${accessToken}`;
-        const response = await fetch(url);
+        const response = await fetchWithTimeout(url);
 
         if (!response.ok) {
             console.log(`[SYNC] ⚠️ Failed to fetch all comments for media ${mediaId}: ${response.status}`);
@@ -264,7 +287,7 @@ async function fetchAllCommentsForMedia(mediaId: string, accessToken: string): P
 async function fetchCarouselChildren(mediaId: string, accessToken: string): Promise<{ media_url: string; media_type: string }[]> {
     try {
         const url = `https://graph.instagram.com/${mediaId}/children?fields=media_url,media_type&access_token=${accessToken}`;
-        const response = await fetch(url);
+        const response = await fetchWithTimeout(url);
 
         if (!response.ok) {
             console.log(`[SYNC] Failed to fetch carousel children for ${mediaId}: ${response.status}`);
@@ -625,7 +648,8 @@ async function insertMediaAndInteractions(
     for (let i = 0; i < totalPosts; i++) {
         const post = posts[i];
         const progress = 40 + Math.floor((i / totalPosts) * 50);
-        onProgress?.({ stage: `Processando post ${i + 1}/${totalPosts}...`, percent: progress });
+        const detail = `Processando post ${i + 1}/${totalPosts} - buscando comentários...`;
+        onProgress?.({ stage: detail, percent: progress });
 
         // DEBUG: Log raw comments from API
         console.log(`[SYNC] Post ${i + 1}: ${post.id}, type: ${post.media_type}, comments: ${post.comments?.data?.length || 0}`);
@@ -861,6 +885,9 @@ async function insertMediaAndInteractions(
             console.error(`[SYNC] Error processing post ${post.id}:`, err);
         }
     }
+
+    // Final stage before completion
+    onProgress?.({ stage: "Finalizando inserções...", percent: 95 });
 
     return { mediaCount, interactionCount };
 }
