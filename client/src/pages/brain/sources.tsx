@@ -51,14 +51,15 @@ export default function Sources() {
   // Simulated progress bar state
   const [syncProgress, setSyncProgress] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string>("");
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Progress bar animation constants
   // These create a logarithmic curve that slows down as it approaches the target
-  const PROGRESS_TARGET = 95; // Never quite reaches 100% until API responds
-  const MIN_INCREMENT = 0.5; // Minimum progress increment (keeps bar moving)
-  const DECAY_RATE = 0.08; // How quickly increments slow down (8% of remaining)
-  const RANDOM_VARIANCE = 1.5; // Random variation to make progress feel natural
+  const PROGRESS_TARGET = 98; // Increased from 95 to 98 to reduce stuck feeling
+  const MIN_INCREMENT = 0.3; // Slightly smaller minimum to make it smoother
+  const DECAY_RATE = 0.05; // Reduced from 0.08 to slow down less aggressively
+  const RANDOM_VARIANCE = 1.0; // Reduced variance for smoother progression
   const PROGRESS_INTERVAL_MS = 800; // Update every 800ms for smooth animation
 
   // Cleanup interval on unmount
@@ -137,9 +138,15 @@ export default function Sources() {
       // Start simulated progress
       setIsSyncing(true);
       setSyncProgress(10);
+      setSyncStatus("Sincronizando...");
 
       progressIntervalRef.current = setInterval(() => {
         setSyncProgress((prev) => {
+          // Update status message based on progress
+          if (prev > 90) {
+            setSyncStatus("Finalizando...");
+          }
+          
           // Logarithmic progress: slows down as it approaches target
           const remaining = PROGRESS_TARGET - prev;
           const increment = Math.max(MIN_INCREMENT, remaining * DECAY_RATE + Math.random() * RANDOM_VARIANCE);
@@ -147,7 +154,7 @@ export default function Sources() {
         });
       }, PROGRESS_INTERVAL_MS);
 
-      // Add a timeout safety net
+      // Add a timeout safety net - increased from 2 min to 5 min
       const timeoutId = setTimeout(() => {
         if (progressIntervalRef.current) {
           clearInterval(progressIntervalRef.current);
@@ -155,8 +162,13 @@ export default function Sources() {
         }
         setIsSyncing(false);
         setSyncProgress(0);
-        toast({ title: "Erro", description: "A sincronização demorou demais. Tente novamente.", variant: "destructive" });
-      }, 120000); // 2 minute timeout
+        setSyncStatus("");
+        toast({ 
+          title: "Erro", 
+          description: "A sincronização demorou demais (timeout de 5 minutos). Tente novamente.", 
+          variant: "destructive" 
+        });
+      }, 300000); // 5 minute timeout (increased from 120000)
 
       try {
         const response = await apiRequest("POST", "/api/knowledge/sync-official", {});
@@ -182,11 +194,13 @@ export default function Sources() {
       
       // Jump to 100% (browser will animate the transition smoothly)
       setSyncProgress(100);
+      setSyncStatus("Concluído!");
 
       // Reset after animation
       setTimeout(() => {
         setIsSyncing(false);
         setSyncProgress(0);
+        setSyncStatus("");
       }, 1500);
 
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge/instagram-profiles"] });
@@ -204,17 +218,39 @@ export default function Sources() {
       }
       setIsSyncing(false);
       setSyncProgress(0);
+      setSyncStatus("");
 
       let message = "Erro ao sincronizar conta.";
+      let title = "Erro";
+      
       try {
+        // Try to parse error response from API
         const errorData = error?.message ? JSON.parse(error.message.substring(error.message.indexOf("{"))) : {};
-        message = errorData.code === "NOT_CONNECTED"
-          ? "Conecte sua conta Instagram primeiro na aba Conexão."
-          : errorData.error || message;
+        
+        if (errorData.code === "NOT_CONNECTED") {
+          title = "Não Conectado";
+          message = "Conecte sua conta Instagram primeiro na aba Conexão.";
+        } else if (errorData.code === "INVALID_TOKEN") {
+          title = "Token Expirado";
+          message = "Token do Instagram inválido ou expirado. Reconecte sua conta nas configurações.";
+        } else if (errorData.code === "API_ERROR") {
+          title = "Erro de API";
+          message = errorData.error || "Erro ao conectar com a API do Instagram. Tente novamente.";
+        } else if (errorData.error) {
+          message = errorData.error;
+        }
       } catch (e) {
-        // If error message parsing fails, use default message
+        // If error message parsing fails, check for common error patterns
+        const errorStr = error?.message || "";
+        if (errorStr.includes("Token") || errorStr.includes("token")) {
+          title = "Token Expirado";
+          message = "Token do Instagram inválido ou expirado. Reconecte sua conta.";
+        } else if (errorStr.includes("timeout") || errorStr.includes("demorou")) {
+          message = "A sincronização demorou demais. Tente novamente.";
+        }
       }
-      toast({ title: "Erro", description: message, variant: "destructive" });
+      
+      toast({ title, description: message, variant: "destructive" });
     },
   });
 
@@ -510,7 +546,7 @@ export default function Sources() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground flex items-center gap-2">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    Sincronizando Instagram...
+                    {syncStatus || "Sincronizando Instagram..."}
                   </span>
                   <span className="font-medium text-purple-600 dark:text-purple-400">
                     {syncProgress}%

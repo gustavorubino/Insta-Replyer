@@ -528,40 +528,38 @@ async function parseCommentsForInteractions(
             layerStats.notFound++;
             console.log(`[SYNC] ❌ No owner reply found for comment by @${senderUsername} after checking all 4 layers`);
             console.log(`[SYNC] 📊 Possible reasons: parent_id not returned by API, from.id missing, or genuinely no reply yet`);
+            console.log(`[SYNC] ⏭️  Skipped comment: @${senderUsername} (no owner reply)`);
         } else {
             console.log(`[SYNC] ✅ Found reply via Layer ${foundLayer} for comment by @${senderUsername}`);
-        }
-
-        // SAVE ALL COMMENTS - myResponse will be null if owner didn't reply
-        interactions.push({
-            channelType: 'public_comment',
-            senderName: senderUsername,
-            senderUsername: senderUsername,
-            userMessage: comment.text || '',
-            myResponse: ownerReplyText, // null if no owner reply
-            postContext: postCaption?.substring(0, 200) || null,
-            instagramCommentId: comment.id,
-            parentCommentId: null,
-            isOwnerReply: false,
-            interactedAt: comment.timestamp ? new Date(comment.timestamp) : new Date(),
-        });
-
-        if (ownerReplyText) {
+            
+            // ONLY SAVE COMMENTS WITH OWNER REPLIES (useful for AI training)
+            interactions.push({
+                channelType: 'public_comment',
+                senderName: senderUsername,
+                senderUsername: senderUsername,
+                userMessage: comment.text || '',
+                myResponse: ownerReplyText,
+                postContext: postCaption?.substring(0, 200) || null,
+                instagramCommentId: comment.id,
+                parentCommentId: null,
+                isOwnerReply: false,
+                interactedAt: comment.timestamp ? new Date(comment.timestamp) : new Date(),
+            });
+            
             console.log(`[SYNC] 💾 Saved WITH owner reply: @${senderUsername}`);
-        } else {
-            console.log(`[SYNC] 💾 Saved comment: @${senderUsername} (no reply yet)`);
         }
     }
 
-    const withReplies = interactions.filter(i => i.myResponse).length;
+    const totalComments = layerStats.layer1 + layerStats.layer2 + layerStats.layer3 + layerStats.layer4 + layerStats.notFound;
     console.log(`[SYNC] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     console.log(`[SYNC] 📊 LAYER STATS SUMMARY:`);
     console.log(`[SYNC] 📊   Layer 1 (nested):    ${layerStats.layer1} replies`);
     console.log(`[SYNC] 📊   Layer 2 (/replies):  ${layerStats.layer2} replies`);
     console.log(`[SYNC] 📊   Layer 3 (parent_id): ${layerStats.layer3} replies`);
     console.log(`[SYNC] 📊   Layer 4 (temporal):  ${layerStats.layer4} replies`);
-    console.log(`[SYNC] 📊   Not found:           ${layerStats.notFound} comments`);
-    console.log(`[SYNC] 📊   TOTAL:               ${withReplies} replies found out of ${interactions.length} comments`);
+    console.log(`[SYNC] 📊   Not found:           ${layerStats.notFound} comments (skipped)`);
+    console.log(`[SYNC] 📊   SAVED:               ${interactions.length} interactions (with replies only)`);
+    console.log(`[SYNC] 📊   TOTAL PROCESSED:     ${totalComments} comments`);
     console.log(`[SYNC] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     return interactions;
 }
@@ -885,37 +883,44 @@ export async function syncInstagramProcessor(
     };
 
     // ========================================
-    // STEP 1: NUCLEAR CLEAN (MOST IMPORTANT)
+    // STEP 1: VERIFY TOKEN (BEFORE NUCLEAR CLEAN)
     // ========================================
-    report("Limpando dados antigos...", 5);
+    report("Verificando token do Instagram...", 5);
+    let username: string;
+    let bio: string;
+    try {
+        const profile = await fetchProfile(accessToken);
+        username = profile.username;
+        bio = profile.bio;
+        console.log(`[SYNC] ✅ Token válido - Profile: @${username}`);
+        console.log(`[SYNC] 🔍 DEBUG - Profile fetched: @${username}, Bio length=${bio.length}`);
+        console.log(`[SYNC] 🔍 DEBUG - Comparison will use: OwnerID="${instagramAccountId}" vs ReplyID, OwnerUsername="${username.toLowerCase()}"`);
+    } catch (error: any) {
+        console.error('[SYNC] ❌ Token verification failed:', error);
+        throw new Error('Token do Instagram inválido ou expirado. Reconecte sua conta nas configurações.');
+    }
+
+    // ========================================
+    // STEP 2: NUCLEAR CLEAN (AFTER TOKEN VERIFIED)
+    // ========================================
+    report("Limpando dados antigos...", 15);
     const { mediaDeleted, interactionsDeleted } = await nuclearClean(userId);
     console.log('[SYNC] Post-clean verification:', { mediaDeleted, interactionsDeleted });
-
     // ========================================
-    // STEP 2: FETCH PROFILE
-    // ========================================
-    report("Buscando perfil do Instagram...", 15);
-    const { username, bio } = await fetchProfile(accessToken);
-    console.log(`[SYNC] Profile: @${username}`);
-    console.log(`[SYNC] 🔍 DEBUG - Profile fetched: @${username}, Bio length=${bio.length}`);
-    console.log(`[SYNC] 🔍 DEBUG - Comparison will use: OwnerID="${instagramAccountId}" vs ReplyID, OwnerUsername="${username.toLowerCase()}"`);
-
-
-    // ========================================
-    // STEP 2: FETCH WITH DEPTH
+    // STEP 3: FETCH WITH DEPTH
     // ========================================
     report("Buscando posts com comentários...", 25);
     const allPosts = await fetchPostsWithComments(accessToken);
     console.log(`[SYNC] Fetched ${allPosts.length} posts from API`);
 
     // ========================================
-    // STEP 3: ENFORCE LIMITS
+    // STEP 4: ENFORCE LIMITS
     // ========================================
     report("Aplicando limites...", 35);
     const validPosts = enforcePostLimit(allPosts);
 
     // ========================================
-    // STEPS 4 & 5: PARSE AND INSERT
+    // STEPS 5 & 6: PARSE AND INSERT
     // ========================================
     const { mediaCount, interactionCount } = await insertMediaAndInteractions(
         userId,
