@@ -2,12 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Globe,
-  FileText,
   Plus,
   Trash2,
   Loader2,
-  File,
-  Upload,
   Instagram,
   RefreshCw,
   Sparkles,
@@ -45,8 +42,6 @@ export default function Sources() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [newLinkUrl, setNewLinkUrl] = useState("");
-  const [isUploadingFile, setIsUploadingFile] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [profileToDelete, setProfileToDelete] = useState<number | null>(null);
 
   // Use global sync context
@@ -57,15 +52,6 @@ export default function Sources() {
     refetchInterval: (query) => {
       const data = query.state.data as any[] | undefined;
       const hasProcessing = data?.some((l: any) => l.status === "pending" || l.status === "processing");
-      return hasProcessing ? 1000 : false;
-    },
-  });
-
-  const { data: knowledgeFiles = [], isLoading: filesLoading } = useQuery<any[]>({
-    queryKey: ["/api/knowledge/files"],
-    refetchInterval: (query) => {
-      const data = query.state.data as any[] | undefined;
-      const hasProcessing = data?.some((f: any) => f.status === "pending" || f.status === "processing");
       return hasProcessing ? 1000 : false;
     },
   });
@@ -100,16 +86,6 @@ export default function Sources() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge/links"] });
       toast({ title: "Link removido" });
-    },
-  });
-
-  const deleteFileMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/knowledge/files/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/files"] });
-      toast({ title: "Arquivo removido" });
     },
   });
 
@@ -156,82 +132,6 @@ export default function Sources() {
       toast({ title: "Erro", description: "Não foi possível remover o perfil.", variant: "destructive" });
     },
   });
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploadingFile(true);
-    setUploadProgress(0);
-
-    try {
-      // Step 1: Get presigned URL (5%)
-      setUploadProgress(5);
-      const response = await fetch("/api/uploads/request-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          name: file.name,
-          size: file.size,
-          contentType: file.type || "application/octet-stream",
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Falha ao obter URL de upload");
-      }
-
-      const { uploadURL, objectPath } = await response.json();
-      setUploadProgress(10);
-
-      // Step 2: Upload file with progress tracking (10-90%)
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-
-        xhr.upload.addEventListener("progress", (event) => {
-          if (event.lengthComputable) {
-            const percentComplete = Math.round((event.loaded / event.total) * 80) + 10;
-            setUploadProgress(Math.min(percentComplete, 90));
-          }
-        });
-
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            reject(new Error("Falha ao fazer upload do arquivo"));
-          }
-        });
-
-        xhr.addEventListener("error", () => {
-          reject(new Error("Erro de conexão durante upload"));
-        });
-
-        xhr.open("PUT", uploadURL);
-        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-        xhr.send(file);
-      });
-
-      // Step 3: Register file (95%)
-      setUploadProgress(95);
-      await apiRequest("POST", "/api/knowledge/files", {
-        fileName: file.name,
-        fileType: file.type,
-        objectPath,
-      });
-
-      setUploadProgress(100);
-      queryClient.invalidateQueries({ queryKey: ["/api/knowledge/files"] });
-      toast({ title: "Arquivo enviado", description: "O conteúdo está sendo processado." });
-    } catch (error) {
-      toast({ title: "Erro", description: "Não foi possível enviar o arquivo.", variant: "destructive" });
-    } finally {
-      setIsUploadingFile(false);
-      setUploadProgress(0);
-      e.target.value = "";
-    }
-  };
 
   const getStatusBadge = (status: string, progress?: number, username?: string) => {
     switch (status) {
@@ -292,6 +192,12 @@ export default function Sources() {
             <div className="flex items-center gap-2">
               <Globe className="h-4 w-4" />
               <Label>Links de Treinamento</Label>
+            </div>
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
+              <Globe className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+              <p className="text-sm text-blue-900 dark:text-blue-100">
+                Adicione links de páginas relevantes (seu site, blog, portfolio) para complementar os dados do Instagram e melhorar a clonagem de personalidade.
+              </p>
             </div>
             <div className="flex gap-2">
               <Input
@@ -472,72 +378,42 @@ export default function Sources() {
                     )}
                   </div>
                 ))}
-              </div>
-            )}
-          </div>
-
-          <Separator />
-
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              <Label>Arquivos de Treinamento</Label>
-            </div>
-            <div>
-              <input
-                type="file"
-                accept=".pdf,.txt"
-                onChange={handleFileUpload}
-                disabled={isUploadingFile}
-                className="hidden"
-                id="knowledge-file-upload"
-              />
-              <Button
-                variant="outline"
-                onClick={() => document.getElementById("knowledge-file-upload")?.click()}
-                disabled={isUploadingFile}
-              >
-                {isUploadingFile ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Upload className="h-4 w-4 mr-2" />
-                )}
-                {isUploadingFile ? `Enviando... ${uploadProgress}%` : "Enviar Arquivo"}
-              </Button>
-              <p className="text-xs text-muted-foreground mt-2">
-                Formatos aceitos: PDF, TXT
-              </p>
-            </div>
-            {filesLoading ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            ) : knowledgeFiles.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum arquivo enviado ainda.</p>
-            ) : (
-              <div className="space-y-2">
-                {knowledgeFiles.map((file: any) => (
-                  <div
-                    key={file.id}
-                    className="flex items-center justify-between gap-2 p-3 rounded-lg border"
-                  >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <File className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="text-sm truncate">{file.fileName}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {getStatusBadge(file.status, file.progress)}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteFileMutation.mutate(file.id)}
-                        disabled={deleteFileMutation.isPending}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                {/* Data Quality Indicator */}
+                {(() => {
+                  const completedProfile = instagramProfiles.find((p: any) => p.status === "completed");
+                  if (!completedProfile) return null;
+                  
+                  const interactionCount = completedProfile.interactionCount || completedProfile.datasetEntriesGenerated || 0;
+                  
+                  if (interactionCount < 30) {
+                    return (
+                      <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800">
+                        <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" />
+                        <p className="text-sm text-yellow-900 dark:text-yellow-100">
+                          ⚠️ Poucos dados para clonagem de personalidade. Recomendamos pelo menos 30 interações. Considere adicionar mais links de treinamento para melhorar a qualidade.
+                        </p>
+                      </div>
+                    );
+                  } else if (interactionCount < 80) {
+                    return (
+                      <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
+                        <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                        <p className="text-sm text-blue-900 dark:text-blue-100">
+                          💡 Dados moderados. A personalidade será boa, mas pode melhorar com mais links de treinamento.
+                        </p>
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <div className="flex items-start gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
+                        <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+                        <p className="text-sm text-green-900 dark:text-green-100">
+                          ✅ Excelentes dados! A IA tem material suficiente para uma clonagem precisa.
+                        </p>
+                      </div>
+                    );
+                  }
+                })()}
               </div>
             )}
           </div>

@@ -18,7 +18,7 @@ const openai = new OpenAI();
 // CONSTANTS
 // ============================================
 const MAX_POSTS = 50;
-const MAX_COMMENTS_PER_POST = 10;
+const MAX_COMMENTS_PER_POST = 50;
 // Temporal window for Layer 4 reply detection: 7 days chosen to balance
 // between catching legitimate delayed replies and avoiding false positives
 const TEMPORAL_WINDOW_DAYS = 7;

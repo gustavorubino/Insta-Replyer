@@ -76,9 +76,12 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
             
             // Show success toast only if we haven't already shown it
             if (lastStatusRef.current === 'running' || (lastStatusRef.current === null && data.percent === 100)) {
+              const postsCount = data.result?.captionsCount || 0;
+              const interactionsCount = data.result?.interactionCount || 0;
+              
               toast({
                 title: "✅ Sincronização Concluída",
-                description: data.result?.message || `${data.result?.captionsCount || 0} legendas sincronizadas!`,
+                description: `${postsCount} posts e ${interactionsCount} interações sincronizadas! Agora clique em 'Gerar Personalidade via IA' para clonar seu tom de voz.`,
               });
 
               // Invalidate queries to refresh data
