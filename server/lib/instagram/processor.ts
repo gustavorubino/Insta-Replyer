@@ -27,6 +27,7 @@ const TEMPORAL_WINDOW_DAYS = 7;
 const VISION_ANALYSIS_PROMPT_STANDARD = "Analise esta imagem em detalhes para fornecer contexto completo. Descreva: 1) Pessoas (quantidade, expressões, ações), 2) Objetos e cenário, 3) Texto visível (placas, legendas, memes), 4) Logos ou marcas identificáveis, 5) Tom/sentimento geral (humor, seriedade, tristeza, celebração), 6) Cores predominantes. Responda em português.";
 const VISION_ANALYSIS_PROMPT_VIDEO = "Analise esta imagem de vídeo para fornecer contexto visual. Descreva: 1) Pessoas (quantidade, expressões, ações), 2) Objetos e cenário visíveis, 3) Texto visível (placas, legendas), 4) Logos ou marcas identificáveis, 5) Tom/sentimento visual, 6) Cores predominantes. Responda em português.";
 const VISION_MAX_TOKENS = 500;
+const VISION_ANALYSIS_PREFIX = "[ANÁLISE VISUAL DA IA]:";
 
 // ============================================
 // HELPER FUNCTIONS
@@ -50,6 +51,16 @@ function safeTruncate(text: string, maxLength: number): string {
     }
     
     return truncated + '...';
+}
+
+/**
+ * Fallback transcription using caption when real transcription fails
+ */
+function getFallbackTranscription(caption: string | null | undefined): string | null {
+    if (caption) {
+        return `[Vídeo] ${caption.substring(0, 500)}`;
+    }
+    return null;
 }
 
 /**
@@ -644,8 +655,8 @@ async function insertMediaAndInteractions(
                         console.log(`[SYNC] Transcription result: ${videoTranscription.substring(0, 100)}${videoTranscription.length > 100 ? '...' : ''}`);
                     } else {
                         // Fallback to caption if transcription failed
-                        if (post.caption) {
-                            videoTranscription = `[Vídeo] ${post.caption.substring(0, 500)}`;
+                        videoTranscription = getFallbackTranscription(post.caption);
+                        if (videoTranscription) {
                             console.log(`[SYNC] Using caption as fallback: ${transcriptionResult.error || 'No transcription available'}`);
                         } else {
                             console.log(`[SYNC] No transcription available: ${transcriptionResult.error || 'Unknown error'}`);
@@ -654,9 +665,7 @@ async function insertMediaAndInteractions(
                 } catch (transcriptionError) {
                     console.log(`[SYNC] Transcription error for post ${post.id}:`, transcriptionError);
                     // Fallback to caption if error occurs
-                    if (post.caption) {
-                        videoTranscription = `[Vídeo] ${post.caption.substring(0, 500)}`;
-                    }
+                    videoTranscription = getFallbackTranscription(post.caption);
                 }
             }
 
@@ -685,7 +694,7 @@ async function insertMediaAndInteractions(
 
                     if (imageDescription) {
                         console.log(`[SYNC] Video visual analysis result: ${imageDescription}`);
-                        enrichedCaption = (enrichedCaption || post.caption || "") + `\n\n[ANÁLISE VISUAL DA IA]: ${imageDescription}`;
+                        enrichedCaption = (enrichedCaption || post.caption || "") + `\n\n${VISION_ANALYSIS_PREFIX} ${imageDescription}`;
                     }
                 } catch (visionError) {
                     console.log(`[SYNC] Video visual analysis error for post ${post.id}:`, visionError);
@@ -717,7 +726,7 @@ async function insertMediaAndInteractions(
                     // CRITICAL: Append vision analysis to caption with visible prefix
                     if (imageDescription) {
                         console.log(`[SYNC] Vision result: ${imageDescription}`);
-                        enrichedCaption = (post.caption || "") + `\n\n[ANÁLISE VISUAL DA IA]: ${imageDescription}`;
+                        enrichedCaption = (post.caption || "") + `\n\n${VISION_ANALYSIS_PREFIX} ${imageDescription}`;
                     }
                 } catch (visionError) {
                     console.log(`[SYNC] Vision error for post ${post.id}:`, visionError);
@@ -730,7 +739,7 @@ async function insertMediaAndInteractions(
                     console.log(`[SYNC] Fetching carousel children for post ${post.id}...`);
                     const children = await fetchCarouselChildren(post.id, accessToken);
                     
-                    if (children.length > 0) {
+                    if (children.length) {
                         console.log(`[SYNC] Found ${children.length} children in carousel`);
                         const descriptions: string[] = [];
                         
@@ -768,7 +777,7 @@ async function insertMediaAndInteractions(
                         if (descriptions.length > 0) {
                             imageDescription = descriptions.join('\n\n');
                             console.log(`[SYNC] Carousel analysis complete: ${descriptions.length} slides analyzed`);
-                            enrichedCaption = (post.caption || "") + `\n\n[ANÁLISE VISUAL DA IA]: ${imageDescription}`;
+                            enrichedCaption = (post.caption || "") + `\n\n${VISION_ANALYSIS_PREFIX} ${imageDescription}`;
                         }
                     } else {
                         // Fallback to analyzing main media_url if children fetch fails
@@ -793,7 +802,7 @@ async function insertMediaAndInteractions(
                                 });
                                 imageDescription = visionResponse.choices[0]?.message?.content || null;
                                 if (imageDescription) {
-                                    enrichedCaption = (post.caption || "") + `\n\n[ANÁLISE VISUAL DA IA]: ${imageDescription}`;
+                                    enrichedCaption = (post.caption || "") + `\n\n${VISION_ANALYSIS_PREFIX} ${imageDescription}`;
                                 }
                             } catch (visionError) {
                                 console.log(`[SYNC] Vision error for carousel fallback:`, visionError);
