@@ -43,6 +43,7 @@ export default function Sources() {
   const queryClient = useQueryClient();
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const [profileToDelete, setProfileToDelete] = useState<number | null>(null);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   // Use global sync context
   const { isSyncing, syncProgress, syncStatus, startSync } = useSyncContext();
@@ -63,6 +64,11 @@ export default function Sources() {
       const hasProcessing = data?.some((p: any) => p.status === "pending" || p.status === "processing");
       return hasProcessing ? 2000 : false;
     },
+  });
+
+  // Query settings to check if systemPrompt already exists
+  const { data: settings } = useQuery<any>({
+    queryKey: ["/api/settings"],
   });
 
   const addLinkMutation = useMutation({
@@ -93,8 +99,15 @@ export default function Sources() {
   // Generate personality from synced content
   const generatePersonalityMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/knowledge/generate-personality", {});
-      return response;
+      // Create a timeout promise (60 seconds)
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Tempo limite excedido. A operação está demorando muito.")), 60000);
+      });
+
+      // Race between API call and timeout
+      const apiPromise = apiRequest("POST", "/api/knowledge/generate-personality", {});
+      
+      return await Promise.race([apiPromise, timeoutPromise]);
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
@@ -104,13 +117,39 @@ export default function Sources() {
       });
     },
     onError: (error: any) => {
-      const errorData = error?.message ? JSON.parse(error.message.substring(error.message.indexOf("{"))) : {};
-      const message = errorData.code === "INSUFFICIENT_DATA"
-        ? "Sincronize mais conteúdo antes de gerar a personalidade."
-        : errorData.error || "Erro ao gerar personalidade.";
+      const errorMessage = error?.message || "";
+      let message = "Erro ao gerar personalidade.";
+      
+      if (errorMessage.includes("Tempo limite")) {
+        message = "A operação excedeu o tempo limite. Tente novamente ou entre em contato com o suporte.";
+      } else {
+        try {
+          const errorData = errorMessage.includes("{") 
+            ? JSON.parse(errorMessage.substring(errorMessage.indexOf("{"))) 
+            : {};
+          message = errorData.code === "INSUFFICIENT_DATA"
+            ? "Sincronize mais conteúdo antes de gerar a personalidade."
+            : errorData.error || message;
+        } catch {
+          // Keep default message if parsing fails
+        }
+      }
+      
       toast({ title: "Erro", description: message, variant: "destructive" });
     },
   });
+
+  // Handle generate personality click with confirmation
+  const handleGeneratePersonality = () => {
+    // Check if user already has a system prompt
+    if (settings?.systemPrompt && settings.systemPrompt.length > 0) {
+      // Show confirmation dialog
+      setShowConfirmDialog(true);
+    } else {
+      // No existing prompt, proceed directly
+      generatePersonalityMutation.mutate();
+    }
+  };
 
   const deleteInstagramProfileMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -292,7 +331,7 @@ export default function Sources() {
                 );
               })()}
               <Button
-                onClick={() => generatePersonalityMutation.mutate()}
+                onClick={handleGeneratePersonality}
                 disabled={generatePersonalityMutation.isPending || instagramProfiles.length === 0}
                 variant="outline"
                 className="flex-1 border-purple-300 dark:border-purple-700"
@@ -442,6 +481,35 @@ export default function Sources() {
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
               ) : null}
               Sim, Apagar Tudo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmation Dialog for Generating New Personality */}
+      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-purple-500" />
+              Gerar Nova Personalidade?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Você já possui uma personalidade gerada. Gerar uma nova personalidade irá <strong>substituir completamente</strong> a atual com base nos dados mais recentes sincronizados.
+              <br /><br />
+              O que deseja fazer?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Manter Atual</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowConfirmDialog(false);
+                generatePersonalityMutation.mutate();
+              }}
+              className="bg-purple-600 text-white hover:bg-purple-700"
+            >
+              Gerar Nova Personalidade
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

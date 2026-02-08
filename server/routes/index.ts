@@ -5298,7 +5298,7 @@ export async function registerRoutes(
     try {
       const { userId } = await getUserContext(req);
 
-      // Get user's Instagram credentials
+      // Get user's Instagram profiles (data should already be synced)
       const user = await storage.getUser(userId);
       const profiles = await storage.getInstagramProfiles(userId);
 
@@ -5309,35 +5309,19 @@ export async function registerRoutes(
         });
       }
 
-      if (!user?.instagramAccessToken || !user?.instagramAccountId) {
-        return res.status(400).json({
-          error: "Conta Instagram não conectada.",
-          code: "NOT_CONNECTED"
-        });
-      }
+      const username = user?.instagramUsername || profiles[0]?.username;
+      console.log(`[Generate Personality] Gerando personalidade para @${username} (userId: ${userId})...`);
 
-      // Fetch captions directly from Instagram API
-      const accessToken = decrypt(user.instagramAccessToken);
-      // Fixed: Static imports used above
-      // const { syncInstagramKnowledge, synthesizeIdentity } = await import("./identity-synthesizer");
+      // Set timeout for the entire operation (60 seconds)
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Timeout: A geração da personalidade excedeu o tempo limite de 60 segundos.")), 60000);
+      });
 
-      console.log(`[Generate Personality] Buscando legendas para userId: ${userId}...`);
+      // Use the synthesizeIdentity that reads from already-synced knowledge tables
+      // No need to re-sync - data is already in the database
+      const resultPromise = synthesizeIdentity(userId);
 
-      const syncResult = await syncInstagramKnowledge(userId, accessToken, user.instagramAccountId);
-
-      if (syncResult.captions.length < 5) {
-        return res.status(400).json({
-          error: `Apenas ${syncResult.captions.length} legendas encontradas. Mínimo de 5 necessário.`,
-          code: "INSUFFICIENT_DATA"
-        });
-      }
-
-      const username = user.instagramUsername || syncResult.username;
-
-      console.log(`[Generate Personality] Gerando para @${username} com ${syncResult.captions.length} legendas...`);
-
-      // Use the updated synthesizeIdentity that reads from all 4 tables
-      const result = await synthesizeIdentity(userId);
+      const result = await Promise.race([resultPromise, timeoutPromise]) as any;
 
       // Save the generated systemPrompt to user's aiContext
       await authStorage.updateUser(userId, {
@@ -5350,14 +5334,18 @@ export async function registerRoutes(
         success: true,
         systemPrompt: result.systemPrompt,
         patterns: result.patterns,
-        captionsAnalyzed: syncResult.captions.length,
+        sourceCounts: result.sourceCounts,
         message: "Personalidade gerada com sucesso! Confira na aba Personalidade."
       });
     } catch (error) {
       console.error("[Generate Personality] Error:", error);
-      res.status(500).json({
+      
+      const isTimeout = error instanceof Error && error.message.includes("Timeout");
+      const statusCode = isTimeout ? 504 : 500;
+      
+      res.status(statusCode).json({
         error: error instanceof Error ? error.message : "Erro ao gerar personalidade",
-        code: "GENERATION_ERROR"
+        code: isTimeout ? "TIMEOUT_ERROR" : "GENERATION_ERROR"
       });
     }
   });
