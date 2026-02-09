@@ -1,14 +1,14 @@
 /**
- * Script de Limpeza de Mensagens para Múltiplos Usuários
- * Apaga todas as mensagens DM e comentários dos usuários especificados
- * Usuários: Gustavo Rubino e Rodolfo Donetti
+ * Script de Limpeza de Mensagens
+ * Apaga todas as mensagens DM e comentários do usuário especificado
+ * Usuário: Rodolfo Donetti
  */
 
 import { neon } from "@neondatabase/serverless";
 
 async function clearUsersMessages() {
   const prodDbUrl = process.env.PROD_DB_URL;
-  
+
   if (!prodDbUrl) {
     console.error("❌ PROD_DB_URL não configurada.");
     return;
@@ -19,9 +19,8 @@ async function clearUsersMessages() {
   try {
     const sql = neon(prodDbUrl);
 
-    // Lista de usuários para limpar (por nome ou email)
+    // Usuário para limpar
     const targetUsers = [
-      { name: "Gustavo Rubino", searchTerm: "gustavo" },
       { name: "Rodolfo Donetti", searchTerm: "rodolfo" }
     ];
 
@@ -30,11 +29,8 @@ async function clearUsersMessages() {
     const allUsers = await sql`
       SELECT id, email, first_name, last_name, instagram_username 
       FROM users 
-      WHERE LOWER(first_name) LIKE '%gustavo%' 
-         OR LOWER(last_name) LIKE '%rubino%'
-         OR LOWER(first_name) LIKE '%rodolfo%' 
+      WHERE LOWER(first_name) LIKE '%rodolfo%' 
          OR LOWER(last_name) LIKE '%donetti%'
-         OR LOWER(email) LIKE '%gustavo%'
          OR LOWER(email) LIKE '%rodolfo%'
     `;
 
@@ -48,7 +44,7 @@ async function clearUsersMessages() {
     }
 
     console.log(`\n👥 Usuários encontrados: ${allUsers.length}`);
-    
+
     for (const user of allUsers) {
       const u = user as any;
       console.log(`\n${'='.repeat(60)}`);
@@ -66,7 +62,7 @@ async function clearUsersMessages() {
         FROM instagram_messages 
         WHERE user_id = ${u.id}
       `;
-      
+
       const stats = msgCount[0] as any;
       console.log(`\n📊 Mensagens encontradas:`);
       console.log(`   - DMs: ${stats.dm_count}`);
@@ -80,7 +76,7 @@ async function clearUsersMessages() {
 
       // Apagar as mensagens (ai_responses será deletado via cascade)
       console.log(`\n🗑️  Apagando mensagens...`);
-      
+
       const deletedMessages = await sql`
         DELETE FROM instagram_messages 
         WHERE user_id = ${u.id}
