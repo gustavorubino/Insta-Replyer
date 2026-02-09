@@ -68,6 +68,8 @@ export default function Guidelines() {
   const [chatInput, setChatInput] = useState("");
   const [editingGuideline, setEditingGuideline] = useState<Guideline | null>(null);
   const [pendingRule, setPendingRule] = useState("");
+  const [selectedPriority, setSelectedPriority] = useState(3);
+  const [selectedCategory, setSelectedCategory] = useState("geral");
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -127,6 +129,8 @@ export default function Guidelines() {
       setIsChatOpen(false);
       setChatMessages([]);
       setPendingRule("");
+      setSelectedPriority(3);
+      setSelectedCategory("geral");
       toast({
         title: "Regra Adicionada",
         description: "A nova diretriz foi incluída nas suas regras.",
@@ -196,6 +200,8 @@ export default function Guidelines() {
     setIsChatOpen(true);
     setChatMessages([]);
     setPendingRule("");
+    setSelectedPriority(3);
+    setSelectedCategory("geral");
   };
 
   const handleSendMessage = () => {
@@ -582,11 +588,7 @@ export default function Guidelines() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Prioridade</Label>
-                <Select defaultValue="3" onValueChange={(val) => {
-                  // Store selected priority
-                  const btn = document.querySelector('[data-save-btn]') as any;
-                  if (btn) btn.dataset.priority = val;
-                }}>
+                <Select value={String(selectedPriority)} onValueChange={(val) => setSelectedPriority(parseInt(val))}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -601,11 +603,7 @@ export default function Guidelines() {
               </div>
               <div>
                 <Label>Categoria</Label>
-                <Select defaultValue="geral" onValueChange={(val) => {
-                  // Store selected category
-                  const btn = document.querySelector('[data-save-btn]') as any;
-                  if (btn) btn.dataset.category = val;
-                }}>
+                <Select value={selectedCategory} onValueChange={(val) => setSelectedCategory(val)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -624,15 +622,7 @@ export default function Guidelines() {
               Cancelar
             </Button>
             <Button
-              data-save-btn
-              data-priority="3"
-              data-category="geral"
-              onClick={(e) => {
-                const target = e.currentTarget as HTMLElement;
-                const priority = parseInt(target.dataset.priority || "3");
-                const category = target.dataset.category || "geral";
-                handleSaveRule(priority, category);
-              }}
+              onClick={() => handleSaveRule(selectedPriority, selectedCategory)}
               disabled={addMutation.isPending}
             >
               {addMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
