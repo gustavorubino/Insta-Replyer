@@ -6,6 +6,7 @@ import { generateAIResponse } from "../openai";
 import { runArchitectAgent, runCopilotAgent } from "../modes";
 import { getUserContext } from "../utils/auth-context";
 import { decrypt, isEncrypted } from "../encryption";
+import OpenAI from "openai";
 
 const router = Router();
 
@@ -270,7 +271,7 @@ ${newPrompt}
 
 Retorne APENAS o System Prompt mesclado, sem nenhum texto adicional.`;
 
-        const openai = new (await import("openai")).default();
+        const openai = new OpenAI();
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
