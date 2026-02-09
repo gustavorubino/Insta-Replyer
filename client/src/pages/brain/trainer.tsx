@@ -48,7 +48,7 @@ import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { useLanguage } from "@/i18n";
 import type { SettingsData } from "@/types/settings";
 
-type Mode = "simulator" | "architect" | "copilot";
+type Mode = "simulator" | "architect" | "copilot" | "operation";
 
 interface ChatMessage {
   id: string;
@@ -588,6 +588,7 @@ export default function Trainer() {
               {mode === "simulator" && "Simule conversas e corrija a IA."}
               {mode === "architect" && "Construa o System Prompt perfeito."}
               {mode === "copilot" && "Gerencie o sistema e tire dúvidas."}
+              {mode === "operation" && "Configure o modo de operação da IA."}
             </p>
           </div>
           <div className="flex gap-2">
@@ -602,8 +603,8 @@ export default function Trainer() {
           </div>
         </div>
 
-        <div className="bg-muted/50 p-1 rounded-full flex w-full max-w-md mx-auto">
-          {(["simulator", "architect", "copilot"] as const).map((m) => (
+        <div className="bg-muted/50 p-1 rounded-full flex w-full max-w-2xl mx-auto">
+          {(["simulator", "architect", "copilot", "operation"] as const).map((m) => (
             <button
               key={m}
               onClick={() => handleModeChange(m)}
@@ -615,19 +616,22 @@ export default function Trainer() {
               {m === "simulator" && <Bot className="h-4 w-4" />}
               {m === "architect" && <PencilRuler className="h-4 w-4" />}
               {m === "copilot" && <Cpu className="h-4 w-4" />}
+              {m === "operation" && <Terminal className="h-4 w-4" />}
               <span className="capitalize">
                 {m === "simulator"
                   ? "Simulador"
                   : m === "architect"
                     ? "Arquiteto"
-                    : "Copiloto"}
+                    : m === "copilot"
+                      ? "Copiloto"
+                      : "Modo de Operação"}
               </span>
             </button>
           ))}
         </div>
 
         {/* Operation Mode Card */}
-        {localSettings && (
+        {mode === "operation" && localSettings && (
           <Card className="max-w-2xl mx-auto w-full">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -789,6 +793,7 @@ export default function Trainer() {
       </div>
 
 
+      {mode !== "operation" && (
       <Card className="flex-1 flex flex-col overflow-hidden relative border shadow-sm rounded-xl bg-background">
         <div
           className="flex-1 overflow-y-auto p-4 space-y-6 pb-32"
@@ -1065,6 +1070,7 @@ export default function Trainer() {
           </div>
         </div>
       </Card>
+      )}
 
       {/* Dialog for Simulator Mode - Edit & Learn */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
