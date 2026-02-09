@@ -817,7 +817,7 @@ Se a regra já estiver boa, confirme e sugira apenas pequenos ajustes se necess�
 
 Responda em português brasileiro e seja colaborativo.`;
 
-        const openai = new (await import("openai")).default();
+        const openai = new OpenAI();
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [

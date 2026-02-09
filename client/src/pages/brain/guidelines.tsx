@@ -384,7 +384,7 @@ export default function Guidelines() {
                   <Select
                     value={String(editingGuideline.priority)}
                     onValueChange={(val) =>
-                      setEditingGuideline({ ...editingGuideline, priority: parseInt(val, 10) })
+                      setEditingGuideline({ ...editingGuideline, priority: +val })
                     }
                   >
                     <SelectTrigger>
@@ -588,7 +588,7 @@ export default function Guidelines() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Prioridade</Label>
-                <Select value={String(selectedPriority)} onValueChange={(val) => setSelectedPriority(parseInt(val, 10))}>
+                <Select value={String(selectedPriority)} onValueChange={(val) => setSelectedPriority(+val)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
