@@ -585,9 +585,9 @@ export default function Trainer() {
           <div>
             <h1 className="text-2xl font-semibold">Console de Comando Central</h1>
             <p className="text-muted-foreground">
-              {mode === "simulator" && "Simule conversas e corrija a IA."}
-              {mode === "architect" && "Construa o System Prompt perfeito."}
-              {mode === "copilot" && "Gerencie o sistema e tire dúvidas."}
+              {mode === "simulator" && "Simule conversas para testar a IA. Apenas simulação e treinamento - sem ações de prompt ou regras."}
+              {mode === "architect" && "Único lugar para construir e enviar o System Prompt que define a personalidade da IA."}
+              {mode === "copilot" && "Tire dúvidas sobre o sistema, estatísticas e configurações."}
               {mode === "operation" && "Configure o modo de operação da IA."}
             </p>
           </div>
