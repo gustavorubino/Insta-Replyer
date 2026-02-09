@@ -42,11 +42,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useLanguage } from "@/i18n";
 import { useSyncContext } from "@/contexts/SyncContext";
-
-interface SettingsData {
-  systemPrompt: string;
-  aiTone?: "professional" | "friendly" | "casual";
-}
+import type { SettingsData } from "@/types/settings";
 
 export default function Personality() {
   const { toast } = useToast();
@@ -482,7 +478,7 @@ export default function Personality() {
                         <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800">
                           <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" />
                           <p className="text-sm text-yellow-900 dark:text-yellow-100">
-                            ⚠️ Poucos dados para clonagem de personalidade. Recomendamos pelo menos 30 interações.
+                            ⚠️ Poucos dados para clonagem de personalidade. Recomendamos pelo menos 30 interações. Considere adicionar mais links de treinamento na aba "Fontes" para melhorar a qualidade.
                           </p>
                         </div>
                       );
@@ -491,7 +487,7 @@ export default function Personality() {
                         <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
                           <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
                           <p className="text-sm text-blue-900 dark:text-blue-100">
-                            💡 Dados moderados. A personalidade será boa, mas pode melhorar com mais dados.
+                            💡 Dados moderados. A personalidade será boa, mas pode melhorar com mais links de treinamento na aba "Fontes".
                           </p>
                         </div>
                       );

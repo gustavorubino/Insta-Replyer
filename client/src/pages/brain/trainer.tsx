@@ -46,6 +46,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { useLanguage } from "@/i18n";
+import type { SettingsData } from "@/types/settings";
 
 type Mode = "simulator" | "architect" | "copilot";
 
@@ -60,13 +61,6 @@ interface ChatMessage {
     target: "identity" | "database" | null;
     reason: string;
   } | null;
-}
-
-interface SettingsData {
-  operationMode: "manual" | "semi_auto" | "auto";
-  confidenceThreshold: number;
-  systemPrompt: string;
-  aiTone?: "professional" | "friendly" | "casual";
 }
 
 export default function Trainer() {
