@@ -215,6 +215,268 @@ export async function callOpenAI(
   throw lastError || new OpenAIError("Failed after 3 attempts", "API_ERROR");
 }
 
+// Enhanced retrieval with weighted scoring from all knowledge sources
+interface RetrievalExample {
+  question: string;
+  answer: string;
+  score: number;
+  source: "gold" | "media" | "interaction" | "dataset";
+  weight: number; // Boost factor
+}
+
+async function retrieveRelevantExamples(
+  queryText: string,
+  userId: string,
+  limit: number = 5
+): Promise<RetrievalExample[]> {
+  try {
+    const queryEmbedding = await generateEmbedding(queryText);
+    const examples: RetrievalExample[] = [];
+
+    // 1. Retrieve from Manual Q&A (Gold entries - highest weight)
+    try {
+      const manualQA = await storage.getManualQA(userId);
+      for (const qa of manualQA) {
+        // For now, we'll use text similarity since manualQA doesn't have embeddings yet
+        // In future, we could add embeddings to manualQA table
+        const simpleScore = calculateTextSimilarity(queryText, qa.question);
+        // Gold items use 0.3 threshold (lower than dataset 0.6) to ensure more gold examples are included
+        if (simpleScore > 0.3) {
+          examples.push({
+            question: qa.question,
+            answer: qa.answer,
+            score: simpleScore,
+            source: "gold",
+            weight: 2.0 // 2x weight for gold entries
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[Retrieval] Error loading manual QA:", err);
+    }
+
+    // 2. Retrieve from AI Dataset (with embeddings)
+    try {
+      const dataset = await storage.getDataset(userId);
+      for (const entry of dataset) {
+        if (entry.embedding) {
+          const vec = entry.embedding as number[];
+          const score = cosineSimilarity(queryEmbedding, vec);
+          if (score > 0.6) {
+            examples.push({
+              question: entry.question,
+              answer: entry.answer,
+              score,
+              source: "dataset",
+              weight: 1.0 // Standard weight
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[Retrieval] Error loading dataset:", err);
+    }
+
+    // 3. Retrieve from Media Library (posts with captions)
+    try {
+      const mediaLibrary = await storage.getMediaLibrary(userId);
+      for (const media of mediaLibrary) {
+        if (media.caption) {
+          const simpleScore = calculateTextSimilarity(queryText, media.caption);
+          if (simpleScore > 0.4) {
+            examples.push({
+              question: `Sobre o post: ${media.caption.substring(0, 100)}...`,
+              answer: media.imageDescription || media.videoTranscription || media.caption,
+              score: simpleScore,
+              source: "media",
+              weight: 1.2 // Slightly higher weight for media context
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[Retrieval] Error loading media library:", err);
+    }
+
+    // 4. Retrieve from Interaction Dialect (real conversations)
+    try {
+      const interactions = await storage.getInteractionDialect(userId);
+      for (const interaction of interactions) {
+        if (interaction.myResponse) {
+          const simpleScore = calculateTextSimilarity(queryText, interaction.userMessage);
+          if (simpleScore > 0.5) {
+            examples.push({
+              question: interaction.userMessage,
+              answer: interaction.myResponse,
+              score: simpleScore,
+              source: "interaction",
+              weight: 1.5 // Higher weight for real interactions
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[Retrieval] Error loading interaction dialect:", err);
+    }
+
+    // Calculate weighted scores and sort
+    const weightedExamples = examples.map(ex => ({
+      ...ex,
+      finalScore: ex.score * ex.weight
+    }));
+
+    // Sort by weighted score and return top N
+    weightedExamples.sort((a, b) => b.finalScore - a.finalScore);
+    
+    const topExamples = weightedExamples.slice(0, limit);
+    console.log(`[Retrieval] Found ${examples.length} candidates, returning top ${topExamples.length}`);
+    console.log(`[Retrieval] Sources: gold=${examples.filter(e => e.source === 'gold').length}, interaction=${examples.filter(e => e.source === 'interaction').length}, dataset=${examples.filter(e => e.source === 'dataset').length}, media=${examples.filter(e => e.source === 'media').length}`);
+    
+    return topExamples;
+  } catch (err) {
+    console.error("[Retrieval] Error in enhanced retrieval:", err);
+    return [];
+  }
+}
+
+// Simple text similarity for entries without embeddings
+function calculateTextSimilarity(text1: string, text2: string): number {
+  const words1 = text1.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  const words2 = text2.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  
+  if (words1.length === 0 || words2.length === 0) return 0;
+  
+  const set1 = new Set(words1);
+  const set2 = new Set(words2);
+  
+  let intersection = 0;
+  for (const word of set1) {
+    if (set2.has(word)) intersection++;
+  }
+  
+  const union = set1.size + set2.size - intersection;
+  return union > 0 ? intersection / union : 0;
+}
+
+// Similarity check for anti-repetition
+async function isTooSimilarToRecent(
+  newResponse: string,
+  userId: string,
+  threshold: number = 0.85
+): Promise<boolean> {
+  try {
+    // Get recent approved responses for this user
+    const recentMessages = await storage.getRecentMessages(20, userId);
+    
+    for (const msg of recentMessages) {
+      if (msg.aiResponse?.finalResponse) {
+        const similarity = calculateTextSimilarity(newResponse, msg.aiResponse.finalResponse);
+        if (similarity > threshold) {
+          console.log(`[Anti-Repetition] Response too similar (${(similarity * 100).toFixed(0)}%) to recent response`);
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.error("[Anti-Repetition] Error checking similarity:", err);
+    return false; // Don't block on error
+  }
+}
+
+// Intent detection based on message content
+function detectMessageIntent(message: string): "question" | "complaint" | "praise" | "request" | "casual" | "urgent" {
+  const lowerMsg = message.toLowerCase();
+  
+  // Urgent indicators
+  if (lowerMsg.match(/urgente|emergência|rápido|agora|já|imediato/i)) {
+    return "urgent";
+  }
+  
+  // Question indicators
+  if (lowerMsg.match(/\?|como|quando|onde|por que|porque|qual|quanto|quem|pode me|você sabe|gostaria de saber/i)) {
+    return "question";
+  }
+  
+  // Complaint indicators
+  if (lowerMsg.match(/problema|não funciona|erro|reclamação|insatisfeito|decepcionado|péssimo|ruim|horrível/i)) {
+    return "complaint";
+  }
+  
+  // Praise indicators
+  if (lowerMsg.match(/obrigad|parabéns|excelente|ótimo|maravilhoso|adorei|amei|perfeito|incrível|top/i)) {
+    return "praise";
+  }
+  
+  // Request indicators
+  if (lowerMsg.match(/preciso|quero|gostaria|pode|poderia|consegue|solicito|peço/i)) {
+    return "request";
+  }
+  
+  return "casual";
+}
+
+// Extract personality traits from interaction history
+function extractPersonalityTraits(interactions: any[]): string[] {
+  const traits: string[] = [];
+  
+  if (interactions.length === 0) {
+    return ["Tom amigável e profissional", "Respostas claras e diretas"];
+  }
+  
+  // Analyze response patterns
+  const responses = interactions
+    .filter(i => i.myResponse)
+    .map(i => i.myResponse)
+    .slice(0, 20); // Last 20 responses
+  
+  if (responses.length === 0) {
+    return ["Tom amigável e profissional", "Respostas claras e diretas"];
+  }
+  
+  // Check for emoji usage
+  const emojiCount = responses.filter(r => /[\u{1F300}-\u{1F9FF}]/u.test(r)).length;
+  if (emojiCount > responses.length * 0.5) {
+    traits.push("Uso frequente de emojis para expressividade");
+  }
+  
+  // Check response length
+  const avgLength = responses.reduce((sum, r) => sum + r.length, 0) / responses.length;
+  if (avgLength < 50) {
+    traits.push("Respostas curtas e diretas");
+  } else if (avgLength > 150) {
+    traits.push("Respostas detalhadas e explicativas");
+  } else {
+    traits.push("Respostas equilibradas - nem muito curtas nem muito longas");
+  }
+  
+  // Check for formal vs informal language
+  const formalCount = responses.filter(r => 
+    r.match(/senhor|senhora|prezado|cordialmente|atenciosamente/i)
+  ).length;
+  if (formalCount > responses.length * 0.3) {
+    traits.push("Tom formal e respeitoso");
+  } else {
+    traits.push("Tom casual e acessível");
+  }
+  
+  // Check for questions back to users
+  const questionCount = responses.filter(r => r.includes("?")).length;
+  if (questionCount > responses.length * 0.3) {
+    traits.push("Estilo interativo - faz perguntas para engajar");
+  }
+  
+  // Check for exclamation usage
+  const exclamationCount = responses.filter(r => r.includes("!")).length;
+  if (exclamationCount > responses.length * 0.4) {
+    traits.push("Tom entusiasta e energético");
+  }
+  
+  return traits.length > 0 ? traits : ["Tom amigável e profissional", "Respostas claras e diretas"];
+}
+
+
 export async function generateAIResponse(
   messageContent: string,
   messageType: "dm" | "comment",
@@ -302,38 +564,42 @@ do seu comportamento e nunca devem ser ignoradas.
       console.error("[OpenAI] Error loading golden corrections:", err);
     }
 
-    // RAG Logic
+    // ENHANCED RAG Logic - Retrieve from all knowledge sources with weighted scoring
     try {
-      const dataset = await storage.getDataset(userId);
-      if (dataset.length > 0) {
-        const queryEmbedding = await generateEmbedding(messageContent);
-
-        const scored = dataset.map(entry => {
-          if (!entry.embedding) return { entry, score: 0 };
-          const vec = entry.embedding as number[];
-          return { entry, score: cosineSimilarity(queryEmbedding, vec) };
-        });
-
-        scored.sort((a, b) => b.score - a.score);
-        const topMatches = scored.filter(x => x.score > 0.7).slice(0, 3);
-
-        if (topMatches.length > 0) {
-          ragContext = `
+      const relevantExamples = await retrieveRelevantExamples(messageContent, userId, 5);
+      
+      if (relevantExamples.length > 0) {
+        const examplesList = relevantExamples.map((ex, i) => {
+          const sourceLabel = {
+            gold: "⭐ Ouro",
+            interaction: "💬 Conversa Real",
+            dataset: "📚 Memória",
+            media: "📸 Post"
+          }[ex.source];
+          
+          return `
+Exemplo ${i + 1} [${sourceLabel}] (Relevância: ${(ex.finalScore * 100).toFixed(0)}%):
+Contexto: "${ex.question.substring(0, 150)}${ex.question.length > 150 ? '...' : ''}"
+Resposta de Referência: "${ex.answer.substring(0, 150)}${ex.answer.length > 150 ? '...' : ''}"`;
+        }).join("\n");
+        
+        ragContext = `
 ═══════════════════════════════════════════════════════
-MEMÓRIA (Exemplos similares de como responder):
-${topMatches.map((m, i) => `
-Exemplo ${i + 1} (Similaridade: ${(m.score * 100).toFixed(0)}%):
-Usuário: "${m.entry.question}"
-Resposta Ideal: "${m.entry.answer}"
-`).join("\n")}
+MEMÓRIA CONTEXTUAL (Exemplos similares de como responder):
+${examplesList}
 ═══════════════════════════════════════════════════════
-Use estes exemplos como referência rigorosa de estilo e tom.
+
+INSTRUÇÕES CRÍTICAS PARA USO DOS EXEMPLOS:
+1. Use os exemplos acima APENAS como referência de estilo, tom e abordagem
+2. NUNCA copie respostas verbatim - sempre adapte ao contexto específico
+3. Exemplos marcados com ⭐ (Ouro) têm prioridade máxima de estilo
+4. Preserve a intenção e personalidade, mas varie a formulação
+5. Gere uma resposta única e contextualizada para esta mensagem específica
 `;
-          console.log(`[OpenAI] RAG context added with ${topMatches.length} examples`);
-        }
+        console.log(`[OpenAI] Enhanced RAG: ${relevantExamples.length} examples from multiple sources`);
       }
     } catch (err) {
-      console.error("[OpenAI] Error loading RAG context:", err);
+      console.error("[OpenAI] Error loading enhanced RAG context:", err);
     }
   }
 
@@ -435,10 +701,59 @@ ${contextPoints.map((p, i) => `${i + 1}. ${p}`).join("\n")}
     }
   }
 
+  // STYLE/INTENT DETECTION LAYER
+  let styleIntentContext = "";
+  if (userId) {
+    try {
+      // Analyze message intent
+      const messageIntent = detectMessageIntent(messageContent);
+      const intentLabel = {
+        question: "Pergunta/Dúvida",
+        complaint: "Reclamação/Problema",
+        praise: "Elogio/Agradecimento",
+        request: "Pedido/Solicitação",
+        casual: "Conversa Casual",
+        urgent: "Urgente/Importante"
+      }[messageIntent];
+
+      // Extract personality traits from interaction dialect
+      const interactions = await storage.getInteractionDialect(userId);
+      const personalityTraits = extractPersonalityTraits(interactions);
+
+      styleIntentContext = `
+═══════════════════════════════════════════════════════
+ANÁLISE DE CONTEXTO E ESTILO:
+
+Intent Detectado: ${intentLabel}
+${messageIntent === "question" ? "→ Responda de forma clara, educativa e útil" : ""}
+${messageIntent === "complaint" ? "→ Seja empático, reconheça o problema e ofereça solução" : ""}
+${messageIntent === "praise" ? "→ Agradeça genuinamente e mantenha o tom positivo" : ""}
+${messageIntent === "request" ? "→ Seja prestativo e direto ao ponto" : ""}
+${messageIntent === "casual" ? "→ Mantenha um tom amigável e conversacional" : ""}
+${messageIntent === "urgent" ? "→ Responda com urgência e prioridade" : ""}
+
+Personalidade do Usuário (baseado em interações reais):
+${personalityTraits.map((trait, i) => `${i + 1}. ${trait}`).join("\n")}
+═══════════════════════════════════════════════════════
+
+REGRAS DE GERAÇÃO DE RESPOSTA:
+1. Preserve o tom e personalidade identificados acima
+2. Adapte a resposta ao intent detectado
+3. Varie a formulação - NUNCA use frases idênticas de exemplos
+4. Mantenha coerência com respostas anteriores, mas seja único
+5. Se os exemplos de ouro mostrarem um padrão específico, siga-o mas com palavras diferentes
+`;
+      console.log(`[OpenAI] Style/Intent layer added: ${intentLabel}, ${personalityTraits.length} traits`);
+    } catch (err) {
+      console.error("[OpenAI] Error building style/intent layer:", err);
+    }
+  }
+
   // Build the full system prompt with all knowledge sources
   const fullSystemPrompt = `${systemPrompt}
 
 ${guidelinesContext}
+${styleIntentContext}
 ${knowledgeContext ? `\n${knowledgeContext}\n` : ""}
 ${ragContext}
 ${learningContext}
@@ -594,28 +909,56 @@ A confiança deve ser um número entre 0 e 1, onde:
     const hasAttachments = attachments && attachments.length > 0;
     const shouldTryVision = (hasPostImage && postImageUrl) || hasAttachments;
     
-    if (shouldTryVision) {
-      try {
-        return await makeAICall(true);
-      } catch (visionError) {
-        // Vision failed - likely expired image URL or inaccessible image
-        const errorMsg = visionError instanceof Error ? visionError.message : String(visionError);
-        console.warn(`[OpenAI] Vision request failed: ${errorMsg}`);
-        console.log("[OpenAI] Retrying WITHOUT image (fallback to text-only)...");
-        
-        // Don't retry if it's a rate limit or missing API key error
-        if (visionError instanceof OpenAIError && 
-            (visionError.code === "MISSING_API_KEY" || visionError.code === "RATE_LIMIT")) {
-          throw visionError;
+    let result: GenerateResponseResult | undefined;
+    let attemptCount = 0;
+    const maxAttempts = 3; // Max regeneration attempts for anti-repetition
+    
+    // Anti-repetition loop
+    while (attemptCount < maxAttempts) {
+      attemptCount++;
+      
+      if (shouldTryVision && attemptCount === 1) {
+        try {
+          result = await makeAICall(true);
+        } catch (visionError) {
+          // Vision failed - likely expired image URL or inaccessible image
+          const errorMsg = visionError instanceof Error ? visionError.message : String(visionError);
+          console.warn(`[OpenAI] Vision request failed: ${errorMsg}`);
+          console.log("[OpenAI] Retrying WITHOUT image (fallback to text-only)...");
+          
+          // Don't retry if it's a rate limit or missing API key error
+          if (visionError instanceof OpenAIError && 
+              (visionError.code === "MISSING_API_KEY" || visionError.code === "RATE_LIMIT")) {
+            throw visionError;
+          }
+          
+          // Retry without vision
+          result = await makeAICall(false);
         }
-        
-        // Retry without vision
-        return await makeAICall(false);
+      } else {
+        // No vision needed, just make a regular call
+        result = await makeAICall(false);
       }
-    } else {
-      // No vision needed, just make a regular call
-      return await makeAICall(false);
+      
+      // Check for anti-repetition only if we have a userId
+      if (userId && result.suggestedResponse) {
+        const isTooSimilar = await isTooSimilarToRecent(result.suggestedResponse, userId);
+        
+        if (isTooSimilar && attemptCount < maxAttempts) {
+          console.log(`[Anti-Repetition] Response too similar to recent ones, regenerating (attempt ${attemptCount + 1}/${maxAttempts})...`);
+          // Add a note to the system prompt to vary the response more
+          // This is a simple approach - in a more sophisticated version, we could modify the prompt
+          continue;
+        }
+      }
+      
+      // Response is good or we've exhausted attempts
+      return result;
     }
+    
+    // If we exit the loop, return the last result (guaranteed to be defined after at least one iteration)
+    console.log(`[Anti-Repetition] Exhausted regeneration attempts, returning last result`);
+    return result!; // Safe: loop always executes at least once
   } catch (error) {
     console.error("[OpenAI] Error generating AI response:");
     console.error("[OpenAI] Error type:", error?.constructor?.name);
