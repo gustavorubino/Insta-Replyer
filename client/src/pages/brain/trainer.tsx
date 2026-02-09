@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
   Send,
   Bot,
@@ -22,6 +22,10 @@ import {
 } from "lucide-react";
 import {
   Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,9 +40,13 @@ import {
 } from "@/components/ui/dialog";
 
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { useLanguage } from "@/i18n";
+import type { SettingsData } from "@/types/settings";
 
 type Mode = "simulator" | "architect" | "copilot";
 
@@ -58,6 +66,8 @@ interface ChatMessage {
 export default function Trainer() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
+  
   const [mode, setMode] = useState<Mode>("simulator");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -67,6 +77,13 @@ export default function Trainer() {
   const [postCaption, setPostCaption] = useState("");
   const [postImageUrl, setPostImageUrl] = useState("");
   const [showContext, setShowContext] = useState(false);
+
+  // Settings state for operation mode
+  const { data: settings } = useQuery<SettingsData>({
+    queryKey: ["/api/settings"],
+  });
+  
+  const [localSettings, setLocalSettings] = useState<SettingsData | null>(null);
 
   // Multimodal State
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -81,6 +98,13 @@ export default function Trainer() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sync localSettings when settings data loads
+  useEffect(() => {
+    if (settings) {
+      setLocalSettings(settings);
+    }
+  }, [settings]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -164,6 +188,37 @@ export default function Trainer() {
       });
     },
   });
+
+  const saveMutation = useMutation({
+    mutationFn: async (newSettings: Partial<SettingsData>) => {
+      await apiRequest("PATCH", "/api/settings", newSettings);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({
+        title: t.settings.saved,
+        description: t.settings.savedDesc,
+      });
+    },
+    onError: () => {
+      toast({
+        title: t.common.error,
+        description: t.settings.errorSaving,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSaveSettings = () => {
+    if (localSettings) {
+      saveMutation.mutate(localSettings);
+    }
+  };
+
+  const hasChanges =
+    localSettings && settings
+      ? JSON.stringify(localSettings) !== JSON.stringify(settings)
+      : false;
 
   const applyPromptMutation = useMutation({
     mutationFn: async (systemPrompt: string) => {
@@ -570,6 +625,167 @@ export default function Trainer() {
             </button>
           ))}
         </div>
+
+        {/* Operation Mode Card */}
+        {localSettings && (
+          <Card className="max-w-2xl mx-auto w-full">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Bot className="h-5 w-5" />
+                  {t.settings.mode.title}
+                </CardTitle>
+                <Button
+                  onClick={handleSaveSettings}
+                  disabled={!hasChanges || saveMutation.isPending}
+                  size="sm"
+                >
+                  <Save className="h-4 w-4 mr-2" />
+                  {saveMutation.isPending ? t.settings.saving : t.settings.saveChanges}
+                </Button>
+              </div>
+              <CardDescription>
+                {t.settings.mode.description}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div
+                className={`p-4 rounded-lg border cursor-pointer transition-colors ${localSettings.operationMode === "manual"
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted/50"
+                  }`}
+                onClick={() =>
+                  setLocalSettings({ ...localSettings, operationMode: "manual" })
+                }
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`h-4 w-4 rounded-full border-2 mt-0.5 ${localSettings.operationMode === "manual"
+                      ? "border-primary bg-primary"
+                      : "border-muted-foreground"
+                      }`}
+                  >
+                    {localSettings.operationMode === "manual" && (
+                      <div className="h-full w-full flex items-center justify-center">
+                        <div className="h-1.5 w-1.5 rounded-full bg-white"></div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-medium">{t.settings.mode.manual}</h4>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {t.settings.mode.manualDesc}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={`p-4 rounded-lg border cursor-pointer transition-colors ${localSettings.operationMode === "semi_auto"
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted/50"
+                  }`}
+                onClick={() =>
+                  setLocalSettings({
+                    ...localSettings,
+                    operationMode: "semi_auto",
+                  })
+                }
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`h-4 w-4 rounded-full border-2 mt-0.5 ${localSettings.operationMode === "semi_auto"
+                      ? "border-primary bg-primary"
+                      : "border-muted-foreground"
+                      }`}
+                  >
+                    {localSettings.operationMode === "semi_auto" && (
+                      <div className="h-full w-full flex items-center justify-center">
+                        <div className="h-1.5 w-1.5 rounded-full bg-white"></div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="font-medium">{t.settings.mode.semiAuto}</h4>
+                      <Badge variant="secondary" className="text-xs">
+                        {t.settings.mode.recommended}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {t.settings.mode.semiAutoDesc}
+                    </p>
+                    {localSettings.operationMode === "semi_auto" && (
+                      <div className="mt-4 pt-4 border-t" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-2">
+                          <Label>{t.settings.mode.confidenceThreshold}</Label>
+                          <span className="text-sm font-medium">
+                            {localSettings.confidenceThreshold}%
+                          </span>
+                        </div>
+                        <Slider
+                          value={[localSettings.confidenceThreshold]}
+                          onValueChange={([value]) =>
+                            setLocalSettings({
+                              ...localSettings,
+                              confidenceThreshold: value,
+                            })
+                          }
+                          min={50}
+                          max={95}
+                          step={5}
+                          className="w-full"
+                        />
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {t.settings.mode.confidenceDesc.replace(/\{threshold\}/g, String(localSettings.confidenceThreshold))}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={`p-4 rounded-lg border cursor-pointer transition-colors ${localSettings.operationMode === "auto"
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted/50"
+                  }`}
+                onClick={() =>
+                  setLocalSettings({
+                    ...localSettings,
+                    operationMode: "auto",
+                  })
+                }
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`h-4 w-4 rounded-full border-2 mt-0.5 ${localSettings.operationMode === "auto"
+                      ? "border-primary bg-primary"
+                      : "border-muted-foreground"
+                      }`}
+                  >
+                    {localSettings.operationMode === "auto" && (
+                      <div className="h-full w-full flex items-center justify-center">
+                        <div className="h-1.5 w-1.5 rounded-full bg-white"></div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="font-medium">{t.settings.mode.auto}</h4>
+                      <Badge variant="outline" className="text-xs border-amber-500 text-amber-600">
+                        {t.settings.mode.trainedAI}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {t.settings.mode.autoDesc}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
 
