@@ -42,6 +42,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
 import { getInitials, getAvatarGradient } from "@/lib/avatar-utils";
+import { cn } from "@/lib/utils";
 
 import type { MessageWithResponse } from "@shared/schema";
 
@@ -439,10 +440,13 @@ export function ApprovalModal({
                   value={editedResponse}
                   onChange={(e) => setEditedResponse(e.target.value)}
                   placeholder={hasAIError ? "Escreva sua resposta aqui..." : "Resposta sugerida pela IA..."}
-                  className="h-full min-h-[200px] resize-none"
-                  disabled={!isEditing && !isLoading}
-                  spellCheck={true}
-                  lang="pt-BR"
+                  className={cn(
+                    "h-full min-h-[200px] resize-none",
+                    !isEditing && !isLoading && "cursor-not-allowed opacity-50"
+                  )}
+                  readOnly={!isEditing && !isLoading}
+                  autoCorrect="on"
+                  autoCapitalize="sentences"
                   data-testid="textarea-response"
                 />
                 {wasEdited && (
