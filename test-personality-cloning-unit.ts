@@ -52,7 +52,7 @@ function calculateTextSimilarity(text1: string, text2: string): number {
 console.log("🧪 Testing Personality-Cloning Helper Functions\n");
 
 // Test 1: Intent Detection
-console.log("=" .repeat(70));
+console.log("=".repeat(70));
 console.log("TEST 1: Intent Detection");
 console.log("=".repeat(70));
 

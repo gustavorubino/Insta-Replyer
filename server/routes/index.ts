@@ -1662,7 +1662,10 @@ export async function registerRoutes(
         // This builds up the knowledge base with successful responses
         const originalContent = getMessageContentForAI(message);
         
-        if (aiResponse.confidenceScore >= 0.8) {
+        // Confidence threshold for storing approved responses
+        const HIGH_CONFIDENCE_THRESHOLD = 0.8;
+        
+        if (aiResponse.confidenceScore >= HIGH_CONFIDENCE_THRESHOLD) {
           try {
             const embedding = await generateEmbedding(originalContent);
             

@@ -240,7 +240,8 @@ async function retrieveRelevantExamples(
         // For now, we'll use text similarity since manualQA doesn't have embeddings yet
         // In future, we could add embeddings to manualQA table
         const simpleScore = calculateTextSimilarity(queryText, qa.question);
-        if (simpleScore > 0.3) { // Lower threshold for gold items
+        // Gold items use 0.3 threshold (lower than dataset 0.6) to ensure more gold examples are included
+        if (simpleScore > 0.3) {
           examples.push({
             question: qa.question,
             answer: qa.answer,
@@ -908,7 +909,7 @@ A confiança deve ser um número entre 0 e 1, onde:
     const hasAttachments = attachments && attachments.length > 0;
     const shouldTryVision = (hasPostImage && postImageUrl) || hasAttachments;
     
-    let result: GenerateResponseResult;
+    let result: GenerateResponseResult | undefined;
     let attemptCount = 0;
     const maxAttempts = 3; // Max regeneration attempts for anti-repetition
     
@@ -955,9 +956,9 @@ A confiança deve ser um número entre 0 e 1, onde:
       return result;
     }
     
-    // If we exit the loop, return the last result
+    // If we exit the loop, return the last result (guaranteed to be defined after at least one iteration)
     console.log(`[Anti-Repetition] Exhausted regeneration attempts, returning last result`);
-    return result!;
+    return result!; // Safe: loop always executes at least once
   } catch (error) {
     console.error("[OpenAI] Error generating AI response:");
     console.error("[OpenAI] Error type:", error?.constructor?.name);
