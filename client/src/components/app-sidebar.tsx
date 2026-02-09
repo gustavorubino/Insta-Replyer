@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Brain,
   Book,
+  BookOpen,
   Database,
   Gamepad2,
   Plug,
@@ -88,6 +89,11 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
       title: "Memória & Dataset",
       url: "/brain/dataset",
       icon: Database,
+    },
+    {
+      title: "Diretrizes",
+      url: "/brain/guidelines",
+      icon: BookOpen,
     },
     {
       title: "Treinador",

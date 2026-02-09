@@ -6,6 +6,7 @@ import { generateAIResponse } from "../openai";
 import { runArchitectAgent, runCopilotAgent } from "../modes";
 import { getUserContext } from "../utils/auth-context";
 import { decrypt, isEncrypted } from "../encryption";
+import OpenAI from "openai";
 
 const router = Router();
 
@@ -270,7 +271,7 @@ ${newPrompt}
 
 Retorne APENAS o System Prompt mesclado, sem nenhum texto adicional.`;
 
-        const openai = new (await import("openai")).default();
+        const openai = new OpenAI();
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
@@ -777,6 +778,64 @@ router.get("/guidelines/count", isAuthenticated, async (req, res) => {
     } catch (error) {
         console.error("Error fetching guidelines count:", error);
         res.status(500).json({ error: "Failed to fetch guidelines count" });
+    }
+});
+
+// POST /api/brain/refine-rule - AI-assisted rule refinement for Guidelines
+router.post("/refine-rule", isAuthenticated, async (req, res) => {
+    try {
+        const { userId } = await getUserContext(req);
+        const { message, history } = req.body;
+
+        if (!message || typeof message !== "string") {
+            return res.status(400).json({ error: "Message is required" });
+        }
+
+        console.log(`[Refine Rule] User ${userId} refining rule`);
+
+        // Build conversation context
+        const conversationHistory = (history || []).map((msg: any) => ({
+            role: msg.role,
+            content: msg.content,
+        }));
+
+        // System prompt for rule refinement
+        const systemPrompt = `Você é um assistente especializado em criar e refinar diretrizes para um chatbot de Instagram.
+
+Seu papel é ajudar o usuário a criar regras claras, específicas e práticas que podem ser usadas para guiar o comportamento de uma IA.
+
+DIRETRIZES PARA CRIAR BOAS REGRAS:
+1. Seja específico e claro - evite ambiguidades
+2. Use linguagem direta e objetiva
+3. Foque em comportamentos observáveis
+4. Considere diferentes contextos de aplicação
+5. Mantenha a regra concisa mas completa
+6. Inclua exemplos quando apropriado
+
+Quando o usuário descrever uma ideia, ajude-o a refinar em uma regra bem formulada.
+Se a regra já estiver boa, confirme e sugira apenas pequenos ajustes se necessário.
+
+Responda em português brasileiro e seja colaborativo.`;
+
+        const openai = new OpenAI();
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                { role: "system", content: systemPrompt },
+                ...conversationHistory,
+            ],
+            max_tokens: 800,
+            temperature: 0.7,
+        });
+
+        const aiResponse = response.choices[0].message.content || "Desculpe, não consegui processar sua solicitação.";
+
+        res.json({
+            response: aiResponse,
+        });
+    } catch (error) {
+        console.error("Error refining rule:", error);
+        res.status(500).json({ error: "Failed to refine rule" });
     }
 });
 

@@ -25,6 +25,7 @@ import Personality from "@/pages/brain/personality";
 import Sources from "@/pages/brain/sources";
 import Dataset from "@/pages/brain/dataset";
 import Trainer from "@/pages/brain/trainer";
+import Guidelines from "@/pages/brain/guidelines";
 import Admin from "@/pages/admin";
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
@@ -45,6 +46,7 @@ function Router() {
       <Route path="/brain/personality" component={Personality} />
       <Route path="/brain/sources" component={Sources} />
       <Route path="/brain/dataset" component={Dataset} />
+      <Route path="/brain/guidelines" component={Guidelines} />
       <Route path="/brain/trainer" component={Trainer} />
       <Route path="/admin" component={Admin} />
       <Route component={NotFound} />
