@@ -445,8 +445,6 @@ export function ApprovalModal({
                     !isEditing && !isLoading && "cursor-not-allowed opacity-50"
                   )}
                   readOnly={!isEditing && !isLoading}
-                  spellCheck={true}
-                  lang="pt-BR"
                   autoCorrect="on"
                   autoCapitalize="sentences"
                   data-testid="textarea-response"
