@@ -1657,6 +1657,28 @@ export async function registerRoutes(
           console.error("[Auto-Learn] Failed to auto-add to dataset:", e);
           // Don't fail the request if auto-learning fails
         }
+      } else if (sendResult.success) {
+        // Even if not edited, store approved high-confidence responses as examples
+        // This builds up the knowledge base with successful responses
+        const originalContent = getMessageContentForAI(message);
+        
+        if (aiResponse.confidenceScore >= 0.8) {
+          try {
+            const embedding = await generateEmbedding(originalContent);
+            
+            if (embedding) {
+              await storage.addDatasetEntry({
+                userId: message.userId,
+                question: originalContent,
+                answer: response,
+                embedding: embedding as any,
+              });
+              console.log(`[Auto-Learn] Stored high-confidence approved response (${aiResponse.confidenceScore.toFixed(2)}) for user ${message.userId}`);
+            }
+          } catch (e) {
+            console.error("[Auto-Learn] Failed to store approved response:", e);
+          }
+        }
       }
 
       if (sendResult.success) {
