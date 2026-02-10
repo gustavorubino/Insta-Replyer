@@ -167,7 +167,7 @@ export default function Guidelines() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Diretrizes & Regras</h1>
           <p className="text-muted-foreground mt-2">
-            Gerencie regras personalizadas para guiar o comportamento da IA.
+            Gerencie regras personalizadas que orientam as respostas da IA.
           </p>
         </div>
         <Button onClick={handleOpenDialog} disabled={countData && countData.count >= countData.limit}>
