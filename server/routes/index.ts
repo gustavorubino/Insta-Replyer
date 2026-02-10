@@ -3437,14 +3437,12 @@ export async function registerRoutes(
       // 🔒 GLOBAL DEDUPLICATION: Check if already processed in ANY recent webhook request
       // This prevents duplicate processing when Meta sends same comment in separate HTTP requests
       if (commentId && recentlyProcessedMids.has(commentId)) {
-        console.log(`[COMMENT-WEBHOOK] ⏭️ GLOBAL DEDUP: commentId=${commentId} already processed within last ${DEDUP_CACHE_TTL_MS / 1000}s, skipping`);
+        const cachedTime = recentlyProcessedMids.get(commentId);
+        const ageSeconds = cachedTime ? Math.floor((Date.now() - cachedTime) / 1000) : 0;
+        console.log(`[COMMENT-WEBHOOK] ⏭️ GLOBAL DEDUP: commentId=${commentId} already processed ${ageSeconds}s ago, skipping`);
         return;
       }
-      // Mark immediately as being processed to prevent race conditions
-      if (commentId) {
-        recentlyProcessedMids.set(commentId, Date.now());
-        console.log(`[COMMENT-WEBHOOK] 🌐 Marked commentId=${commentId} as processing globally`);
-      }
+      // NOTE: Global cache marking moved to just before DB insertion to prevent false positives
 
       console.log("[COMMENT-WEBHOOK] Dados extraídos:");
       console.log("  - Comment ID:", commentId);
@@ -3874,28 +3872,58 @@ export async function registerRoutes(
         return;
       }
 
-      // Create the message
+      // 🔒 FINAL DEDUP CHECKPOINT: Mark in global cache just before DB insertion
+      if (commentId) {
+        // Double-check in case of race condition between first check and now
+        if (recentlyProcessedMids.has(commentId)) {
+          const cachedTime = recentlyProcessedMids.get(commentId);
+          const ageSeconds = cachedTime ? Math.floor((Date.now() - cachedTime) / 1000) : 0;
+          console.log(`[COMMENT-WEBHOOK] ⏭️ RACE CONDITION PREVENTED: commentId=${commentId} was marked during processing (${ageSeconds}s ago)`);
+          return;
+        }
+        recentlyProcessedMids.set(commentId, Date.now());
+        console.log(`[COMMENT-WEBHOOK] 🔒 Marked commentId=${commentId} in global cache before DB insertion`);
+      }
+
+      // Create the message with error handling for database-level duplicate constraint violations
       console.log("[COMMENT-WEBHOOK] Criando mensagem no banco...");
-      const newMessage = await storage.createMessage({
-        userId: instagramUser.id,
-        instagramId: commentId,
-        type: "comment",
-        senderName: displayName,
-        senderUsername: username,
-        senderAvatar: senderAvatar,
-        senderFollowersCount: senderFollowersCount,
-        senderId: fromUserId || null,
-        content: text,
-        postId: mediaId || null,
-        postPermalink: postPermalink,
-        postCaption: postCaption,
-        postThumbnailUrl: postThumbnailUrl,
-        postVideoUrl: postVideoUrl,
-        postMediaType: postMediaType,
-        parentCommentId: parentCommentId,
-        parentCommentText: parentCommentText,
-        parentCommentUsername: parentCommentUsername,
-      });
+      let newMessage: any;
+      try {
+        newMessage = await storage.createMessage({
+          userId: instagramUser.id,
+          instagramId: commentId,
+          type: "comment",
+          senderName: displayName,
+          senderUsername: username,
+          senderAvatar: senderAvatar,
+          senderFollowersCount: senderFollowersCount,
+          senderId: fromUserId || null,
+          content: text,
+          postId: mediaId || null,
+          postPermalink: postPermalink,
+          postCaption: postCaption,
+          postThumbnailUrl: postThumbnailUrl,
+          postVideoUrl: postVideoUrl,
+          postMediaType: postMediaType,
+          parentCommentId: parentCommentId,
+          parentCommentText: parentCommentText,
+          parentCommentUsername: parentCommentUsername,
+        });
+      } catch (error: any) {
+        // Handle unique constraint violation (duplicate instagramId at DB level)
+        if (error?.code === '23505' || error?.message?.includes('unique') || error?.message?.includes('duplicate')) {
+          console.log(`[COMMENT-WEBHOOK] ⚠️ DB CONSTRAINT: commentId=${commentId} already exists in database (caught at DB level)`);
+          addWebhookProcessingResult({
+            action: 'ignored',
+            reason: `DB duplicate constraint: commentId=${commentId}`,
+            messageType: 'comment'
+          }, currentWebhookTimestamp);
+          return;
+        }
+        // Re-throw other errors
+        console.error(`[COMMENT-WEBHOOK] ❌ Error creating message commentId=${commentId}:`, error);
+        throw error;
+      }
       console.log("[COMMENT-WEBHOOK] ✅ Mensagem criada com sucesso!");
       console.log("  - Message ID:", newMessage.id);
       console.log("  - User ID:", instagramUser.id);
