@@ -274,6 +274,66 @@ async function runTests() {
     }
   }
 
+  // Test 8: Boundary test - exactly 5 minutes (should not be duplicate)
+  {
+    console.log("Test 8: Same content + exactly 5min boundary (300000ms)");
+    const recentMessages: MockMessage[] = [
+      {
+        senderId: "123456",
+        senderUsername: "rodolfo",
+        content: "Boundary test",
+        mediaType: null,
+        createdAt: new Date(Date.now() - 300000), // Exactly 5 minutes ago
+      }
+    ];
+
+    const newMessage = {
+      senderId: "123456",
+      senderUsername: "rodolfo",
+      content: "Boundary test",
+      mediaType: null,
+    };
+
+    const isDuplicate = testDeduplicationLogic(recentMessages, newMessage);
+    if (!isDuplicate) {
+      console.log("✅ PASS - Not a duplicate (at boundary)\n");
+      passedTests++;
+    } else {
+      console.log("❌ FAIL - Should not be a duplicate (at 5min boundary)\n");
+      failedTests++;
+    }
+  }
+
+  // Test 9: Just under 5 minutes (should be duplicate)
+  {
+    console.log("Test 9: Same content + just under 5min (299999ms)");
+    const recentMessages: MockMessage[] = [
+      {
+        senderId: "123456",
+        senderUsername: "rodolfo",
+        content: "Boundary test 2",
+        mediaType: null,
+        createdAt: new Date(Date.now() - 299999), // Just under 5 minutes
+      }
+    ];
+
+    const newMessage = {
+      senderId: "123456",
+      senderUsername: "rodolfo",
+      content: "Boundary test 2",
+      mediaType: null,
+    };
+
+    const isDuplicate = testDeduplicationLogic(recentMessages, newMessage);
+    if (isDuplicate) {
+      console.log("✅ PASS - Duplicate correctly detected (just under window)\n");
+      passedTests++;
+    } else {
+      console.log("❌ FAIL - Should have detected duplicate (just under 5min)\n");
+      failedTests++;
+    }
+  }
+
   // Summary
   console.log("╔════════════════════════════════════════════════════════════════╗");
   console.log("║                      TEST SUMMARY                              ║");

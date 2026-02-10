@@ -4,7 +4,7 @@ import fs from "fs";
 import { storage } from "../storage";
 import { generateAIResponse, regenerateResponse, type ConversationHistoryEntry } from "../openai";
 import { getOpenAIConfig } from "../utils/openai-config";
-import { createMessageApiSchema, instagramMessages, aiResponses, interactionDialect, mediaLibrary } from "@shared/schema";
+import { createMessageApiSchema, instagramMessages, aiResponses, interactionDialect, mediaLibrary, type InstagramMessage } from "@shared/schema";
 import * as schema from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated, authStorage } from "../replit_integrations/auth";
@@ -3887,7 +3887,7 @@ export async function registerRoutes(
 
       // Create the message with error handling for database-level duplicate constraint violations
       console.log("[COMMENT-WEBHOOK] Criando mensagem no banco...");
-      let newMessage: any;
+      let newMessage: InstagramMessage;
       try {
         newMessage = await storage.createMessage({
           userId: instagramUser.id,
@@ -3911,7 +3911,8 @@ export async function registerRoutes(
         });
       } catch (error: any) {
         // Handle unique constraint violation (duplicate instagramId at DB level)
-        if (error?.code === '23505' || error?.message?.includes('unique') || error?.message?.includes('duplicate')) {
+        // PostgreSQL error code 23505 indicates unique_violation
+        if (error?.code === '23505') {
           console.log(`[COMMENT-WEBHOOK] ⚠️ DB CONSTRAINT: commentId=${commentId} already exists in database (caught at DB level)`);
           addWebhookProcessingResult({
             action: 'ignored',
@@ -4516,7 +4517,7 @@ export async function registerRoutes(
       }
 
       // Create the message with error handling for database-level duplicate constraint violations
-      let newMessage: any;
+      let newMessage: InstagramMessage;
       try {
         newMessage = await storage.createMessage({
           userId: instagramUser.id,
@@ -4533,7 +4534,8 @@ export async function registerRoutes(
         });
       } catch (error: any) {
         // Handle unique constraint violation (duplicate instagramId at DB level)
-        if (error?.code === '23505' || error?.message?.includes('unique') || error?.message?.includes('duplicate')) {
+        // PostgreSQL error code 23505 indicates unique_violation
+        if (error?.code === '23505') {
           console.log(`[DM-WEBHOOK] ⚠️ DB CONSTRAINT: mid=${messageId} already exists in database (caught at DB level)`);
           dmTrace("SKIPPED=true", `reason=DB_DUPLICATE_CONSTRAINT mid=${messageId}`);
           return;
