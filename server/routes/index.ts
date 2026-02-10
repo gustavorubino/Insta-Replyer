@@ -4385,16 +4385,30 @@ export async function registerRoutes(
       // Instagram sends the same DM via Graph API (changes.field='messages') AND
       // Messenger Platform (messaging[]) simultaneously with DIFFERENT message IDs.
       // This check prevents the second path from creating a duplicate.
-      if (senderId) {
-        const recentMessages = await storage.getConversationHistory(senderId, instagramUser.id, 5);
+      // Enhanced to also check senderUsername as stable identifier when senderId is inconsistent.
+      if (senderId || senderUsername) {
+        // Fetch recent messages from this sender
+        let recentMessages: any[] = [];
+        if (senderId) {
+          recentMessages = await storage.getConversationHistory(senderId, instagramUser.id, 5);
+        }
+        // Also check by username if available and senderId yielded no results
+        if (recentMessages.length === 0 && senderUsername) {
+          recentMessages = await storage.getMessagesByUsername(senderUsername, instagramUser.id);
+          // Limit to 5 most recent
+          recentMessages = recentMessages.slice(0, 5);
+        }
+        
         const messageContent = text || null;
-        const isDuplicateContent = recentMessages.some(m =>
-          m.content === messageContent &&
-          m.mediaType === mediaType &&
-          (Date.now() - new Date(m.createdAt).getTime()) < 60000 // 60 seconds window
-        );
+        const isDuplicateContent = recentMessages.some(m => {
+          const isWithin60s = (Date.now() - new Date(m.createdAt).getTime()) < 60000; // 60 seconds window
+          const hasMatchingContent = m.content === messageContent && m.mediaType === mediaType;
+          // Match by senderId OR senderUsername to handle cases where senderId is inconsistent
+          const hasSameSender = (senderId && m.senderId === senderId) || (senderUsername && m.senderUsername === senderUsername);
+          return hasMatchingContent && hasSameSender && isWithin60s;
+        });
         if (isDuplicateContent) {
-          console.log(`[DM-WEBHOOK] ⏭️ CONTENT DEDUP: duplicate message from ${senderId} with same content within 60s, skipping`);
+          console.log(`[DM-WEBHOOK] ⏭️ CONTENT DEDUP: duplicate message from ${senderId || 'N/A'}${senderUsername ? ` (@${senderUsername})` : ''} with same content within 60s, skipping`);
           dmTrace("SKIPPED=true", `reason=CONTENT_DEDUP senderId=${senderId} mid=${messageId}`);
           return;
         }
