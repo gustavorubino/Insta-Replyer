@@ -4,11 +4,16 @@
  * Validates that the enhanced content-based deduplication correctly identifies
  * duplicate messages using both senderId and senderUsername as stable identifiers.
  * 
+ * Updated for 5-minute deduplication window (300s) to handle retried webhooks.
+ * 
  * Scenarios tested:
- * 1. Same content + same senderId + within 60s window -> Duplicate detected
- * 2. Same content + different senderId + same username + within 60s -> Duplicate detected
- * 3. Same content + same username + outside 60s window -> Not a duplicate
+ * 1. Same content + same senderId + within 5min window -> Duplicate detected
+ * 2. Same content + different senderId + same username + within 5min -> Duplicate detected
+ * 3. Same content + same username + outside 5min window -> Not a duplicate
  * 4. Different content + same sender -> Not a duplicate
+ * 5. Different media types -> Not a duplicate
+ * 6. Username fallback when senderId is null -> Duplicate detected
+ * 7. Different usernames -> Not a duplicate
  */
 
 interface MockMessage {
@@ -20,8 +25,10 @@ interface MockMessage {
 }
 
 /**
- * Test the deduplication logic (mirroring server/routes/index.ts lines 4389-4415)
+ * Test the deduplication logic (mirroring server/routes/index.ts updated logic)
  */
+const CONTENT_DEDUP_WINDOW_MS = 300000; // 5 minutes - matches production setting
+
 function testDeduplicationLogic(
   recentMessages: MockMessage[],
   newMessage: {
@@ -37,13 +44,13 @@ function testDeduplicationLogic(
   const mediaType = newMessage.mediaType;
 
   const isDuplicateContent = recentMessages.some(m => {
-    const isWithin60s = (Date.now() - new Date(m.createdAt).getTime()) < 60000; // 60 seconds window
+    const isWithinWindow = (Date.now() - new Date(m.createdAt).getTime()) < CONTENT_DEDUP_WINDOW_MS; // Extended to 5 minutes
     const hasMatchingContent = m.content === messageContent && m.mediaType === mediaType;
     // Match by senderId OR senderUsername to handle cases where senderId is inconsistent
     // Ensure at least one identifier is present to avoid false positives
     const hasSameSender = (senderId && m.senderId && m.senderId === senderId) || 
                           (senderUsername && m.senderUsername && m.senderUsername === senderUsername);
-    return hasMatchingContent && hasSameSender && isWithin60s;
+    return hasMatchingContent && hasSameSender && isWithinWindow;
   });
 
   return isDuplicateContent;
@@ -59,7 +66,7 @@ async function runTests() {
 
   // Test 1: Same senderId + same content -> Duplicate
   {
-    console.log("Test 1: Same senderId + same content within 60s");
+    console.log("Test 1: Same senderId + same content within 5min window");
     const recentMessages: MockMessage[] = [
       {
         senderId: "123456",
@@ -89,7 +96,7 @@ async function runTests() {
 
   // Test 2: Different senderId + same username + same content -> Duplicate (KEY FIX)
   {
-    console.log("Test 2: Different senderId + same username + same content within 60s");
+    console.log("Test 2: Different senderId + same username + same content within 5min");
     const recentMessages: MockMessage[] = [
       {
         senderId: "123456",  // Graph API ID
@@ -117,16 +124,16 @@ async function runTests() {
     }
   }
 
-  // Test 3: Same content but outside 60s window -> Not duplicate
+  // Test 3: Same content but outside 5min window -> Not duplicate
   {
-    console.log("Test 3: Same content + same username but outside 60s window");
+    console.log("Test 3: Same content + same username but outside 5min window");
     const recentMessages: MockMessage[] = [
       {
         senderId: "123456",
         senderUsername: "rodolfo",
         content: "Hello from Rodolfo",
         mediaType: null,
-        createdAt: new Date(Date.now() - 120000), // 120 seconds ago (outside window)
+        createdAt: new Date(Date.now() - 360000), // 6 minutes ago (outside 5min window)
       }
     ];
 
@@ -263,6 +270,66 @@ async function runTests() {
       passedTests++;
     } else {
       console.log("❌ FAIL - Should not be a duplicate (different sender)\n");
+      failedTests++;
+    }
+  }
+
+  // Test 8: Boundary test - exactly 5 minutes (should not be duplicate)
+  {
+    console.log("Test 8: Same content + exactly 5min boundary (300000ms)");
+    const recentMessages: MockMessage[] = [
+      {
+        senderId: "123456",
+        senderUsername: "rodolfo",
+        content: "Boundary test",
+        mediaType: null,
+        createdAt: new Date(Date.now() - 300000), // Exactly 5 minutes ago
+      }
+    ];
+
+    const newMessage = {
+      senderId: "123456",
+      senderUsername: "rodolfo",
+      content: "Boundary test",
+      mediaType: null,
+    };
+
+    const isDuplicate = testDeduplicationLogic(recentMessages, newMessage);
+    if (!isDuplicate) {
+      console.log("✅ PASS - Not a duplicate (at boundary)\n");
+      passedTests++;
+    } else {
+      console.log("❌ FAIL - Should not be a duplicate (at 5min boundary)\n");
+      failedTests++;
+    }
+  }
+
+  // Test 9: Just under 5 minutes (should be duplicate)
+  {
+    console.log("Test 9: Same content + just under 5min (299999ms)");
+    const recentMessages: MockMessage[] = [
+      {
+        senderId: "123456",
+        senderUsername: "rodolfo",
+        content: "Boundary test 2",
+        mediaType: null,
+        createdAt: new Date(Date.now() - 299999), // Just under 5 minutes
+      }
+    ];
+
+    const newMessage = {
+      senderId: "123456",
+      senderUsername: "rodolfo",
+      content: "Boundary test 2",
+      mediaType: null,
+    };
+
+    const isDuplicate = testDeduplicationLogic(recentMessages, newMessage);
+    if (isDuplicate) {
+      console.log("✅ PASS - Duplicate correctly detected (just under window)\n");
+      passedTests++;
+    } else {
+      console.log("❌ FAIL - Should have detected duplicate (just under 5min)\n");
       failedTests++;
     }
   }
