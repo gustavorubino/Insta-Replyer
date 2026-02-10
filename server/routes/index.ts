@@ -3183,13 +3183,12 @@ export async function registerRoutes(
     const chunkSize = 2500; // Characters per chunk (safe for most console outputs)
     const totalChunks = Math.ceil(jsonString.length / chunkSize);
     
-    console.log(`╔════════════════════════════════════════════════════════════════════╗`);
-    console.log(`║  ${label.padEnd(66)}║`);
-    console.log(`╠════════════════════════════════════════════════════════════════════╣`);
-    console.log(`║  Timestamp: ${timestamp.padEnd(52)}║`);
-    console.log(`║  Total Size: ${jsonString.length.toString().padEnd(51)} chars ║`);
-    console.log(`║  Chunks: ${totalChunks.toString().padEnd(58)}║`);
-    console.log(`╚════════════════════════════════════════════════════════════════════╝`);
+    // Simple structured logging without fixed-width boxes to avoid alignment issues
+    console.log(`========================================`);
+    console.log(`[${label}] Timestamp: ${timestamp}`);
+    console.log(`[${label}] Total Size: ${jsonString.length} chars`);
+    console.log(`[${label}] Total Chunks: ${totalChunks}`);
+    console.log(`========================================`);
     
     if (totalChunks === 1) {
       // Single chunk - log it all at once
