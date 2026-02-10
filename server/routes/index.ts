@@ -4404,7 +4404,9 @@ export async function registerRoutes(
           const isWithin60s = (Date.now() - new Date(m.createdAt).getTime()) < 60000; // 60 seconds window
           const hasMatchingContent = m.content === messageContent && m.mediaType === mediaType;
           // Match by senderId OR senderUsername to handle cases where senderId is inconsistent
-          const hasSameSender = (senderId && m.senderId === senderId) || (senderUsername && m.senderUsername === senderUsername);
+          // Ensure at least one identifier is present to avoid false positives
+          const hasSameSender = (senderId && m.senderId && m.senderId === senderId) || 
+                                (senderUsername && m.senderUsername && m.senderUsername === senderUsername);
           return hasMatchingContent && hasSameSender && isWithin60s;
         });
         if (isDuplicateContent) {
