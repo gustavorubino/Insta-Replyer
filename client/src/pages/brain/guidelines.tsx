@@ -242,7 +242,6 @@ export default function Guidelines() {
     
     if (lastAssistantMsg) {
       setPendingRule(lastAssistantMsg.content);
-      setIsChatOpen(false);
       setIsDialogOpen(true);
     }
   };
@@ -562,7 +561,7 @@ export default function Guidelines() {
           <div className="space-y-4">
             <div>
               <Label>Regra Refinada</Label>
-              <div className="mt-2 p-3 bg-muted rounded-lg text-sm max-h-60 overflow-y-auto">
+              <div className="mt-2 p-3 bg-muted rounded-lg text-sm max-h-80 overflow-y-auto">
                 <MarkdownRenderer content={pendingRule} />
               </div>
             </div>
