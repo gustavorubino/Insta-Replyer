@@ -78,8 +78,6 @@ export default function Guidelines() {
   const [manualRuleInput, setManualRuleInput] = useState("");
   const [editingGuideline, setEditingGuideline] = useState<Guideline | null>(null);
   const [pendingRule, setPendingRule] = useState("");
-  const [selectedPriority, setSelectedPriority] = useState(3);
-  const [selectedCategory, setSelectedCategory] = useState("geral");
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -141,8 +139,6 @@ export default function Guidelines() {
       setChatMessages([]);
       setPendingRule("");
       setManualRuleInput("");
-      setSelectedPriority(3);
-      setSelectedCategory("geral");
       toast({
         title: "Regra Adicionada",
         description: "A nova diretriz foi incluída nas suas regras.",
@@ -212,8 +208,6 @@ export default function Guidelines() {
     setIsChatOpen(true);
     setChatMessages([]);
     setPendingRule("");
-    setSelectedPriority(3);
-    setSelectedCategory("geral");
   };
 
   const handleOpenManual = () => {
