@@ -10,6 +10,8 @@ import {
   Edit2,
   BookOpen,
   Info,
+  Sparkles,
+  FileEdit,
 } from "lucide-react";
 import {
   Card,
@@ -41,6 +43,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface Guideline {
   id: number;
@@ -64,8 +72,10 @@ export default function Guidelines() {
   
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isManualDialogOpen, setIsManualDialogOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const [manualRuleInput, setManualRuleInput] = useState("");
   const [editingGuideline, setEditingGuideline] = useState<Guideline | null>(null);
   const [pendingRule, setPendingRule] = useState("");
   const [selectedPriority, setSelectedPriority] = useState(3);
@@ -119,7 +129,7 @@ export default function Guidelines() {
 
   // Add guideline mutation
   const addMutation = useMutation({
-    mutationFn: async (data: { rule: string; priority: number; category: string }) => {
+    mutationFn: async (data: { rule: string }) => {
       await apiRequest("POST", "/api/brain/guidelines", data);
     },
     onSuccess: () => {
@@ -127,8 +137,10 @@ export default function Guidelines() {
       queryClient.invalidateQueries({ queryKey: ["/api/brain/guidelines/count"] });
       setIsDialogOpen(false);
       setIsChatOpen(false);
+      setIsManualDialogOpen(false);
       setChatMessages([]);
       setPendingRule("");
+      setManualRuleInput("");
       setSelectedPriority(3);
       setSelectedCategory("geral");
       toast({
@@ -204,6 +216,11 @@ export default function Guidelines() {
     setSelectedCategory("geral");
   };
 
+  const handleOpenManual = () => {
+    setIsManualDialogOpen(true);
+    setManualRuleInput("");
+  };
+
   const handleSendMessage = () => {
     if (!chatInput.trim()) return;
 
@@ -231,17 +248,24 @@ export default function Guidelines() {
     
     if (lastAssistantMsg) {
       setPendingRule(lastAssistantMsg.content);
+      setIsChatOpen(false);
       setIsDialogOpen(true);
     }
   };
 
-  const handleSaveRule = (priority: number, category: string) => {
+  const handleSaveRule = () => {
     if (!pendingRule.trim()) return;
     
     addMutation.mutate({
       rule: pendingRule.trim(),
-      priority,
-      category,
+    });
+  };
+
+  const handleSaveManualRule = () => {
+    if (!manualRuleInput.trim()) return;
+    
+    addMutation.mutate({
+      rule: manualRuleInput.trim(),
     });
   };
 
@@ -261,10 +285,24 @@ export default function Guidelines() {
             Crie regras personalizadas para guiar o comportamento da IA. Use o mini chat para refinar suas diretrizes com ajuda da IA.
           </p>
         </div>
-        <Button onClick={handleOpenChat} disabled={countData && countData.count >= countData.limit}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nova Diretriz
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button disabled={countData && countData.count >= countData.limit}>
+              <Plus className="h-4 w-4 mr-2" />
+              Nova Diretriz
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={handleOpenChat}>
+              <Sparkles className="h-4 w-4 mr-2" />
+              Com IA
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleOpenManual}>
+              <FileEdit className="h-4 w-4 mr-2" />
+              Manual
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Info Card */}
@@ -278,8 +316,8 @@ export default function Guidelines() {
         <CardContent>
           <p className="text-sm text-muted-foreground">
             As diretrizes são regras que você define para orientar as respostas da IA. 
-            Você pode criar novas regras usando o mini chat com IA, que ajuda a refinar e aprimorar suas diretrizes. 
-            Cada regra pode ter uma prioridade (1-5) e ser ativada/desativada conforme necessário.
+            Você pode criar novas regras usando o chat com IA para refinar suas diretrizes, ou adicionar manualmente. 
+            Todas as regras podem ser ativadas/desativadas conforme necessário.
           </p>
         </CardContent>
       </Card>
@@ -322,14 +360,6 @@ export default function Guidelines() {
                       disabled={updateMutation.isPending}
                     />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Badge variant="outline" className="text-xs">
-                          Prioridade: {guideline.priority}
-                        </Badge>
-                        <Badge variant="secondary" className="text-xs">
-                          {guideline.category}
-                        </Badge>
-                      </div>
                       <p className="text-sm whitespace-pre-wrap">{guideline.rule}</p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -363,7 +393,7 @@ export default function Guidelines() {
           <DialogHeader>
             <DialogTitle>Editar Diretriz</DialogTitle>
             <DialogDescription>
-              Modifique a regra, prioridade ou categoria.
+              Modifique a regra conforme necessário.
             </DialogDescription>
           </DialogHeader>
           {editingGuideline && (
@@ -378,47 +408,6 @@ export default function Guidelines() {
                   rows={4}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Prioridade</Label>
-                  <Select
-                    value={String(editingGuideline.priority)}
-                    onValueChange={(val) =>
-                      setEditingGuideline({ ...editingGuideline, priority: +val })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {[1, 2, 3, 4, 5].map((p) => (
-                        <SelectItem key={p} value={String(p)}>
-                          {p}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Categoria</Label>
-                  <Select
-                    value={editingGuideline.category}
-                    onValueChange={(val) =>
-                      setEditingGuideline({ ...editingGuideline, category: val })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="geral">Geral</SelectItem>
-                      <SelectItem value="tom">Tom</SelectItem>
-                      <SelectItem value="conteudo">Conteúdo</SelectItem>
-                      <SelectItem value="estrutura">Estrutura</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
             </div>
           )}
           <DialogFooter>
@@ -432,8 +421,6 @@ export default function Guidelines() {
                     id: editingGuideline.id,
                     updates: {
                       rule: editingGuideline.rule,
-                      priority: editingGuideline.priority,
-                      category: editingGuideline.category,
                     },
                   });
                 }
@@ -575,45 +562,14 @@ export default function Guidelines() {
           <DialogHeader>
             <DialogTitle>Incluir nas Minhas Regras</DialogTitle>
             <DialogDescription>
-              Configure a prioridade e categoria da sua nova diretriz.
+              Confirme a diretriz refinada pela IA.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <Label>Regra Refinada</Label>
-              <div className="mt-2 p-3 bg-muted rounded-lg text-sm">
+              <div className="mt-2 p-3 bg-muted rounded-lg text-sm max-h-60 overflow-y-auto">
                 <MarkdownRenderer content={pendingRule} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Prioridade</Label>
-                <Select value={String(selectedPriority)} onValueChange={(val) => setSelectedPriority(+val)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">1 - Baixa</SelectItem>
-                    <SelectItem value="2">2</SelectItem>
-                    <SelectItem value="3">3 - Média</SelectItem>
-                    <SelectItem value="4">4</SelectItem>
-                    <SelectItem value="5">5 - Alta</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Categoria</Label>
-                <Select value={selectedCategory} onValueChange={(val) => setSelectedCategory(val)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="geral">Geral</SelectItem>
-                    <SelectItem value="tom">Tom</SelectItem>
-                    <SelectItem value="conteudo">Conteúdo</SelectItem>
-                    <SelectItem value="estrutura">Estrutura</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
             </div>
           </div>
@@ -622,8 +578,44 @@ export default function Guidelines() {
               Cancelar
             </Button>
             <Button
-              onClick={() => handleSaveRule(selectedPriority, selectedCategory)}
+              onClick={handleSaveRule}
               disabled={addMutation.isPending}
+            >
+              {addMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Incluir nas Minhas Regras
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manual Rule Dialog */}
+      <Dialog open={isManualDialogOpen} onOpenChange={setIsManualDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nova Diretriz Manual</DialogTitle>
+            <DialogDescription>
+              Digite a regra diretamente sem refinamento da IA.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Regra</Label>
+              <Textarea
+                value={manualRuleInput}
+                onChange={(e) => setManualRuleInput(e.target.value)}
+                placeholder="Digite sua diretriz aqui..."
+                rows={6}
+                className="resize-none"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsManualDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSaveManualRule}
+              disabled={addMutation.isPending || !manualRuleInput.trim()}
             >
               {addMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Incluir nas Minhas Regras
