@@ -26,7 +26,7 @@ interface DashboardStats {
 
 export default function Dashboard() {
   const { t } = useLanguage();
-  
+
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/stats"],
     refetchInterval: 5000, // Auto-refresh every 5 seconds
@@ -38,6 +38,30 @@ export default function Dashboard() {
     queryKey: ["/api/messages/recent"],
     refetchInterval: 5000, // Auto-refresh every 5 seconds
   });
+
+  const { data: user } = useQuery<{
+    operationMode: "manual" | "semi_auto" | "auto";
+    confidenceThreshold: number;
+  }>({
+    queryKey: ["/api/settings"],
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+
+  const getOperationModeLabel = () => {
+    if (!user) return t.settings.mode.manual.split(" ")[0]; // Fallback to "Modo"
+
+    switch (user.operationMode) {
+      case "manual":
+        return "Manual (100% aprovação)";
+      case "semi_auto":
+        return `Semi-Automático (≥${user.confidenceThreshold}% auto)`;
+      case "auto":
+        return "Automático (100% auto)";
+      default:
+        return "Manual";
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -124,13 +148,14 @@ export default function Dashboard() {
                       msg.status === "approved"
                         ? "approved"
                         : msg.status === "rejected"
-                        ? "rejected"
-                        : msg.status === "auto_sent"
-                        ? "auto_sent"
-                        : "received"
+                          ? "rejected"
+                          : msg.status === "auto_sent"
+                            ? "auto_sent"
+                            : "received"
                     }
                     messageType={msg.type as "dm" | "comment"}
                     senderName={msg.senderName}
+                    senderUsername={msg.senderUsername}
                     senderAvatar={msg.senderAvatar}
                     timestamp={new Date(msg.createdAt)}
                     preview={(msg.content || '[Mídia]').slice(0, 50)}
@@ -164,10 +189,10 @@ export default function Dashboard() {
               <span className="text-sm font-medium text-green-600">
                 {stats && stats.approvedToday + stats.rejectedToday > 0
                   ? Math.round(
-                      (stats.approvedToday /
-                        (stats.approvedToday + stats.rejectedToday)) *
-                        100
-                    )
+                    (stats.approvedToday /
+                      (stats.approvedToday + stats.rejectedToday)) *
+                    100
+                  )
                   : 0}
                 %
               </span>
@@ -175,7 +200,9 @@ export default function Dashboard() {
             <Separator />
             <div className="flex items-center justify-between">
               <span className="text-sm">{t.settings.tabs.mode}</span>
-              <span className="text-sm font-medium text-amber-600">{t.settings.mode.manual.split(" ")[0]}</span>
+              <span className="text-sm font-medium text-amber-600">
+                {getOperationModeLabel()}
+              </span>
             </div>
             <Separator />
             <div className="flex items-center justify-between">

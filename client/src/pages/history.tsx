@@ -30,6 +30,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { EmptyState } from "@/components/empty-state";
 import { ConfidenceBadge } from "@/components/confidence-badge";
+import { getAvatarGradient } from "@/lib/avatar-utils";
 import type { MessageWithResponse } from "@shared/schema";
 
 interface ConversationGroup {
@@ -71,7 +72,7 @@ export default function History() {
 
     filteredMessages.forEach((msg) => {
       const key = msg.senderUsername || msg.senderId || `unknown-${msg.id}`;
-      
+
       if (!grouped.has(key)) {
         grouped.set(key, {
           senderUsername: msg.senderUsername,
@@ -86,19 +87,19 @@ export default function History() {
       const group = grouped.get(key)!;
       group.messages.push(msg);
       group.messageCount++;
-      
+
       if (new Date(msg.createdAt) > new Date(group.lastMessage.createdAt)) {
         group.lastMessage = msg;
       }
     });
 
     const result = Array.from(grouped.values());
-    result.sort((a, b) => 
+    result.sort((a, b) =>
       new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime()
     );
-    
+
     result.forEach(group => {
-      group.messages.sort((a, b) => 
+      group.messages.sort((a, b) =>
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       );
     });
@@ -165,7 +166,7 @@ export default function History() {
           <div className="flex items-center gap-3">
             <Avatar className="h-10 w-10 border">
               <AvatarImage src={selectedConversation.senderAvatar || undefined} />
-              <AvatarFallback>
+              <AvatarFallback className={`text-xs text-white font-semibold ${getAvatarGradient(selectedConversation.senderUsername)}`}>
                 {getInitials(selectedConversation.senderName)}
               </AvatarFallback>
             </Avatar>
@@ -215,15 +216,15 @@ export default function History() {
                     {message.mediaUrl && (
                       <div className="mt-2">
                         {message.mediaType?.includes("image") || message.mediaType?.includes("photo") ? (
-                          <img 
-                            src={message.mediaUrl} 
-                            alt="Midia" 
+                          <img
+                            src={message.mediaUrl}
+                            alt="Midia"
                             className="max-w-[200px] rounded-lg"
                           />
                         ) : message.mediaType?.includes("video") ? (
-                          <video 
-                            src={message.mediaUrl} 
-                            controls 
+                          <video
+                            src={message.mediaUrl}
+                            controls
                             className="max-w-[200px] rounded-lg"
                           />
                         ) : (
@@ -320,11 +321,11 @@ export default function History() {
                 <div className="flex items-center gap-4">
                   <Avatar className="h-12 w-12 border">
                     <AvatarImage src={conversation.senderAvatar || undefined} />
-                    <AvatarFallback>
+                    <AvatarFallback className={`text-xs text-white font-semibold ${getAvatarGradient(conversation.senderUsername)}`}>
                       {getInitials(conversation.senderName)}
                     </AvatarFallback>
                   </Avatar>
-                  
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium truncate">

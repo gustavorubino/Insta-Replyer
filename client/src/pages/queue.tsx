@@ -85,7 +85,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
       queryClient.invalidateQueries({ queryKey: ["/api/messages/recent"] });
       setIsModalOpen(false);
       setSelectedMessage(null);
-      
+
       if (data.messageSent) {
         toast({
           title: "Resposta enviada",
@@ -151,7 +151,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
     mutationFn: async (messageId: number) => {
       const res = await apiRequest("POST", `/api/messages/${messageId}/regenerate`);
       const data = await res.json();
-      
+
       // Check if server returned error in body
       if (!res.ok) {
         throw {
@@ -177,7 +177,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
     onError: (error: any) => {
       let title = "Erro ao regenerar";
       let description = "Não foi possível regenerar a resposta.";
-      
+
       // Handle specific error codes
       if (error?.errorCode === "MISSING_API_KEY") {
         title = "IA não configurada";
@@ -191,7 +191,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
       } else if (error?.error) {
         description = error.error;
       }
-      
+
       toast({
         title,
         description,
@@ -270,7 +270,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
     });
-    
+
     const groupedByPost = new Map<string, PostGroup>();
     const ungrouped: MessageWithResponse[] = [];
 
@@ -369,7 +369,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
             data-testid="input-search-messages"
           />
         </div>
-{defaultFilter === "all" && (
+        {defaultFilter === "all" && (
           <Select
             value={typeFilter}
             onValueChange={(v) => setTypeFilter(v as "all" | "dm" | "comment")}
@@ -395,7 +395,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
             </SelectContent>
           </Select>
         )}
-        
+
         {(defaultFilter === "comment" || typeFilter === "comment") && (
           <Select
             value={postSort}
@@ -411,7 +411,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
             </SelectContent>
           </Select>
         )}
-        
+
         <div className="flex items-center border rounded-md">
           <Button
             variant={viewMode === "grouped" ? "default" : "ghost"}
@@ -484,7 +484,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
                         <div className="flex items-center gap-3">
                           <Avatar className="h-9 w-9 border">
                             <AvatarImage src={conversation.senderAvatar || undefined} />
-                            <AvatarFallback>
+                            <AvatarFallback className={`text-xs text-white font-semibold ${getAvatarGradient(conversation.senderUsername)}`}>
                               {getInitials(conversation.senderName)}
                             </AvatarFallback>
                           </Avatar>
@@ -512,7 +512,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
                   </div>
                 </div>
               )}
-              
+
               {/* Comments Section */}
               {(postGroups.length > 0 || ungroupedComments.length > 0) && (
                 <div className="space-y-4" data-testid="section-comments">
@@ -534,7 +534,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
                       </div>
                     </div>
                   </div>
-                  
+
                   {/* Grouped comments by post */}
                   {postGroups.length > 0 && (
                     <div className="space-y-4">
@@ -554,7 +554,7 @@ export default function Queue({ defaultFilter = "all" }: QueueProps) {
                       ))}
                     </div>
                   )}
-                  
+
                   {/* Ungrouped comments (no postId) */}
                   {ungroupedComments.length > 0 && (
                     <div className="space-y-3">

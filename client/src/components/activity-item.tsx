@@ -10,6 +10,7 @@ import {
   AtSign,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getAvatarGradient } from "@/lib/avatar-utils";
 
 type ActivityType =
   | "approved"
@@ -22,6 +23,7 @@ interface ActivityItemProps {
   type: ActivityType;
   messageType: "dm" | "comment";
   senderName: string;
+  senderUsername?: string;
   senderAvatar?: string | null;
   timestamp: Date;
   preview?: string;
@@ -31,6 +33,7 @@ export function ActivityItem({
   type,
   messageType,
   senderName,
+  senderUsername,
   senderAvatar,
   timestamp,
   preview,
@@ -83,7 +86,7 @@ export function ActivityItem({
       <div className="relative">
         <Avatar className="h-8 w-8 border">
           <AvatarImage src={senderAvatar || undefined} />
-          <AvatarFallback className="text-xs">
+          <AvatarFallback className={`text-xs text-white font-semibold ${getAvatarGradient(senderUsername || senderName)}`}>
             {getInitials(senderName)}
           </AvatarFallback>
         </Avatar>

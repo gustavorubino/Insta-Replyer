@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { getInitials, getAvatarGradient } from "@/lib/avatar-utils";
 import type { MessageWithResponse } from "@shared/schema";
 
 interface PostCommentGroupProps {
@@ -81,7 +82,7 @@ export function PostCommentGroup({
 
   return (
     <Card className="overflow-hidden" data-testid={`post-group-${postId}`}>
-      <CardHeader 
+      <CardHeader
         className="p-3 cursor-pointer hover-elevate"
         onClick={() => setIsExpanded(!isExpanded)}
         data-testid={`post-group-header-${postId}`}
@@ -101,7 +102,7 @@ export function PostCommentGroup({
               <Image className="h-6 w-6 text-muted-foreground" />
             </div>
           )}
-          
+
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2 mb-1">
               <div className="flex items-center gap-2">
@@ -151,7 +152,7 @@ export function PostCommentGroup({
                 </Button>
               </div>
             </div>
-            
+
             {postCaption ? (
               <p className="text-sm text-muted-foreground line-clamp-2">
                 {postCaption}
@@ -164,7 +165,7 @@ export function PostCommentGroup({
           </div>
         </div>
       </CardHeader>
-      
+
       {isExpanded && (
         <CardContent className="p-0 border-t">
           <div className="divide-y">
@@ -178,11 +179,11 @@ export function PostCommentGroup({
                 <div className="flex items-start gap-3">
                   <Avatar className="h-8 w-8">
                     <AvatarImage src={comment.senderAvatar || undefined} />
-                    <AvatarFallback className="text-xs">
-                      {comment.senderName.charAt(0).toUpperCase()}
+                    <AvatarFallback className={`text-xs text-white font-semibold ${getAvatarGradient(comment.senderUsername)}`}>
+                      {getInitials(comment.senderName)}
                     </AvatarFallback>
                   </Avatar>
-                  
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-medium text-sm">{comment.senderName}</span>
@@ -197,7 +198,7 @@ export function PostCommentGroup({
                       </span>
                       {getConfidenceBadge(comment.aiResponse?.confidenceScore)}
                     </div>
-                    
+
                     {comment.parentCommentText && (
                       <div className="mb-1 pl-2 border-l-2 border-muted-foreground/30">
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -211,11 +212,11 @@ export function PostCommentGroup({
                         </p>
                       </div>
                     )}
-                    
+
                     <p className="text-sm line-clamp-2">
                       {comment.content || <span className="italic text-muted-foreground">Mídia</span>}
                     </p>
-                    
+
                     {comment.aiResponse?.suggestedResponse && (
                       <div className="mt-2 p-2 rounded bg-muted/50 border border-muted">
                         <p className="text-xs text-muted-foreground mb-1">Sugestão da IA:</p>

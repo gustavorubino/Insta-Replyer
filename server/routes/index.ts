@@ -1661,14 +1661,14 @@ export async function registerRoutes(
         // Even if not edited, store approved high-confidence responses as examples
         // This builds up the knowledge base with successful responses
         const originalContent = getMessageContentForAI(message);
-        
+
         // Confidence threshold for storing approved responses
         const HIGH_CONFIDENCE_THRESHOLD = 0.8;
-        
+
         if (aiResponse.confidenceScore >= HIGH_CONFIDENCE_THRESHOLD) {
           try {
             const embedding = await generateEmbedding(originalContent);
-            
+
             if (embedding) {
               await storage.addDatasetEntry({
                 userId: message.userId,
@@ -1858,6 +1858,86 @@ export async function registerRoutes(
   });
 
   // Get settings (per-user with global defaults)
+
+  // =============================================
+  // Batch Avatar Refresh Endpoint
+  // =============================================
+  app.post("/api/messages/refresh-avatars", isAuthenticated, async (req, res) => {
+    try {
+      const { userId } = await getUserContext(req);
+      const users = await authStorage.getAllUsers();
+      const instagramUser = users.find((u: any) => u.id === userId);
+
+      if (!instagramUser?.instagramAccessToken) {
+        return res.status(400).json({ error: "Instagram not connected" });
+      }
+
+      const rawToken = instagramUser.instagramAccessToken;
+      const accessToken = isEncrypted(rawToken) ? decrypt(rawToken) : rawToken;
+      const userIgId = instagramUser.instagramAccountId || undefined;
+
+      // Get all messages for this user
+      const allMessages = await storage.getMessages(userId);
+
+      // Filter messages with missing avatars that have a senderId
+      const messagesNeedingAvatar = allMessages.filter(
+        (m) => !m.senderAvatar && m.senderId
+      );
+
+      if (messagesNeedingAvatar.length === 0) {
+        return res.json({ updated: 0, total: allMessages.length, message: "All messages already have avatars" });
+      }
+
+      // Group by senderId to avoid duplicate API calls
+      const senderGroups = new Map<string, typeof messagesNeedingAvatar>();
+      for (const msg of messagesNeedingAvatar) {
+        const key = msg.senderId!;
+        if (!senderGroups.has(key)) {
+          senderGroups.set(key, []);
+        }
+        senderGroups.get(key)!.push(msg);
+      }
+
+      console.log(`[Avatar Refresh] Found ${messagesNeedingAvatar.length} messages without avatars from ${senderGroups.size} unique senders`);
+
+      let updatedCount = 0;
+
+      for (const [senderId, messages] of senderGroups) {
+        try {
+          // Use the existing robust identity resolution
+          const identity = await resolveInstagramSender(senderId, accessToken, userIgId);
+
+          if (identity.avatar) {
+            // Update all messages from this sender
+            for (const msg of messages) {
+              await storage.updateMessage(msg.id, userId, { senderAvatar: identity.avatar });
+              updatedCount++;
+            }
+            console.log(`[Avatar Refresh] ✅ Updated ${messages.length} messages for sender ${senderId} (@${identity.username})`);
+          } else {
+            console.log(`[Avatar Refresh] ⚠️ No avatar found for sender ${senderId}`);
+          }
+
+          // Rate limiting: wait 200ms between API calls to avoid throttling
+          await new Promise(resolve => setTimeout(resolve, 200));
+        } catch (e) {
+          console.error(`[Avatar Refresh] Error for sender ${senderId}:`, e);
+        }
+      }
+
+      console.log(`[Avatar Refresh] Completed: ${updatedCount}/${messagesNeedingAvatar.length} messages updated`);
+      res.json({
+        updated: updatedCount,
+        total: allMessages.length,
+        sendersProcessed: senderGroups.size,
+        message: `Updated ${updatedCount} message avatars`
+      });
+    } catch (error) {
+      console.error("Error refreshing avatars:", error);
+      res.status(500).json({ error: "Failed to refresh avatars" });
+    }
+  });
+
   app.get("/api/settings", isAuthenticated, async (req, res) => {
     try {
       const { userId, isAdmin } = await getUserContext(req);
@@ -3394,7 +3474,7 @@ export async function registerRoutes(
           // Update the in-memory object so subsequent checks use the new value
           instagramUser.instagramRecipientId = pageId;
           console.log(`[COMMENT-WEBHOOK] [WEBHOOK-AUTO-CONFIG] ✅ Configured instagramRecipientId=${pageId} for user ${instagramUser.email}`);
-          
+
           // Clear the unmapped webhook alert since we successfully configured
           try {
             await storage.setSetting("lastUnmappedWebhookRecipientId", "");
@@ -3726,7 +3806,7 @@ export async function registerRoutes(
                 username: reply.from?.username || reply.username || 'instagram_user',
                 text: reply.text || ''
               }));
-            
+
             console.log(`[COMMENT-WEBHOOK] ✅ Encontradas ${siblingComments.length} respostas irmãs na thread`);
             if (siblingComments.length > 0) {
               siblingComments.slice(0, 3).forEach((sibling, idx) => {
@@ -3928,7 +4008,7 @@ export async function registerRoutes(
       // PONTO 1 START: DM-TRACE log (SAFE - IDs only)
       const messageId = messageData.message?.mid;
       dmTrace("START", `entryId=${entryId || 'N/A'} senderId=${senderId || 'N/A'} recipientId=${recipientId || 'N/A'} mid=${messageId || 'N/A'}`);
-      
+
       // 🔒 GLOBAL CROSS-REQUEST DEDUP: Primary defense against Meta's double-delivery
       // Check IMMEDIATELY after extracting mid, BEFORE any meaningful processing
       // (dmTrace above is just debug logging - safe to call even for duplicates)
@@ -4027,7 +4107,7 @@ export async function registerRoutes(
           // CRITICAL: Update the in-memory object so subsequent checks use the new value
           instagramUser.instagramRecipientId = recipientId;
           console.log(`[DM-WEBHOOK] [WEBHOOK-AUTO-CONFIG] ✅ Configured instagramRecipientId=${recipientId} for user ${instagramUser.email}`);
-          
+
           // Clear the unmapped webhook alert since we successfully configured
           try {
             await storage.setSetting("lastUnmappedWebhookRecipientId", "");
@@ -4301,6 +4381,25 @@ export async function registerRoutes(
         return;
       }
 
+      // 🛡️ CONTENT-BASED DEDUP: Catches duplicates from dual webhook paths
+      // Instagram sends the same DM via Graph API (changes.field='messages') AND
+      // Messenger Platform (messaging[]) simultaneously with DIFFERENT message IDs.
+      // This check prevents the second path from creating a duplicate.
+      if (senderId) {
+        const recentMessages = await storage.getConversationHistory(senderId, instagramUser.id, 5);
+        const messageContent = text || null;
+        const isDuplicateContent = recentMessages.some(m =>
+          m.content === messageContent &&
+          m.mediaType === mediaType &&
+          (Date.now() - new Date(m.createdAt).getTime()) < 60000 // 60 seconds window
+        );
+        if (isDuplicateContent) {
+          console.log(`[DM-WEBHOOK] ⏭️ CONTENT DEDUP: duplicate message from ${senderId} with same content within 60s, skipping`);
+          dmTrace("SKIPPED=true", `reason=CONTENT_DEDUP senderId=${senderId} mid=${messageId}`);
+          return;
+        }
+      }
+
       // Create the message
       const newMessage = await storage.createMessage({
         userId: instagramUser.id,
@@ -4318,16 +4417,16 @@ export async function registerRoutes(
 
       // PONTO 3 ENQUEUE: DM-TRACE log (SAFE - IDs only)
       dmTrace("ENQUEUED=true", `messageId=${newMessage.id} userId=${instagramUser.id} mid=${messageId}`);
-      
+
       // Transcribe media if it's video, reel, or audio
       let mediaTranscription: string | null = null;
       if (mediaUrl && (mediaType === 'video' || mediaType === 'reel' || mediaType === 'audio')) {
         console.log(`[DM-WEBHOOK] 🎤 Iniciando transcrição de ${mediaType}...`);
         try {
           mediaTranscription = await getOrCreateTranscription(
-            newMessage.id, 
-            instagramUser.id, 
-            mediaUrl, 
+            newMessage.id,
+            instagramUser.id,
+            mediaUrl,
             null  // cachedTranscription - always fetch fresh for new messages
           );
           if (mediaTranscription) {
@@ -4347,7 +4446,7 @@ export async function registerRoutes(
           console.error(`[DM-WEBHOOK] ❌ Erro na transcrição de ${mediaType}:`, transcriptionError);
         }
       }
-      
+
       const historyMessages = await storage.getConversationHistory(senderId, instagramUser.id, 10);
       const conversationHistory: ConversationHistoryEntry[] = historyMessages
         .filter(m => m.id !== newMessage.id) // Exclude the current message
@@ -4364,7 +4463,7 @@ export async function registerRoutes(
       if (!isManualReply) {
         // Enable Vision API for images
         const attachments = (mediaType === 'image' && mediaUrl) ? [mediaUrl] : undefined;
-        
+
         aiResult = await generateAIResponse(contentForAI, "dm", senderName, instagramUser.id, undefined, conversationHistory, attachments);
         await storage.createAiResponse({
           messageId: newMessage.id,
@@ -5151,7 +5250,7 @@ export async function registerRoutes(
 
   // Progress tracking for official Instagram sync
   const SYNC_CLEANUP_TIMEOUT_MS = 30000; // 30 seconds
-  
+
   interface SyncOfficialProgress {
     stage: string;
     percent: number;
@@ -5211,8 +5310,8 @@ export async function registerRoutes(
       console.log(`[Sync Official] Iniciando sincronização para userId: ${userId}`);
 
       // Initialize progress with running status
-      syncOfficialProgress.set(userId, { 
-        stage: "Iniciando sincronização...", 
+      syncOfficialProgress.set(userId, {
+        stage: "Iniciando sincronização...",
         percent: 0,
         status: 'running'
       });
@@ -5295,7 +5394,7 @@ export async function registerRoutes(
           setTimeout(() => syncOfficialProgress.delete(userId), SYNC_CLEANUP_TIMEOUT_MS);
         } catch (error) {
           console.error("[Sync Official] Background sync error:", error);
-          
+
           // Mark as error with message
           syncOfficialProgress.set(userId, {
             stage: "Erro na sincronização",
@@ -5310,7 +5409,7 @@ export async function registerRoutes(
       })();
     } catch (error) {
       console.error("[Sync Official] Error starting sync:", error);
-      
+
       res.status(500).json({
         error: error instanceof Error ? error.message : "Erro ao iniciar sincronização",
         code: "SYNC_START_ERROR"
@@ -5364,10 +5463,10 @@ export async function registerRoutes(
       });
     } catch (error) {
       console.error("[Generate Personality] Error:", error);
-      
+
       const isTimeout = error instanceof Error && error.message.includes("Tempo Limite");
       const statusCode = isTimeout ? 504 : 500;
-      
+
       res.status(statusCode).json({
         error: error instanceof Error ? error.message : "Erro ao gerar personalidade",
         code: isTimeout ? "TIMEOUT_ERROR" : "GENERATION_ERROR"
