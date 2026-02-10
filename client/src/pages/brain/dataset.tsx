@@ -17,7 +17,6 @@ import {
   ArrowUpDown,
   ChevronDown,
   ChevronUp,
-  Shield,
   Star,
   Eye,
 } from "lucide-react";
@@ -118,28 +117,16 @@ interface InteractionEntry {
   interactedAt: string;
 }
 
-interface UserGuideline {
-  id: number;
-  rule: string;
-  priority: number;
-  category: string;
-  isActive: boolean;
-  createdAt: string;
-}
-
 export default function Dataset() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState("guidelines");
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("golden");
   const [isManualQADialogOpen, setIsManualQADialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [manualQAToDelete, setManualQAToDelete] = useState<number | null>(null);
   const [isMediaDialogOpen, setIsMediaDialogOpen] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<MediaLibraryEntry | null>(null);
-  const [editingGuideline, setEditingGuideline] = useState<UserGuideline | null>(null);
   const [editingManualQA, setEditingManualQA] = useState<ManualQAEntry | null>(null);
-  const [guidelineForm, setGuidelineForm] = useState({ rule: "", priority: 5, category: "geral" });
   const [manualQAForm, setManualQAForm] = useState({ question: "", answer: "" });
   const [searchTerm, setSearchTerm] = useState("");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
@@ -150,11 +137,6 @@ export default function Dataset() {
   const { data: stats } = useQuery<KnowledgeStats>({
     queryKey: ["/api/brain/knowledge/stats"],
     refetchInterval: isSyncing ? 2000 : false,
-  });
-
-  // Fetch Guidelines
-  const { data: guidelines = [], isLoading: loadingGuidelines } = useQuery<UserGuideline[]>({
-    queryKey: ["/api/brain/guidelines"],
   });
 
   // Fetch Manual Q&A (Golden Corrections)
@@ -254,55 +236,6 @@ export default function Dataset() {
     },
   });
 
-  // Guideline mutations
-  const addGuidelineMutation = useMutation({
-    mutationFn: async (data: { rule: string; priority: number; category: string }) => {
-      const response = await apiRequest("POST", "/api/brain/guidelines", data);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/brain/guidelines"] });
-      setIsDialogOpen(false);
-      setGuidelineForm({ rule: "", priority: 3, category: "geral" });
-      toast({ title: "✅ Diretriz Adicionada" });
-    },
-    onError: () => {
-      toast({ title: "Erro", description: "Falha ao adicionar diretriz.", variant: "destructive" });
-    },
-  });
-
-  const updateGuidelineMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<UserGuideline> }) => {
-      const response = await apiRequest("PATCH", `/api/brain/guidelines/${id}`, data);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/brain/guidelines"] });
-      setIsDialogOpen(false);
-      setEditingGuideline(null);
-      toast({ title: "✅ Diretriz Atualizada" });
-    },
-  });
-
-  const deleteGuidelineMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/brain/guidelines/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/brain/guidelines"] });
-      toast({ title: "Diretriz Removida" });
-    },
-  });
-
-  const toggleGuidelineMutation = useMutation({
-    mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
-      await apiRequest("PATCH", `/api/brain/guidelines/${id}`, { isActive });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/brain/guidelines"] });
-    },
-  });
-
   // Manual QA mutations
   const updateManualQAMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: { question: string; answer: string } }) => {
@@ -352,27 +285,6 @@ export default function Dataset() {
       toast({ title: "Erro", description: "Falha ao promover interação.", variant: "destructive" });
     },
   });
-
-  const handleAddGuideline = () => {
-    if (!guidelineForm.rule.trim()) return;
-    if (editingGuideline) {
-      updateGuidelineMutation.mutate({ id: editingGuideline.id, data: guidelineForm });
-    } else {
-      addGuidelineMutation.mutate(guidelineForm);
-    }
-  };
-
-  const openEditGuideline = (g: UserGuideline) => {
-    setEditingGuideline(g);
-    setGuidelineForm({ rule: g.rule, priority: g.priority, category: g.category });
-    setIsDialogOpen(true);
-  };
-
-  const openCreateGuideline = () => {
-    setEditingGuideline(null);
-    setGuidelineForm({ rule: "", priority: 5, category: "geral" });
-    setIsDialogOpen(true);
-  };
 
   const handleSaveManualQA = () => {
     if (!manualQAForm.question.trim() || !manualQAForm.answer.trim()) return;
@@ -437,10 +349,6 @@ export default function Dataset() {
     });
   };
 
-  const filteredGuidelines = guidelines.filter(
-    (item) => item.rule.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   const filteredManualQA = sortData(manualQA).filter(
     (item) =>
       item.question.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -464,24 +372,8 @@ export default function Dataset() {
         </div>
       </div>
 
-      {/* Stats Cards - 3 abas agora */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="border-indigo-200">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Shield className="h-4 w-4 text-indigo-500" />
-                Diretrizes
-              </CardTitle>
-              <Badge variant="outline" className="text-xs">{guidelines.length}/50</Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <Progress value={(guidelines.length / 50) * 100} className="h-2" />
-            <p className="text-xs text-muted-foreground mt-2">Regras prioritárias</p>
-          </CardContent>
-        </Card>
-
+      {/* Stats Cards - 2 abas */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card className="border-amber-200">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -519,16 +411,12 @@ export default function Dataset() {
         </Card>
       </div>
 
-      {/* Tabs - 3 abas agora */}
+      {/* Tabs - 2 abas */}
       <Card>
         <CardContent className="pt-6">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
               <TabsList>
-                <TabsTrigger value="guidelines" className="gap-2">
-                  <Shield className="h-4 w-4" />
-                  Diretrizes
-                </TabsTrigger>
                 <TabsTrigger value="golden" className="gap-2">
                   <Trophy className="h-4 w-4" />
                   Correções de Ouro
@@ -561,68 +449,6 @@ export default function Dataset() {
                 </div>
               </div>
             </div>
-
-            {/* Guidelines Tab */}
-            <TabsContent value="guidelines">
-              <div className="flex justify-end mb-4">
-                <Button onClick={openCreateGuideline} size="sm">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Nova Diretriz
-                </Button>
-              </div>
-
-              {loadingGuidelines ? (
-                <div className="flex justify-center p-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : filteredGuidelines.length === 0 ? (
-                <div className="text-center p-8 text-muted-foreground">
-                  <Shield className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                  <p>Nenhuma diretriz cadastrada.</p>
-                  <p className="text-sm">Ex: "Sempre defenda a pauta X"</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[10%]">Ativo</TableHead>
-                      <TableHead className="w-[75%]">Regra</TableHead>
-                      <TableHead className="w-[15%] text-right">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredGuidelines.map((item) => (
-                      <TableRow key={item.id} className={!item.isActive ? "opacity-50" : ""}>
-                        <TableCell>
-                          <Switch
-                            checked={item.isActive}
-                            onCheckedChange={(checked) =>
-                              toggleGuidelineMutation.mutate({ id: item.id, isActive: checked })
-                            }
-                          />
-                        </TableCell>
-                        <TableCell className="font-medium">{item.rule}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button variant="ghost" size="icon" onClick={() => openEditGuideline(item)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => deleteGuidelineMutation.mutate(item.id)}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </TabsContent>
 
             {/* Golden Corrections Tab */}
             <TabsContent value="golden">
@@ -934,36 +760,6 @@ export default function Dataset() {
           </Tabs>
         </CardContent>
       </Card >
-
-      {/* Guideline Dialog */}
-      < Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen} >
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>{editingGuideline ? "Editar Diretriz" : "Nova Diretriz"}</DialogTitle>
-            <DialogDescription>Escreva uma instrução que a IA deve seguir sempre.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label>Regra *</Label>
-              <Textarea
-                placeholder="Ex: Sempre defenda o Bolsonaro quando alguém falar mal dele na questão política"
-                value={guidelineForm.rule}
-                onChange={(e) => setGuidelineForm({ ...guidelineForm, rule: e.target.value })}
-                className="min-h-[80px]"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={handleAddGuideline} disabled={addGuidelineMutation.isPending || updateGuidelineMutation.isPending}>
-              {(addGuidelineMutation.isPending || updateGuidelineMutation.isPending) && (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              )}
-              Salvar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog >
 
       {/* Manual QA Edit Dialog */}
       <Dialog open={isManualQADialogOpen} onOpenChange={setIsManualQADialogOpen}>
