@@ -79,6 +79,7 @@ const failCache: Map<string, number> = new Map(); // pageId -> expiry timestamp 
 const recentlyProcessedMids = new Map<string, number>();
 const DEDUP_CACHE_TTL_MS = 120000; // 120 seconds - how long to remember processed message IDs
 const DEDUP_CLEANUP_INTERVAL_MS = 30000; // 30 seconds - how often to clean expired entries
+const CONTENT_DEDUP_WINDOW_MS = 300000; // 5 minutes - extended window for content-based deduplication
 
 // Clean expired cache entries periodically
 function cleanAssocCache() {
@@ -4050,15 +4051,14 @@ export async function registerRoutes(
       // Check IMMEDIATELY after extracting mid, BEFORE any meaningful processing
       // (dmTrace above is just debug logging - safe to call even for duplicates)
       if (messageId && recentlyProcessedMids.has(messageId)) {
-        console.log(`[DM-WEBHOOK] ⏭️ GLOBAL DEDUP: mid=${messageId} already processed in another request, skipping`);
-        dmTrace("SKIPPED=true", `reason=GLOBAL_DEDUP mid=${messageId}`);
+        const cachedTime = recentlyProcessedMids.get(messageId);
+        const ageSeconds = cachedTime ? Math.floor((Date.now() - cachedTime) / 1000) : 0;
+        console.log(`[DM-WEBHOOK] ⏭️ GLOBAL DEDUP: mid=${messageId} already processed ${ageSeconds}s ago, skipping`);
+        dmTrace("SKIPPED=true", `reason=GLOBAL_DEDUP mid=${messageId} age=${ageSeconds}s`);
         return;
       }
-      // Mark as processing IMMEDIATELY to win any race condition
-      if (messageId) {
-        recentlyProcessedMids.set(messageId, Date.now());
-        console.log(`[DM-WEBHOOK] 🌐 Marked mid=${messageId} as processing globally`);
-      }
+      // NOTE: Global cache marking moved to just before DB insertion to prevent false positives
+      // from validation failures or early returns
 
       let text = messageData.message?.text;
       const attachments = messageData.message?.attachments;
@@ -4438,35 +4438,82 @@ export async function registerRoutes(
         
         const messageContent = text || null;
         const isDuplicateContent = recentMessages.some(m => {
-          const isWithin60s = (Date.now() - new Date(m.createdAt).getTime()) < 60000; // 60 seconds window
+          const isWithinWindow = (Date.now() - new Date(m.createdAt).getTime()) < CONTENT_DEDUP_WINDOW_MS; // Extended to 5 minutes
           const hasMatchingContent = m.content === messageContent && m.mediaType === mediaType;
           // Match by senderId OR senderUsername to handle cases where senderId is inconsistent
           // Ensure at least one identifier is present to avoid false positives
           const hasSameSender = (senderId && m.senderId && m.senderId === senderId) || 
                                 (senderUsername && m.senderUsername && m.senderUsername === senderUsername);
-          return hasMatchingContent && hasSameSender && isWithin60s;
+          return hasMatchingContent && hasSameSender && isWithinWindow;
         });
         if (isDuplicateContent) {
-          console.log(`[DM-WEBHOOK] ⏭️ CONTENT DEDUP: duplicate message from ${senderId || 'N/A'}${senderUsername ? ` (@${senderUsername})` : ''} with same content within 60s, skipping`);
+          console.log(`[DM-WEBHOOK] ⏭️ CONTENT DEDUP: duplicate message from ${senderId || 'N/A'}${senderUsername ? ` (@${senderUsername})` : ''} with same content within ${CONTENT_DEDUP_WINDOW_MS / 1000}s, skipping`);
           dmTrace("SKIPPED=true", `reason=CONTENT_DEDUP senderId=${senderId} mid=${messageId}`);
+          return;
+        }
+      } else {
+        // 🛡️ FALLBACK DEDUP: When both senderId and senderUsername are missing
+        // Use content + recent timestamp as last-resort duplicate detection
+        console.log(`[DM-WEBHOOK] ⚠️ Missing sender identifiers for mid=${messageId}, using fallback content-based dedup`);
+        const messageContent = text || null;
+        const allRecentMessages = await storage.getAllMessages(instagramUser.id, 10);
+        const isDuplicateContent = allRecentMessages.some(m => {
+          const isWithinWindow = (Date.now() - new Date(m.createdAt).getTime()) < CONTENT_DEDUP_WINDOW_MS;
+          const hasMatchingContent = m.content === messageContent && m.mediaType === mediaType;
+          // Additional check: must have same missing identifiers pattern
+          const hasSameMissingPattern = !m.senderId && !m.senderUsername;
+          return hasMatchingContent && hasSameMissingPattern && isWithinWindow;
+        });
+        if (isDuplicateContent) {
+          console.log(`[DM-WEBHOOK] ⏭️ FALLBACK DEDUP: duplicate message with missing identifiers and same content within ${CONTENT_DEDUP_WINDOW_MS / 1000}s, skipping`);
+          dmTrace("SKIPPED=true", `reason=FALLBACK_CONTENT_DEDUP mid=${messageId}`);
           return;
         }
       }
 
-      // Create the message
-      const newMessage = await storage.createMessage({
-        userId: instagramUser.id,
-        instagramId: messageId,
-        type: "dm",
-        senderName: senderName,
-        senderUsername: senderUsername,
-        senderAvatar: senderAvatar || null,
-        senderFollowersCount: senderFollowersCount,
-        senderId: senderId, // Save IGSID for replying
-        content: text || null,
-        mediaUrl: mediaUrl,
-        mediaType: mediaType,
-      });
+      // 🔒 FINAL DEDUP CHECKPOINT: Mark in global cache just before DB insertion
+      // This prevents race conditions where two concurrent webhooks both pass all checks
+      // but before either completes the DB insertion
+      if (messageId) {
+        // Double-check in case of race condition between first check and now
+        if (recentlyProcessedMids.has(messageId)) {
+          const cachedTime = recentlyProcessedMids.get(messageId);
+          const ageSeconds = cachedTime ? Math.floor((Date.now() - cachedTime) / 1000) : 0;
+          console.log(`[DM-WEBHOOK] ⏭️ RACE CONDITION PREVENTED: mid=${messageId} was marked during processing (${ageSeconds}s ago)`);
+          dmTrace("SKIPPED=true", `reason=RACE_CONDITION_AVOIDED mid=${messageId}`);
+          return;
+        }
+        recentlyProcessedMids.set(messageId, Date.now());
+        console.log(`[DM-WEBHOOK] 🔒 Marked mid=${messageId} in global cache before DB insertion`);
+      }
+
+      // Create the message with error handling for database-level duplicate constraint violations
+      let newMessage: any;
+      try {
+        newMessage = await storage.createMessage({
+          userId: instagramUser.id,
+          instagramId: messageId,
+          type: "dm",
+          senderName: senderName,
+          senderUsername: senderUsername,
+          senderAvatar: senderAvatar || null,
+          senderFollowersCount: senderFollowersCount,
+          senderId: senderId, // Save IGSID for replying
+          content: text || null,
+          mediaUrl: mediaUrl,
+          mediaType: mediaType,
+        });
+      } catch (error: any) {
+        // Handle unique constraint violation (duplicate instagramId at DB level)
+        if (error?.code === '23505' || error?.message?.includes('unique') || error?.message?.includes('duplicate')) {
+          console.log(`[DM-WEBHOOK] ⚠️ DB CONSTRAINT: mid=${messageId} already exists in database (caught at DB level)`);
+          dmTrace("SKIPPED=true", `reason=DB_DUPLICATE_CONSTRAINT mid=${messageId}`);
+          return;
+        }
+        // Re-throw other errors
+        console.error(`[DM-WEBHOOK] ❌ Error creating message mid=${messageId}:`, error);
+        throw error;
+      }
 
       // PONTO 3 ENQUEUE: DM-TRACE log (SAFE - IDs only)
       dmTrace("ENQUEUED=true", `messageId=${newMessage.id} userId=${instagramUser.id} mid=${messageId}`);
