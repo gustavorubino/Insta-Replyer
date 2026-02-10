@@ -3176,21 +3176,58 @@ export async function registerRoutes(
     }
   });
 
+  // Utility function to log large JSON payloads in chunks to avoid truncation
+  // Splits payload into manageable pieces for Replit logs
+  function logPayloadInChunks(label: string, payload: any, timestamp: string) {
+    const jsonString = JSON.stringify(payload, null, 2);
+    const chunkSize = 2500; // Characters per chunk (safe for most console outputs)
+    const totalChunks = Math.ceil(jsonString.length / chunkSize);
+    
+    // Simple structured logging without fixed-width boxes to avoid alignment issues
+    console.log(`========================================`);
+    console.log(`[${label}] Timestamp: ${timestamp}`);
+    console.log(`[${label}] Total Size: ${jsonString.length} chars`);
+    console.log(`[${label}] Total Chunks: ${totalChunks}`);
+    console.log(`========================================`);
+    
+    if (totalChunks === 1) {
+      // Single chunk - log it all at once
+      console.log(`[${label}] Full Payload:\n${jsonString}`);
+    } else {
+      // Multiple chunks - split for visibility
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * chunkSize;
+        const end = Math.min(start + chunkSize, jsonString.length);
+        const chunk = jsonString.substring(start, end);
+        console.log(`[${label}] Chunk ${i + 1}/${totalChunks} (chars ${start}-${end}):\n${chunk}`);
+      }
+    }
+    console.log(`[${label}] ✓ Complete payload logged (${jsonString.length} chars, ${totalChunks} chunks)`);
+  }
+
   // Webhook event handler (POST) - receives real-time updates from Instagram
   // Note: Signature verification is done using the parsed body stringified,
   // which works when the JSON is compact (no extra whitespace)
   app.post("/api/webhooks/instagram", async (req, res) => {
+    const webhookReceiveTimestamp = new Date().toISOString();
+    
     // LOG IMEDIATO - captura TODO POST que chegar
     console.log("╔════════════════════════════════════════════════════════════════════╗");
     console.log("║  🚨 POST /api/webhooks/instagram RECEBIDO 🚨                       ║");
     console.log("╚════════════════════════════════════════════════════════════════════╝");
-    console.log("[WEBHOOK-RAW] Timestamp:", new Date().toISOString());
-    console.log("[WEBHOOK-RAW] Headers:", JSON.stringify(req.headers, null, 2));
-    console.log("[WEBHOOK-RAW] Body:", JSON.stringify(req.body, null, 2));
+    console.log("[WEBHOOK-RAW] Timestamp:", webhookReceiveTimestamp);
+    
+    // Log headers in chunks (safe for large header sets)
+    console.log("[WEBHOOK-RAW] Headers:");
+    logPayloadInChunks("WEBHOOK-HEADERS", req.headers, webhookReceiveTimestamp);
+    
+    // Log full body in chunks to prevent truncation in Replit logs
+    console.log("[WEBHOOK-RAW] Full Body (chunked for visibility):");
+    logPayloadInChunks("WEBHOOK-BODY", req.body, webhookReceiveTimestamp);
 
 
-    // Store webhook for debugging
-    const webhookTimestamp = new Date().toISOString();
+    // Store webhook for debugging (use same timestamp for consistency)
+    const webhookTimestamp = webhookReceiveTimestamp;
     currentWebhookTimestamp = webhookTimestamp; // Set context for processing
 
     const logEntry: WebhookLogEntry = {
