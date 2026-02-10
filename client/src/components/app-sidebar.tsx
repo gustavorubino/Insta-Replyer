@@ -18,7 +18,6 @@ import {
   Brain,
   Book,
   BookOpen,
-  Database,
   Gamepad2,
   Plug,
 } from "lucide-react";
@@ -84,11 +83,6 @@ export function AppSidebar({ pendingCount = 0 }: AppSidebarProps) {
       title: "Fontes",
       url: "/brain/sources",
       icon: Book,
-    },
-    {
-      title: "Memória & Dataset",
-      url: "/brain/dataset",
-      icon: Database,
     },
     {
       title: "Diretrizes",

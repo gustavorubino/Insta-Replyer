@@ -1,15 +1,11 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
-  Send,
-  Bot,
-  User,
-  Loader2,
   Plus,
   Trash2,
   Edit2,
   BookOpen,
-  Info,
+  Loader2,
 } from "lucide-react";
 import {
   Card,
@@ -33,7 +29,6 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { MarkdownRenderer } from "@/components/markdown-renderer";
 import {
   Select,
   SelectContent,
@@ -52,27 +47,15 @@ interface Guideline {
   createdAt: string;
 }
 
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
-
 export default function Guidelines() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState("");
   const [editingGuideline, setEditingGuideline] = useState<Guideline | null>(null);
-  const [pendingRule, setPendingRule] = useState("");
+  const [newRule, setNewRule] = useState("");
   const [selectedPriority, setSelectedPriority] = useState(3);
   const [selectedCategory, setSelectedCategory] = useState("geral");
-  
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch guidelines
   const { data: guidelines = [], isLoading } = useQuery<Guideline[]>({
@@ -84,39 +67,6 @@ export default function Guidelines() {
     queryKey: ["/api/brain/guidelines/count"],
   });
 
-  // Auto-scroll chat to bottom
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [chatMessages]);
-
-  // Refine rule mutation
-  const refineMutation = useMutation({
-    mutationFn: async (data: { message: string; history: ChatMessage[] }) => {
-      const res = await apiRequest("POST", "/api/brain/refine-rule", {
-        message: data.message,
-        history: data.history,
-      });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      const botMsg: ChatMessage = {
-        id: Date.now().toString(),
-        role: "assistant",
-        content: data.response,
-      };
-      setChatMessages((prev) => [...prev, botMsg]);
-    },
-    onError: () => {
-      toast({
-        title: "Erro",
-        description: "Falha ao refinar regra com IA.",
-        variant: "destructive",
-      });
-    },
-  });
-
   // Add guideline mutation
   const addMutation = useMutation({
     mutationFn: async (data: { rule: string; priority: number; category: string }) => {
@@ -126,9 +76,7 @@ export default function Guidelines() {
       queryClient.invalidateQueries({ queryKey: ["/api/brain/guidelines"] });
       queryClient.invalidateQueries({ queryKey: ["/api/brain/guidelines/count"] });
       setIsDialogOpen(false);
-      setIsChatOpen(false);
-      setChatMessages([]);
-      setPendingRule("");
+      setNewRule("");
       setSelectedPriority(3);
       setSelectedCategory("geral");
       toast({
@@ -196,60 +144,21 @@ export default function Guidelines() {
     });
   };
 
-  const handleOpenChat = () => {
-    setIsChatOpen(true);
-    setChatMessages([]);
-    setPendingRule("");
+  const handleOpenDialog = () => {
+    setNewRule("");
     setSelectedPriority(3);
     setSelectedCategory("geral");
+    setIsDialogOpen(true);
   };
 
-  const handleSendMessage = () => {
-    if (!chatInput.trim()) return;
-
-    const userMsg: ChatMessage = {
-      id: Date.now().toString(),
-      role: "user",
-      content: chatInput.trim(),
-    };
-
-    setChatMessages((prev) => [...prev, userMsg]);
-    refineMutation.mutate({
-      message: chatInput.trim(),
-      history: [...chatMessages, userMsg],
-    });
-    setChatInput("");
-  };
-
-  const handleApproveRule = () => {
-    if (!chatMessages.length) return;
-    
-    // Get the last assistant message as the refined rule
-    const lastAssistantMsg = [...chatMessages]
-      .reverse()
-      .find((msg) => msg.role === "assistant");
-    
-    if (lastAssistantMsg) {
-      setPendingRule(lastAssistantMsg.content);
-      setIsDialogOpen(true);
-    }
-  };
-
-  const handleSaveRule = (priority: number, category: string) => {
-    if (!pendingRule.trim()) return;
+  const handleSaveRule = () => {
+    if (!newRule.trim()) return;
     
     addMutation.mutate({
-      rule: pendingRule.trim(),
-      priority,
-      category,
+      rule: newRule.trim(),
+      priority: selectedPriority,
+      category: selectedCategory,
     });
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
   };
 
   return (
@@ -258,31 +167,14 @@ export default function Guidelines() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Diretrizes & Regras</h1>
           <p className="text-muted-foreground mt-2">
-            Crie regras personalizadas para guiar o comportamento da IA. Use o mini chat para refinar suas diretrizes com ajuda da IA.
+            Gerencie regras personalizadas para guiar o comportamento da IA.
           </p>
         </div>
-        <Button onClick={handleOpenChat} disabled={countData && countData.count >= countData.limit}>
+        <Button onClick={handleOpenDialog} disabled={countData && countData.count >= countData.limit}>
           <Plus className="h-4 w-4 mr-2" />
           Nova Diretriz
         </Button>
       </div>
-
-      {/* Info Card */}
-      <Card className="bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Info className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            <CardTitle className="text-base">Como funcionam as Diretrizes</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            As diretrizes são regras que você define para orientar as respostas da IA. 
-            Você pode criar novas regras usando o mini chat com IA, que ajuda a refinar e aprimorar suas diretrizes. 
-            Cada regra pode ter uma prioridade (1-5) e ser ativada/desativada conforme necessário.
-          </p>
-        </CardContent>
-      </Card>
 
       {/* Guidelines List */}
       <Card>
@@ -447,143 +339,24 @@ export default function Guidelines() {
         </DialogContent>
       </Dialog>
 
-      {/* Chat Dialog */}
-      <Dialog open={isChatOpen} onOpenChange={setIsChatOpen}>
-        <DialogContent className="max-w-3xl h-[600px] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Refinar Diretriz com IA</DialogTitle>
-            <DialogDescription>
-              Descreva a regra que você quer criar e refine-a com ajuda da IA.
-            </DialogDescription>
-          </DialogHeader>
-          
-          {/* Chat Messages */}
-          <div className="flex-1 overflow-y-auto border rounded-lg p-4 space-y-4" ref={scrollRef}>
-            {chatMessages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50">
-                <Bot className="h-16 w-16 mb-4" />
-                <p>Comece descrevendo a diretriz que você quer criar.</p>
-                <p className="text-sm mt-2">Exemplo: "Sempre responder de forma educada e profissional"</p>
-              </div>
-            ) : (
-              chatMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex gap-4 ${
-                    msg.role === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
-                  {msg.role === "assistant" && (
-                    <div className="h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-primary/10 text-primary">
-                      <Bot className="h-6 w-6" />
-                    </div>
-                  )}
-                  
-                  <div
-                    className={`flex flex-col gap-1 max-w-[85%] ${
-                      msg.role === "user" ? "items-end" : "items-start"
-                    }`}
-                  >
-                    <div
-                      className={`px-5 py-3 shadow-sm ${
-                        msg.role === "user"
-                          ? "bg-primary text-primary-foreground rounded-2xl rounded-tr-md"
-                          : "bg-transparent text-foreground p-0 shadow-none"
-                      }`}
-                    >
-                      {msg.role === "user" ? (
-                        <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                          {msg.content}
-                        </p>
-                      ) : (
-                        <MarkdownRenderer content={msg.content} />
-                      )}
-                    </div>
-                  </div>
-
-                  {msg.role === "user" && (
-                    <div className="h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-muted">
-                      <User className="h-6 w-6" />
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-            
-            {refineMutation.isPending && (
-              <div className="flex gap-4 justify-start">
-                <div className="h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-primary/10 text-primary">
-                  <Bot className="h-6 w-6" />
-                </div>
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">Refinando...</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Approval Prompt */}
-          {chatMessages.length > 0 && chatMessages[chatMessages.length - 1]?.role === "assistant" && (
-            <div className="bg-muted/50 p-3 rounded-lg border">
-              <p className="text-sm font-medium mb-2">Quer aprovar ou fazer alguma modificação?</p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => textareaRef.current?.focus()}
-                >
-                  Modificar
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleApproveRule}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  Aprovar e Continuar
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Input */}
-          <div className="flex gap-2">
-            <Textarea
-              ref={textareaRef}
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={handleKeyPress}
-              placeholder="Digite sua mensagem..."
-              rows={2}
-              className="resize-none"
-            />
-            <Button
-              onClick={handleSendMessage}
-              disabled={!chatInput.trim() || refineMutation.isPending}
-              size="icon"
-              className="h-[76px] w-12"
-            >
-              <Send className="h-5 w-5" />
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Save Rule Dialog */}
+      {/* Add Guideline Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Incluir nas Minhas Regras</DialogTitle>
+            <DialogTitle>Nova Diretriz</DialogTitle>
             <DialogDescription>
-              Configure a prioridade e categoria da sua nova diretriz.
+              Configure a regra, prioridade e categoria da sua nova diretriz.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Regra Refinada</Label>
-              <div className="mt-2 p-3 bg-muted rounded-lg text-sm">
-                <MarkdownRenderer content={pendingRule} />
-              </div>
+              <Label>Regra</Label>
+              <Textarea
+                value={newRule}
+                onChange={(e) => setNewRule(e.target.value)}
+                placeholder="Descreva a regra que você quer criar..."
+                rows={4}
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -622,11 +395,11 @@ export default function Guidelines() {
               Cancelar
             </Button>
             <Button
-              onClick={() => handleSaveRule(selectedPriority, selectedCategory)}
-              disabled={addMutation.isPending}
+              onClick={handleSaveRule}
+              disabled={addMutation.isPending || !newRule.trim()}
             >
               {addMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Incluir nas Minhas Regras
+              Adicionar Diretriz
             </Button>
           </DialogFooter>
         </DialogContent>
