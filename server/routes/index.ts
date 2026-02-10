@@ -3909,10 +3909,11 @@ export async function registerRoutes(
           parentCommentText: parentCommentText,
           parentCommentUsername: parentCommentUsername,
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Handle unique constraint violation (duplicate instagramId at DB level)
         // PostgreSQL error code 23505 indicates unique_violation
-        if (error?.code === '23505') {
+        const isUniqueViolation = error && typeof error === 'object' && 'code' in error && error.code === '23505';
+        if (isUniqueViolation) {
           console.log(`[COMMENT-WEBHOOK] ⚠️ DB CONSTRAINT: commentId=${commentId} already exists in database (caught at DB level)`);
           addWebhookProcessingResult({
             action: 'ignored',
@@ -4532,10 +4533,11 @@ export async function registerRoutes(
           mediaUrl: mediaUrl,
           mediaType: mediaType,
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Handle unique constraint violation (duplicate instagramId at DB level)
         // PostgreSQL error code 23505 indicates unique_violation
-        if (error?.code === '23505') {
+        const isUniqueViolation = error && typeof error === 'object' && 'code' in error && error.code === '23505';
+        if (isUniqueViolation) {
           console.log(`[DM-WEBHOOK] ⚠️ DB CONSTRAINT: mid=${messageId} already exists in database (caught at DB level)`);
           dmTrace("SKIPPED=true", `reason=DB_DUPLICATE_CONSTRAINT mid=${messageId}`);
           return;
